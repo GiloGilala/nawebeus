@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.db
+drizzle/*
+!drizzle/migrations/
+drizzle/migrations/*
+!drizzle/migrations/0000_campaign_domain_disambiguation.sql
+data/
+.scratch/
