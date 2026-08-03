@@ -86,6 +86,9 @@ export const users = pgTable(
     phone: varchar('phone', { length: 255 }).unique(),
     emailVerified: boolean('email_verified').notNull().default(false),
     password: varchar('password', { length: 255 }).notNull(),
+    passwordHistory: jsonb('password_history')
+      .$type<string[]>()
+      .default(sql`'[]'::jsonb`),
     username: varchar('username', { length: 50 }).notNull(),
     phoneVerified: boolean('phone_verified').notNull().default(false),
 

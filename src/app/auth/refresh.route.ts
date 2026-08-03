@@ -13,6 +13,10 @@ router.post("/refresh", async (c) => {
   const db = c.var.db;
   const result = await refreshSession(db, refreshToken);
 
+  if (result.requiresMfa || !result.accessToken || !result.refreshToken) {
+    throw new AuthError("Refresh failed");
+  }
+
   setCookie(c, "nawebeus_access", result.accessToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

@@ -33,6 +33,18 @@ export class MfaVerificationFailedError extends AppError {
   readonly code = "MFA_VERIFICATION_FAILED";
 }
 
+export class AccountLockedError extends AppError {
+  readonly statusCode = 423;
+  readonly code = "ACCOUNT_LOCKED";
+
+  constructor(
+    message: string,
+    readonly lockedUntil: Date,
+  ) {
+    super(message);
+  }
+}
+
 export class ValidationError extends AppError {
   readonly statusCode = 422;
   readonly code = "VALIDATION_ERROR";

@@ -1,12 +1,24 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { signup } from "../../services/auth/signup";
+import { signup, type SignupInput } from "../../services/auth/signup";
+import { validatePassword } from "../../lib/password";
 import { ValidationError, ConflictError } from "../../lib/errors";
 import { success } from "../../lib/response";
 
 const signupSchema = z.object({
   email: z.string().email("Invalid email format"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string().min(1, "Password is required"),
+  fullName: z.string().min(2, "Full name must be at least 2 characters").max(100),
+  organizationName: z.string().min(2, "Organization name must be at least 2 characters").max(100),
+  industry: z.enum(["banking", "fintech", "telecom", "fmcg", "pr_agency", "government", "media", "technology", "other"]).optional(),
+  teamSize: z.string().optional(),
+  termsAccepted: z.boolean().refine((v) => v === true, {
+    message: "You must accept the Terms of Service",
+  }),
+  privacyAccepted: z.boolean().refine((v) => v === true, {
+    message: "You must accept the Privacy Policy",
+  }),
+  marketingOptIn: z.boolean().optional(),
 });
 
 const router = new Hono();
@@ -28,9 +40,33 @@ router.post("/signup", async (c) => {
     throw new ValidationError("Validation failed", details);
   }
 
+  // Enforce password complexity (BR-AUTH-020)
+  const complexity = validatePassword(parsed.data.password, {
+    username: parsed.data.fullName,
+    email: parsed.data.email,
+  });
+  if (!complexity.valid) {
+    const details = complexity.errors.map((msg) => ({
+      field: "password",
+      message: msg,
+    }));
+    throw new ValidationError("Password does not meet complexity requirements", details);
+  }
+
   try {
     const db = c.var.db;
-    const result = await signup(db, parsed.data);
+    const input: SignupInput = {
+      email: parsed.data.email,
+      password: parsed.data.password,
+      fullName: parsed.data.fullName,
+      organizationName: parsed.data.organizationName,
+      termsAccepted: parsed.data.termsAccepted,
+      privacyAccepted: parsed.data.privacyAccepted,
+      ...(parsed.data.industry ? { industry: parsed.data.industry } : {}),
+      ...(parsed.data.teamSize ? { teamSize: parsed.data.teamSize } : {}),
+      ...(parsed.data.marketingOptIn !== undefined ? { marketingOptIn: parsed.data.marketingOptIn } : {}),
+    };
+    const result = await signup(db, input);
     c.status(201);
     return c.json(
       success({

@@ -9,7 +9,7 @@ export interface ErrorEnvelope {
   error: {
     code: string;
     message: string;
-    details?: { field: string; message: string }[];
+    details?: { field: string; message: string }[] | Record<string, unknown>;
   };
 }
 
@@ -18,13 +18,18 @@ export function success<T>(data: T, meta?: Record<string, unknown>): SuccessEnve
 }
 
 export function err(error: AppError): ErrorEnvelope {
-  return {
+  const envelope: ErrorEnvelope = {
     error: {
       code: error.code,
       message: error.message,
-      ...("details" in error && error.details
-        ? { details: error.details as { field: string; message: string }[] }
-        : {}),
     },
   };
+  if ("details" in error && error.details) {
+    envelope.error.details = error.details as { field: string; message: string }[];
+  } else if ("lockedUntil" in error && (error as { lockedUntil?: Date }).lockedUntil) {
+    envelope.error.details = {
+      lockedUntil: (error as { lockedUntil: Date }).lockedUntil.toISOString(),
+    };
+  }
+  return envelope;
 }

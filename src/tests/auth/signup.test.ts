@@ -9,6 +9,10 @@ function signupBody(overrides?: Record<string, unknown>) {
   return {
     email,
     password: "ValidPass123!",
+    fullName: "Adeola Testing",
+    organizationName: "Test Org",
+    termsAccepted: true,
+    privacyAccepted: true,
     ...overrides,
   };
 }
@@ -19,7 +23,7 @@ describe("POST /api/auth/signup — validation", () => {
     const res = await app.request("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "not-an-email", password: "ValidPass123!" }),
+      body: JSON.stringify({ ...signupBody(), email: "not-an-email" }),
     });
     expect(res.status).toBe(422);
     const json = await res.json();
@@ -33,12 +37,12 @@ describe("POST /api/auth/signup — validation", () => {
     const res = await app.request("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "test@example.com", password: "short" }),
+      body: JSON.stringify(signupBody({ password: "short" })),
     });
     expect(res.status).toBe(422);
     const json = await res.json();
     expect(json.error.code).toBe("VALIDATION_ERROR");
-    expect(json.error.details[0].field).toBe("password");
+    expect(json.error.details.some((d: any) => d.field === "password")).toBe(true);
   });
 
   test("signup with missing fields returns 422", async () => {

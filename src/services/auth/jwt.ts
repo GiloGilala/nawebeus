@@ -6,6 +6,8 @@ export interface AccessPayload {
 
 export interface RefreshPayload {
   sessionId: string;
+  userId: string;
+  orgId: string;
   type: "refresh";
 }
 
@@ -65,6 +67,12 @@ export function signAccessToken(userId: string, orgId: string, secret: string): 
   return signToken({ userId, orgId, type: "access" }, secret, 900);
 }
 
-export function signRefreshToken(sessionId: string, secret: string): Promise<string> {
-  return signToken({ sessionId, type: "refresh" }, secret, 604800);
+export function signRefreshToken(
+  sessionId: string,
+  userId: string,
+  orgId: string,
+  secret: string,
+  ttlSec?: number,
+): Promise<string> {
+  return signToken({ sessionId, userId, orgId, type: "refresh" }, secret, ttlSec ?? 604800);
 }
