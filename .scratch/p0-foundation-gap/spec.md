@@ -14,6 +14,13 @@ Two findings raised during NWB-P0-001's verification are filed as NWB-P0-008 and
 > exit gate not yet satisfied is the first real CI run** — the workflow is written and was
 > simulated step-for-step against a fresh database, but it has not executed on GitHub Actions,
 > and branch protection on `main` is not yet configured to require it. See `issues/03-ci-pipeline.md`.
+>
+> **2026-09-13 (later): the trigger mismatch is fixed; the remote is not.** The branch was
+> `master` while `ci.yml` only fired on `main`/`feature/**`/`bugfix/**`/`hotfix/**` — so the
+> workflow could never have run. Branch renamed to `main` (`git branch -m`), and all P0 work is
+> now committed: `55be0f2` (tooling, CI, docs) and `87008b6` (API keys + the four sign-in
+> breakers). **Still blocking: `git remote -v` is empty.** No remote means no push, no CI run,
+> and nowhere to configure branch protection. Needs a GitHub repo and `git remote add origin …`.
 
 
 ## Summary
