@@ -7,8 +7,22 @@ Issues and specs (you may know a spec as a PRD) for this repo live as markdown f
 - One feature per directory: `.scratch/<feature-slug>/`
 - The spec is `.scratch/<feature-slug>/spec.md`
 - Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` — never a single combined tickets file
-- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
+- Triage state is recorded as a `Status:` line near the top of each issue file (see [Status vocabulary](#status-vocabulary) below)
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
+
+## Status vocabulary
+
+This file is the canonical definition of the status strings — there is no separate `triage-labels.md`.
+
+The `Status:` line carries exactly one of these values:
+
+| Value | Meaning |
+|-------|---------|
+| `ready-for-agent` | Specced and claimable; nobody has picked it up. |
+| `claimed` | Taken; work is in flight. |
+| `in-progress` | Started but not finished. **Must carry a one-line note** on the `Status:` line naming what is outstanding — a bare `in-progress` is underspecified and gets rounded to a lie. |
+| `done` | Complete. The only terminal state. |
+| `resolved` | Wayfinder-local synonym for `done`. In the wayfinder flow, `resolved` is written in place of `done`; they mean the same thing. Prefer `done` outside that flow. |
 
 ## When a skill says "publish to the issue tracker"
 

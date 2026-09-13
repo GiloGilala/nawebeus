@@ -1,0 +1,3 @@
+[test]
+# Loaded once, before any test file. See src/tests/preload.ts for why.
+preload = ["./src/tests/preload.ts"]

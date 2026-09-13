@@ -2,6 +2,47 @@
 
 A multi-tenant social media management and PR intelligence SaaS. Each organization (tenant) is a brand, agency, or company whose data must be isolated from every other organization.
 
+## Modules
+
+Canonical module numbers are the **PRD's** — `docs/product/PRD.md` §8, Modules 1–10. `docs/product/Roadmap.md` §4.2 lists the same ten modules by name, so the two agree; the Roadmap simply does not number them. Use PRD numbers in code, branches, issue titles, and phase labels.
+
+| # | Module | Schema home | Plan phase |
+|---|---|---|---|
+| 1 | Authentication & User Management | `db/core/` | P0 |
+| 2 | Organization & Account Management | `db/organization/` | P0 |
+| 3 | Social Media Integration | `db/social-accounts/` | P2 |
+| 4 | Grow — Viral Campaign Engine | `db/campaigns/` | P11 |
+| 5 | Listen — Social Intelligence Layer | `db/monitoring/` (`social_mentions`) | P5 |
+| 6 | Monitor — Media & Press Intelligence | `db/monitoring/` (`media_articles`, `news_sources`) | P4 |
+| 7 | Engage — Unified Engagement Hub | `db/engagement/` | P7 |
+| 8 | Analyze — Consolidated Intelligence & Reporting | `db/shared/analytics.ts` | P12 |
+| 9 | Notifications & Alerts | `db/shared/alerts.ts` | P6 |
+| 10 | System Administration | `db/shared/audit.ts` | P14.13 |
+
+Modules 5 and 6 share one schema directory: `db/monitoring/` holds both `social_mentions` (Listen) and `media_articles` + `news_sources` (Monitor). They share one ingestion and enrichment pipeline — extend it, never fork it.
+
+### Numbers not to use
+
+**Do not use the numbers in `docs/modules/*.md`.** That tree runs on a superseded scheme and collides with itself:
+
+| Collision | Docs claiming it |
+|---|---|
+| 4 | `Social Publishing & Scheduling.md`, `Growth & Giveaways.md` |
+| 7 | `Analytics & Reporting.md`, `Social Commerce.md` |
+| 9 | `Media Monitoring.md`, `Notifications & Alerts.md` |
+| 10 | `Influencer Management.md`, `System Administration.md` |
+| 3 | `Social Media Integration.md` and `Social Listening.md` (the latter claims "3 & 5") |
+
+### Modules outside the PRD
+
+Four domains have **no PRD module number**. Do not invent numbers for them; refer to them by name:
+
+Social Publishing & Scheduling · Media Relations & PR · Social Commerce · Influencer Management
+
+Whether they are in MVP scope is **unresolved** (decision D12). `docs/business/Decision Log.md` defers two of them — DEC-D003 (Influencer → Phase 4) and DEC-D004 (Publishing → Phase 5) — while the execution plan schedules them at P9 and P3, inside MVP. Treat their phasing as contested until D12 is settled.
+
+The Decision Engine (`docs/modules/Nawebeus Decision Engine.md`) is likewise unnumbered and unreferenced by the PRD — its MVP status is an open decision (D10).
+
 ## Language
 
 ### Tenancy

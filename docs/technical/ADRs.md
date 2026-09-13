@@ -25,7 +25,7 @@ This document contains the Architectural Decision Records (ADRs) for the **Naweb
 | **Evolution path**         | Deprecated and superseded ADRs show how thinking has evolved                |
 | **Onboarding accelerator** | New team members read ADRs before touching code                             |
 
-**Current ADRs:** 17 documented decisions covering runtime, framework, database, caching, RBAC, deployment, security, payments, real-time architecture, API design, error handling, domain modelling, and Nigerian market-specific decisions.
+**Current ADRs:** 18 documented decisions covering runtime, framework, database, caching, RBAC, deployment, security, payments, real-time architecture, API design, error handling, domain modelling, background job runtime, and Nigerian market-specific decisions.
 
 ---
 
@@ -50,6 +50,10 @@ This document contains the Architectural Decision Records (ADRs) for the **Naweb
 | [ADR-015](#adr-015-cache-and-rate-limit-patterns)                     | Cache and Rate Limit Patterns                      | ✅ Accepted | 2026-06-29 | Engineering Lead                                  |
 | [ADR-016](#adr-016-typed-error-hierarchy-and-handling-patterns)       | Typed Error Hierarchy and Handling Patterns        | ✅ Accepted | 2026-06-30 | Engineering Lead, Senior Engineers                |
 | [ADR-017](#adr-017-domain-disambiguation-of-campaign)                  | Domain Disambiguation of "Campaign"                | ✅ Accepted | 2026-08-02 | Engineering Lead, Product Lead                     |
+| [ADR-028](#22-adr-028-queue-scheduler-and-worker-runtime)             | Queue, Scheduler, and Worker Runtime               | ✅ Accepted | 2026-09-13 | Engineering Lead                                  |
+
+> **Numbering note:** ADR-018 … ADR-027 are reserved by the planned-ADR table in §23.
+> New accepted ADRs therefore continue from ADR-028 until those slots are filled.
 
 ---
 
@@ -1872,7 +1876,103 @@ The five database migration operations are:
 
 ---
 
-## 22. Future ADRs (Planned)
+## 22. ADR-028: Queue, Scheduler, and Worker Runtime
+
+**Status:** ✅ Accepted
+**Date:** 2026-09-13
+**Deciders:** Engineering Lead
+**Last Reviewed:** 2026-09-13
+
+### Context
+
+Every module from P2 onward depends on scheduled or background work: publishing dispatch,
+publish retry and reconciliation, article ingestion, NLP enrichment, share-of-voice
+computation, SLA monitoring and escalation, notification digests, retention enforcement,
+dunning, and analytics aggregation.
+
+No such runtime exists. `src/lib/` contains nothing of the kind, and — verified on
+2026-09-13 — **no prior decision covers it**: `docs/technical/ADRs.md` and
+`docs/business/Decision Log.md` contain no queue, scheduler, worker, or cron decision.
+`docs/Foundation Phase.md` Phase 14 requires one. This is decision **D5** of the
+Implementation Execution Plan, and it is a hard blocker on all of P1.
+
+Constraints imposed by decisions already accepted:
+
+| Constraint | Source |
+| --- | --- |
+| PostgreSQL is the primary database | ADR-003 |
+| Single deployable service with two entry points | ADR-007 |
+| Self-hosted VPS in Nigeria behind WireGuard VPN | ADR-008 |
+| Nigerian data processed and stored within Nigeria | ADR-000 principle 9, ADR-008 |
+| Bun is the runtime | ADR-001 |
+| Every worker must be idempotent | Execution plan ground rule 4 |
+
+### Decision
+
+Adopt **`pg-boss`** as the queue, scheduler, and worker runtime, backed by the existing
+PostgreSQL instance.
+
+The scheduler and workers start from `src/index.ts` alongside the API server, per ADR-007.
+They must be structured so that running them as a separate process requires configuration
+only — no code change — so that ADR-007 can be revisited without a rewrite.
+
+### Rationale
+
+- **No new infrastructure.** pg-boss stores jobs in PostgreSQL, which ADR-003 already
+  provides and ADR-008 already operates. Redis/BullMQ would add a service to run, secure,
+  monitor, and back up on a single self-hosted VPS.
+- **Consistent with ADR-007.** No third process to deploy or orchestrate.
+- **Transactional enqueue.** A job can be enqueued in the same database transaction as the
+  business write, so a rolled-back write cannot leave an orphaned job behind. This is what
+  makes "every worker is idempotent" achievable rather than aspirational.
+- **Cron scheduling is built in**, satisfying NWB-P1-001's cron/interval requirement without
+  a second mechanism.
+- **Queue depth is queryable**, so the P15-004 alerting requirement ("queue failures
+  alerted") becomes a query rather than an integration.
+
+### Alternatives Considered
+
+| Alternative | Reason Rejected |
+| --- | --- |
+| **BullMQ + Redis** | Adds a service to operate and back up on a self-hosted VPS (ADR-008) for no capability pg-boss lacks at MVP scale. Becomes the better option only if D3 moves the cache to Redis. |
+| **`Bun.cron` alone** | A trigger, not a queue — no persistence, retry, backoff, or job state. Cannot satisfy NWB-P1-001's retry-with-backoff and idempotency requirements. |
+| **In-process `setTimeout` / `setInterval`** | Jobs are lost on restart or deploy, and there is no visibility into failures or depth. |
+| **Cloud queue (SQS, Cloudflare Queues)** | Adds a cross-border data processor, which ADR-000 principle 9 and ADR-008 prohibit without an NDPR review. |
+| **Hand-rolled job table** | Reinvents persistence, retry, backoff, locking, and archiving — precisely what ground rule 8 ("do not build a second implementation of anything that exists") forbids. |
+
+### Consequences
+
+**Positive**
+
+- No new infrastructure; one datastore for both jobs and business data.
+- Job enqueue participates in the caller's transaction.
+- Queue depth and failure history are plain SQL, available to analytics and alerting.
+- Cron scheduling and retry/backoff come from the library rather than from us.
+
+**Negative / mitigations**
+
+- Job tables share a database with tenant data and must be excluded from tenant-scoped
+  queries and from RLS policies once D11 is settled. Mitigation: pg-boss uses its own
+  schema; keep it out of `db/schema.ts` and out of tenant-scoped query builders.
+- pg-boss manages its own schema, so its migrations must be versioned alongside ours.
+  Mitigation: NWB-P0-005 must cover the pg-boss schema, not just `db/`.
+- Postgres-backed queues have a throughput ceiling. Accepted at MVP scale.
+
+### Review Triggers
+
+- Sustained queue depth that PostgreSQL cannot drain within the SLA window.
+- D3 resolves in favour of Redis, making BullMQ cheap.
+- ADR-007 is superseded and the API can scale independently of workers.
+- `pg-boss` is abandoned or drops PostgreSQL support.
+
+### Related ADRs
+
+ADR-001 (Bun runtime) · ADR-003 (PostgreSQL) · ADR-007 (single deployable service) ·
+ADR-008 (self-hosted VPS) · ADR-009 (multi-tenancy / RLS) · ADR-015 (cache and rate limits)
+
+---
+
+## 23. Future ADRs (Planned)
 
 | ADR     | Title                                        | Planned Date       | Trigger                                                 |
 | ------- | -------------------------------------------- | ------------------ | ------------------------------------------------------- |
@@ -1889,7 +1989,7 @@ The five database migration operations are:
 
 ---
 
-## 22. ADR Governance
+## 24. ADR Governance
 
 ### When to Write an ADR
 
@@ -1928,7 +2028,7 @@ Do **not** write an ADR for:
 
 ---
 
-## 23. Document Approvals
+## 25. Document Approvals
 
 | Role             | Name                       | Signature      | Date       |
 | ---------------- | -------------------------- | -------------- | ---------- |
@@ -1940,7 +2040,7 @@ Do **not** write an ADR for:
 
 ---
 
-## 24. Related Documents
+## 26. Related Documents
 
 | Document                   | Relationship                                                                       |
 | -------------------------- | ---------------------------------------------------------------------------------- |
@@ -1955,33 +2055,7 @@ Do **not** write an ADR for:
 
 ## Document Version History
 
-| Version | Date | Author | Changes A short intro note you can drop into your schema docs / README:
+| Version | Date       | Author           | Changes                                                                                 |
+| ------- | ---------- | ---------------- | --------------------------------------------------------------------------------------- |
+| 1.1     | 2026-09-13 | Engineering Lead | Added ADR-028 (queue, scheduler, and worker runtime — resolves D5). Renumbered sections 22–24 → 24–26 to make room and added a numbering note for the reserved ADR-018…027 slots. Removed an off-domain "Money Handling Convention" section that described a different product, and restored this table's header, which that section had corrupted. |
 
----
-
-## Money Handling Convention
-
-All monetary values in the Gilo Business ecosystem — across both the mobile app (SQLite) and the backend (PostgreSQL) — are stored as **integers in the currency's smallest unit** (kobo for NGN), never as floats or decimals.
-
-**Why:** Floating-point types (`real` in SQLite, `float`/`real` in Postgres) introduce rounding errors during storage and arithmetic — `19.99` can silently become `19.990000000000001`. This is unacceptable for financial data, where small errors compound across aggregate reports and can cause reconciliation mismatches.
-
-**Convention:**
-
-- Store all amounts as `integer` (or `bigint` if values may exceed ~2.1 billion kobo, i.e. ~₦21M) — never `real`, `float`, or `numeric` unless a specific case calls for arbitrary decimal precision.
-- Never perform floating-point math directly against these columns. Treat the stored integer as an opaque unit — all arithmetic should happen in whole kobo.
-- Display formatting (kobo → naira, decimal points, currency symbol) happens only at the presentation layer, via `formatNGN` on mobile (and its equivalent on web).
-- If a table can hold multiple currencies, store the currency code alongside the amount column rather than assuming NGN implicitly.
-
-**Do:**
-
-```typescript
-amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
-```
-
-**Don't:**
-
-```typescript
-amount: real("amount"), // ❌ precision errors
-```
-
-This keeps the mobile (SQLite) and backend (Postgres) schemas symmetric — no unit conversion needed at the API boundary, and no drift between how money is represented on either side.

@@ -7,4 +7,9 @@ drizzle/*
 drizzle/migrations/*
 !drizzle/migrations/0000_campaign_domain_disambiguation.sql
 data/
-.scratch/
+
+# `.scratch/` is a work queue read by agents — status metadata is useless if it
+# only exists locally. Track the markdown (specs + issues); ignore everything else.
+.scratch/**
+!.scratch/**/
+!.scratch/**/*.md
