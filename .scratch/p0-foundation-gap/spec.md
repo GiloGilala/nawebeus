@@ -3,7 +3,8 @@
 **Feature slug:** `p0-foundation-gap`
 **Spec owner:** Engineering Lead
 **Status:** in-progress — 4/7 done. Done: NWB-P0-001 (API keys), NWB-P0-003 (CI), NWB-P0-004
-(linter), NWB-P0-007 (adopt decisions). Outstanding: DSAR export (02), migration baseline (05),
+(linter), NWB-P0-007 (adopt decisions). **NWB-P0-008 (concurrent lockout lost update) is also
+done** — 2026-09-13, in `724d6c2`. Outstanding: DSAR export (02), migration baseline (05),
 foundation issue-07 reconciliation (06 — the API-key half is now `done`; the role-assignment
 half was already shipped and its boxes are still unticked).
 Two findings raised during NWB-P0-001's verification are filed as NWB-P0-008 and NWB-P0-009.
