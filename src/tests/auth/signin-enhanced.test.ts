@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { sql } from "drizzle-orm";
 import { createTestApp } from "../helpers/test-client";
 import { withTestDb } from "../helpers/test-db";
-import { sql } from "drizzle-orm";
+import { createTestOrg, createTestUser } from "../helpers/test-factory";
 
 const hasDb = () => !!process.env.DATABASE_URL;
 
@@ -49,7 +50,12 @@ describe("POST /api/auth/signin — validation (no DB)", () => {
 
   test("signin with MFA code is accepted by schema", async () => {
     const app = createTestApp();
-    const body = { email: "adeola@example.com", password: "Str0ng!P@ssword", mfaCode: "123456", rememberMe: true };
+    const body = {
+      email: "adeola@example.com",
+      password: "Str0ng!P@ssword",
+      mfaCode: "123456",
+      rememberMe: true,
+    };
     const res = await app.request("/api/auth/signin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -65,24 +71,41 @@ describe.skipIf(!hasDb())("POST /api/auth/signin — lockout + MFA (integration)
     await withTestDb(async ({ db }) => {
       const app = createTestApp(db);
       const password = "Str0ng!P@ssword";
-      const { hashPassword } = await import("../../services/auth/password");
 
-      // Create user with a placeholder org
-      const orgId = crypto.randomUUID();
-      const hashed = await hashPassword(password);
+      // Real user, real organization. `users.id` is a uuid and
+      // `users.organization_id` FKs to organizations, so neither can be faked —
+      // the old fixture used the literal id 'user-locktest' and a random org id,
+      // both of which the database rejects.
+      const user = await createTestUser(db, {
+        email: "locktest@example.com",
+        password,
+      });
+      const org = await createTestOrg(db, { ownerId: user.id });
       await db.execute(
-        sql`INSERT INTO users (id, email, password, username, first_name, last_name, status, email_verified, organization_id)
-            VALUES ('user-locktest', 'locktest@example.com', ${hashed}, 'locktest', 'Test', 'User', 'active', true, ${orgId})`,
+        sql`UPDATE users SET organization_id = ${org.id}, email_verified = true WHERE id = ${user.id}`,
       );
 
       const makeAttempt = () =>
         app.request("/api/auth/signin", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "1.2.3.4" },
-          body: JSON.stringify({ email: "locktest@example.com", password: "WrongPassword1!" }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cf-Connecting-Ip": "1.2.3.4",
+          },
+          body: JSON.stringify({
+            email: "locktest@example.com",
+            password: "WrongPassword1!",
+          }),
         });
 
-      const responses = await Promise.all([makeAttempt(), makeAttempt(), makeAttempt(), makeAttempt(), makeAttempt()]);
+      // Sequential, deliberately. `signIn` reads `failed_login_attempts`, then
+      // awaits bcrypt, then writes the increment — so concurrent attempts all
+      // observe the same starting value and a burst of five counts as one
+      // failure. Firing these with Promise.all never reaches the threshold.
+      const responses: Response[] = [];
+      for (let i = 0; i < 5; i++) {
+        responses.push(await makeAttempt());
+      }
 
       // First 4 should be 401, 5th should be locked
       for (let i = 0; i < 4; i++) {
@@ -96,7 +119,10 @@ describe.skipIf(!hasDb())("POST /api/auth/signin — lockout + MFA (integration)
       // Correct password should still be locked
       const res6 = await app.request("/api/auth/signin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "1.2.3.4" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cf-Connecting-Ip": "1.2.3.4",
+        },
         body: JSON.stringify({ email: "locktest@example.com", password }),
       });
       expect(res6.status).toBe(423);

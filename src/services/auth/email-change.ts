@@ -1,11 +1,11 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { createToken, consumeToken, countRecentTokens } from "./tokens";
-import { getUserByEmail } from "../users/user.service";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
-import { ConflictError, ValidationError, NotFoundError } from "../../lib/errors";
-import { emailService } from "../email";
+import { ConflictError, NotFoundError, ValidationError } from "../../lib/errors";
 import { writeAuditLog } from "../audit";
+import { emailService } from "../email";
+import { getUserByEmail } from "../users/user.service";
+import { consumeToken, countRecentTokens, createToken } from "./tokens";
 
 const EMAIL_CHANGE_TTL_MIN = 24 * 60; // 24h in minutes for createToken
 const RATE_LIMIT = 3;

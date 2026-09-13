@@ -1,20 +1,20 @@
+import { desc, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
   boolean,
-  jsonb,
-  timestamp,
-  inet,
-  index,
   check,
+  index,
+  inet,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { sql, desc } from "drizzle-orm";
 import {
-  auditSourceModuleEnum,
   auditActorTypeEnum,
   auditCategoryEnum,
   auditSeverityEnum,
+  auditSourceModuleEnum,
 } from "./enums";
 
 // =============================================================================
@@ -84,17 +84,23 @@ import {
 export const auditLog = pgTable(
   "unified_audit_log",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    // NOTE 2026-09-13: every id column below was varchar(32). Nawebeus ids are
+    // UUIDs (36 chars), so any audit write carrying a real id failed with
+    //   22001 value too long for type character varying(32)
+    // which silently broke the entire audit trail — the DB-backed audit test
+    // passed only because it used short fake ids like "org-1". Widened to 64 so
+    // the columns hold UUIDs and prefixed ids ("al_...", "sess_...") alike.
+    id: varchar("id", { length: 64 }).primaryKey(),
 
     // ─── Scope ───────────────────────────────────────────────────────────────
     module: auditSourceModuleEnum("module").notNull(),
 
     // Nullable — system-level events (backups, migrations) have no org context
-    organizationId: varchar("organization_id", { length: 32 }),
+    organizationId: varchar("organization_id", { length: 64 }),
 
     // ─── Actor ───────────────────────────────────────────────────────────────
     // Not a FK — actor record may be deleted; audit entry must be preserved
-    actorId: varchar("actor_id", { length: 32 }),
+    actorId: varchar("actor_id", { length: 64 }),
     actorType: auditActorTypeEnum("actor_type"),
     actorIp: inet("actor_ip"),
     actorUserAgent: text("actor_user_agent"),
@@ -102,7 +108,7 @@ export const auditLog = pgTable(
     // ─── Impersonation Context ───────────────────────────────────────────────
     // Populated when actorType = 'impersonation'
     // Not a FK — impersonation session may be purged; log must be preserved
-    impersonationSessionId: varchar("impersonation_session_id", { length: 32 }),
+    impersonationSessionId: varchar("impersonation_session_id", { length: 64 }),
 
     // ─── Action ──────────────────────────────────────────────────────────────
     // Free-form verb e.g. 'user.created', 'post.published', 'login.failed'
@@ -113,11 +119,11 @@ export const auditLog = pgTable(
     // ─── Resource ────────────────────────────────────────────────────────────
     // Not FK constraints — resource may be deleted after audit entry written
     resourceType: varchar("resource_type", { length: 50 }),
-    resourceId: varchar("resource_id", { length: 32 }),
+    resourceId: varchar("resource_id", { length: 64 }),
 
     // The user whose data was affected (may differ from actorId)
     // e.g. admin modifying another user's account
-    targetUserId: varchar("target_user_id", { length: 32 }),
+    targetUserId: varchar("target_user_id", { length: 64 }),
 
     // ─── Changes ─────────────────────────────────────────────────────────────
     // Full entity snapshots — only populated for high-value mutations
@@ -131,7 +137,7 @@ export const auditLog = pgTable(
     severity: auditSeverityEnum("severity").default("info").notNull(),
     reason: text("reason"),
     requestId: varchar("request_id", { length: 100 }),
-    sessionId: varchar("session_id", { length: 32 }),
+    sessionId: varchar("session_id", { length: 64 }),
 
     // ─── Tamper Detection ────────────────────────────────────────────────────
     // SHA-256 hash of (id + action + actorId + resourceId +
@@ -156,9 +162,7 @@ export const auditLog = pgTable(
     metadata: jsonb("metadata"),
 
     // Append-only — no updatedAt
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -227,14 +231,20 @@ export const auditLog = pgTable(
         OR ${table.checksum} IS NOT NULL`,
     ),
 
-    // Mutation categories must have at least one of before/after/changes
-    check(
-      "chk_ual_mutation_has_state",
-      sql`${table.category} NOT IN ('create','update','delete','state_change')
-        OR ${table.beforeState} IS NOT NULL
-        OR ${table.afterState} IS NOT NULL
-        OR ${table.changes} IS NOT NULL`,
-    ),
+    // Mutation categories must have at least one of before/after/changes.
+    //
+    // REMOVED 2026-09-13: the constraint read
+    //   category NOT IN ('create','update','delete','state_change') OR <state present>
+    // which references an *operation* taxonomy. `audit_category` is a *domain*
+    // taxonomy (authentication, content, billing, …) and can never hold those
+    // literals, so Postgres could not even create the constraint — it rejected
+    // the whole `bun run db:push` with
+    //   invalid input value for enum audit_category: "create".
+    //
+    // Deleting it is behaviour-preserving: the constraint has never existed in
+    // any database, so it enforced nothing. Re-expressing the rule needs an
+    // operation field that does not exist yet (see `action`, which is free-text).
+    // Recorded as an open finding — do not re-add without deciding the taxonomy.
 
     // ── Primary query patterns ───────────────────────────────────────────────
 
@@ -242,10 +252,7 @@ export const auditLog = pgTable(
     index("idx_ual_module_created").on(table.module, desc(table.createdAt)),
 
     // Org-scoped feed — tenant audit view, newest first
-    index("idx_ual_org_created").on(
-      table.organizationId,
-      desc(table.createdAt),
-    ),
+    index("idx_ual_org_created").on(table.organizationId, desc(table.createdAt)),
 
     // Actor history — "everything user X has done"
     index("idx_ual_actor_created").on(table.actorId, desc(table.createdAt)),
@@ -254,11 +261,7 @@ export const auditLog = pgTable(
     index("idx_ual_action_created").on(table.action, desc(table.createdAt)),
 
     // Resource lookup — entity detail page audit timeline
-    index("idx_ual_resource").on(
-      table.resourceType,
-      table.resourceId,
-      desc(table.createdAt),
-    ),
+    index("idx_ual_resource").on(table.resourceType, table.resourceId, desc(table.createdAt)),
 
     // Security investigations — "show me critical events for org X"
     index("idx_ual_severity_investigation").on(

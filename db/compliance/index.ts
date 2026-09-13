@@ -29,38 +29,38 @@
 //     Same reasoning — compliance records outlive orgs. organization_id is
 //     a plain varchar used for filtering, not a cascading FK.
 
+import { desc, relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
   bigint,
-  decimal,
-  jsonb,
-  timestamp,
-  inet,
-  unique,
-  index,
+  boolean,
   check,
+  decimal,
+  index,
+  inet,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql, desc } from "drizzle-orm";
-import {
-  impersonationEndReasonEnum,
-  dsarTypeEnum,
-  dsarStatusEnum,
-  legalHoldDataTypeEnum,
-  legalHoldStatusEnum,
-  legalHoldPriorityEnum,
-  retentionActionEnum,
-  configKindEnum,
-  configEnvironmentEnum,
-  configTypeEnum,
-  backupTypeEnum,
-  backupStatusEnum,
-  backupRestoreStatusEnum,
-} from "../shared/enums";
 import { auditLog } from "../shared/audit";
+import {
+  backupRestoreStatusEnum,
+  backupStatusEnum,
+  backupTypeEnum,
+  configEnvironmentEnum,
+  configKindEnum,
+  configTypeEnum,
+  dsarStatusEnum,
+  dsarTypeEnum,
+  impersonationEndReasonEnum,
+  legalHoldDataTypeEnum,
+  legalHoldPriorityEnum,
+  legalHoldStatusEnum,
+  retentionActionEnum,
+} from "../shared/enums";
 
 // =============================================================================
 // IMPERSONATION SESSIONS
@@ -146,9 +146,7 @@ export const impersonationSessions = pgTable(
     endedGeoLocation: jsonb("ended_geo_location"),
 
     // ─── Timing ───────────────────────────────────────────────────────────────
-    startedAt: timestamp("started_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
 
     // When this session is scheduled to auto-expire
     // Default: startedAt + 1 hour. Max: startedAt + 4 hours.
@@ -181,16 +179,10 @@ export const impersonationSessions = pgTable(
     // ── Constraints ──────────────────────────────────────────────────────────
 
     // No self-impersonation
-    check(
-      "chk_imp_no_self_impersonation",
-      sql`${table.adminUserId} <> ${table.targetUserId}`,
-    ),
+    check("chk_imp_no_self_impersonation", sql`${table.adminUserId} <> ${table.targetUserId}`),
 
     // expiresAt must be after startedAt
-    check(
-      "chk_imp_expires_after_start",
-      sql`${table.expiresAt} > ${table.startedAt}`,
-    ),
+    check("chk_imp_expires_after_start", sql`${table.expiresAt} > ${table.startedAt}`),
 
     // end consistency: endedAt ↔ endReason
     check(
@@ -229,19 +221,13 @@ export const impersonationSessions = pgTable(
     index("idx_imp_target").on(table.targetUserId, desc(table.startedAt)),
 
     // Active sessions — for the security dashboard
-    index("idx_imp_active")
-      .on(table.expiresAt)
-      .where(sql`${table.endedAt} IS NULL`),
+    index("idx_imp_active").on(table.expiresAt).where(sql`${table.endedAt} IS NULL`),
 
     // Idle-timeout worker — sessions that haven't acted recently
-    index("idx_imp_idle")
-      .on(table.lastActionAt)
-      .where(sql`${table.endedAt} IS NULL`),
+    index("idx_imp_idle").on(table.lastActionAt).where(sql`${table.endedAt} IS NULL`),
 
     // Ticket lookup — find all sessions for a support ticket
-    index("idx_imp_ticket")
-      .on(table.ticketId)
-      .where(sql`${table.ticketId} IS NOT NULL`),
+    index("idx_imp_ticket").on(table.ticketId).where(sql`${table.ticketId} IS NOT NULL`),
 
     // Geo — suspicious country detection
     // index("idx_imp_geo")
@@ -305,9 +291,7 @@ export const dsarRequests = pgTable(
     verifiedBy: varchar("verified_by", { length: 32 }),
 
     // ─── Timing ───────────────────────────────────────────────────────────────
-    requestedAt: timestamp("requested_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
     dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedBy: varchar("completed_by", { length: 32 }),
@@ -329,20 +313,13 @@ export const dsarRequests = pgTable(
     rejectionReason: text("rejection_reason"),
     internalComments: text("internal_comments"),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
 
-    check(
-      "chk_dsar_due_after_requested",
-      sql`${table.dueDate} > ${table.requestedAt}`,
-    ),
+    check("chk_dsar_due_after_requested", sql`${table.dueDate} > ${table.requestedAt}`),
     check(
       "chk_dsar_completed_after_requested",
       sql`${table.completedAt} IS NULL
@@ -459,9 +436,7 @@ export const legalHolds = pgTable(
 
     // ─── Placed By ────────────────────────────────────────────────────────────
     placedBy: varchar("placed_by", { length: 32 }).notNull(),
-    placedAt: timestamp("placed_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    placedAt: timestamp("placed_at", { withTimezone: true }).notNull().defaultNow(),
 
     // ─── Expiry & Release ─────────────────────────────────────────────────────
     expiresAt: timestamp("expires_at", { withTimezone: true }),
@@ -471,12 +446,8 @@ export const legalHolds = pgTable(
 
     status: legalHoldStatusEnum("status").default("active").notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -512,20 +483,14 @@ export const legalHolds = pgTable(
     index("idx_lh_user").on(table.userId, table.status),
 
     // Active holds — hot path for retention worker
-    index("idx_lh_active")
-      .on(table.status)
-      .where(sql`${table.status} = 'active'`),
+    index("idx_lh_active").on(table.status).where(sql`${table.status} = 'active'`),
 
     // Critical-priority holds — security team dashboard
     index("idx_lh_critical")
       .on(table.organizationId, table.priority)
-      .where(
-        sql`${table.priority} = 'critical' AND ${table.status} = 'active'`,
-      ),
+      .where(sql`${table.priority} = 'critical' AND ${table.status} = 'active'`),
 
-    index("idx_lh_case")
-      .on(table.legalCaseId)
-      .where(sql`${table.legalCaseId} IS NOT NULL`),
+    index("idx_lh_case").on(table.legalCaseId).where(sql`${table.legalCaseId} IS NOT NULL`),
 
     // Expiring holds — review before auto-expiry
     index("idx_lh_expiring")
@@ -598,12 +563,8 @@ export const dataRetentionPolicies = pgTable(
 
     // ─── Audit ────────────────────────────────────────────────────────────────
     createdBy: varchar("created_by", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -730,9 +691,7 @@ export const appConfig = pgTable(
     configType: configTypeEnum("config_type").notNull(),
 
     // Which environment this entry applies to
-    environment: configEnvironmentEnum("environment")
-      .default("production")
-      .notNull(),
+    environment: configEnvironmentEnum("environment").default("production").notNull(),
 
     // ─── Feature-Flag Specific ──────────────────────────────────────────────
     enabled: boolean("enabled").default(false).notNull(),
@@ -766,23 +725,14 @@ export const appConfig = pgTable(
     // ─── Audit ─────────────────────────────────────────────────────────────
     createdBy: varchar("created_by", { length: 32 }).notNull(),
     updatedBy: varchar("updated_by", { length: 32 }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Uniqueness ──────────────────────────────────────────────────────────
 
     // system_config scoped by kind + org + key + environment
-    unique("uq_ac_org_key_env").on(
-      table.kind,
-      table.organizationId,
-      table.key,
-      table.environment,
-    ),
+    unique("uq_ac_org_key_env").on(table.kind, table.organizationId, table.key, table.environment),
 
     // feature_flag scoped by org + key (regardless of environment)
     // Uses partial index to avoid conflicting with system_config entries.
@@ -820,9 +770,7 @@ export const appConfig = pgTable(
     index("idx_ac_key_lookup").on(table.key, table.organizationId),
 
     // Org-scoped entries
-    index("idx_ac_org")
-      .on(table.organizationId)
-      .where(sql`${table.organizationId} IS NOT NULL`),
+    index("idx_ac_org").on(table.organizationId).where(sql`${table.organizationId} IS NOT NULL`),
 
     // Environment-scoped queries
     index("idx_ac_env_category").on(table.environment, table.kind),
@@ -831,9 +779,7 @@ export const appConfig = pgTable(
     index("idx_ac_type").on(table.configType),
 
     // Active feature flags
-    index("idx_ac_enabled")
-      .on(table.enabled)
-      .where(sql`${table.enabled} = TRUE`),
+    index("idx_ac_enabled").on(table.enabled).where(sql`${table.enabled} = TRUE`),
 
     // Active kill switches
     index("idx_ac_kill_switch")
@@ -841,9 +787,7 @@ export const appConfig = pgTable(
       .where(sql`${table.killSwitch} = TRUE`),
 
     // Deprecated entries
-    index("idx_ac_deprecated")
-      .on(table.isDeprecated)
-      .where(sql`${table.isDeprecated} = TRUE`),
+    index("idx_ac_deprecated").on(table.isDeprecated).where(sql`${table.isDeprecated} = TRUE`),
   ],
 );
 
@@ -901,9 +845,7 @@ export const backupRecords = pgTable(
     encrypted: boolean("encrypted").default(true).notNull(),
     compressionType: varchar("compression_type", { length: 50 }),
     checksum: varchar("checksum", { length: 64 }),
-    checksumAlgorithm: varchar("checksum_algorithm", { length: 20 }).default(
-      "SHA-256",
-    ),
+    checksumAlgorithm: varchar("checksum_algorithm", { length: 20 }).default("SHA-256"),
 
     // ─── Scope ────────────────────────────────────────────────────────────────
     includedTables: text("included_tables").array(),
@@ -911,9 +853,7 @@ export const backupRecords = pgTable(
     backupMetadata: jsonb("backup_metadata"),
 
     // ─── Timing ───────────────────────────────────────────────────────────────
-    startedAt: timestamp("started_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
@@ -1001,9 +941,7 @@ export const backupRecords = pgTable(
 
     index("idx_br_type").on(table.backupType, desc(table.startedAt)),
     index("idx_br_status").on(table.status, desc(table.startedAt)),
-    index("idx_br_org")
-      .on(table.organizationId)
-      .where(sql`${table.organizationId} IS NOT NULL`),
+    index("idx_br_org").on(table.organizationId).where(sql`${table.organizationId} IS NOT NULL`),
 
     // Cleanup worker — expired completed backups
     index("idx_br_expires")
@@ -1035,20 +973,14 @@ export const backupRecords = pgTable(
 // RELATIONS
 // =============================================================================
 
-export const impersonationSessionsRelations = relations(
-  impersonationSessions,
-  ({ many }) => ({
-    auditEvents: many(auditLog, {
-      relationName: "impersonationSession_auditEvents",
-    }),
+export const impersonationSessionsRelations = relations(impersonationSessions, ({ many }) => ({
+  auditEvents: many(auditLog, {
+    relationName: "impersonationSession_auditEvents",
   }),
-);
+}));
 
 export const dsarRequestsRelations = relations(dsarRequests, (_) => ({}));
 export const legalHoldsRelations = relations(legalHolds, (_) => ({}));
-export const dataRetentionPoliciesRelations = relations(
-  dataRetentionPolicies,
-  (_) => ({}),
-);
+export const dataRetentionPoliciesRelations = relations(dataRetentionPolicies, (_) => ({}));
 export const appConfigRelations = relations(appConfig, (_) => ({}));
 export const backupRecordsRelations = relations(backupRecords, (_) => ({}));

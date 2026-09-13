@@ -1,5 +1,5 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../../lib/errors";
 
 export interface MemberProfile {
@@ -25,7 +25,10 @@ export interface UpdateMemberInput {
   department?: string | undefined;
 }
 
-export async function listMembers(db: NodePgDatabase<Record<string, any>>, orgId: string): Promise<MemberProfile[]> {
+export async function listMembers(
+  db: NodePgDatabase<Record<string, any>>,
+  orgId: string,
+): Promise<MemberProfile[]> {
   const rows = await db.execute(
     sql`
       SELECT om.id, om.user_id, om.organization_id, om.role_id,

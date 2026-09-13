@@ -21,7 +21,7 @@ function toBase64Url(buf: ArrayBuffer | Uint8Array): string {
 }
 
 function fromBase64Url(str: string): Uint8Array {
-  const padded = str.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - str.length % 4) % 4);
+  const padded = str.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (str.length % 4)) % 4);
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
 }
 
@@ -37,7 +37,11 @@ async function hmacSha256(secret: string, data: string): Promise<ArrayBuffer> {
   return crypto.subtle.sign("HMAC", key, enc.encode(data));
 }
 
-export async function signToken(payload: JwtPayload, secret: string, expiresInSec: number): Promise<string> {
+export async function signToken(
+  payload: JwtPayload,
+  secret: string,
+  expiresInSec: number,
+): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const body = { ...payload, iat: now, exp: now + expiresInSec };
@@ -56,7 +60,8 @@ export async function verifyToken(token: string, secret: string): Promise<JwtPay
   const actualSig = fromBase64Url(sigB64!);
   if (actualSig.byteLength !== expectedSig.byteLength) throw new Error("Invalid signature");
   let match = true;
-  for (let i = 0; i < expectedSig.byteLength; i++) if (expectedSig[i] !== actualSig[i]) match = false;
+  for (let i = 0; i < expectedSig.byteLength; i++)
+    if (expectedSig[i] !== actualSig[i]) match = false;
   if (!match) throw new Error("Invalid signature");
   const raw = JSON.parse(new TextDecoder().decode(fromBase64Url(bodyB64!)));
   if (raw.exp && raw.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");

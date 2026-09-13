@@ -1,10 +1,10 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { generateTOTOPair, verifyTOTP } from "./totp";
-import { hashToken } from "./session";
-import { emailService } from "../email";
-import { writeAuditLog } from "../audit";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { AuthError } from "../../lib/errors";
+import { writeAuditLog } from "../audit";
+import { emailService } from "../email";
+import { hashToken } from "./session";
+import { generateTOTOPair, verifyTOTP } from "./totp";
 
 export interface MFASetupResult {
   secret: string;
@@ -121,7 +121,10 @@ export async function verifyMFAForLogin(
   userId: string,
   token: string,
 ): Promise<boolean> {
-  const rows = await db.execute<{ two_factor_secret: string; two_factor_backup_codes: string[] }>(
+  const rows = await db.execute<{
+    two_factor_secret: string;
+    two_factor_backup_codes: string[];
+  }>(
     sql`SELECT two_factor_secret, two_factor_backup_codes FROM users WHERE id = ${userId} LIMIT 1`,
   );
   const row = (rows as any).rows?.[0] as any;
@@ -152,7 +155,10 @@ export async function getMFAStatus(
   db: NodePgDatabase<Record<string, any>>,
   userId: string,
 ): Promise<{ enabled: boolean; backupCodesRemaining: number }> {
-  const rows = await db.execute<{ two_factor_enabled: boolean; two_factor_backup_codes: string[] }>(
+  const rows = await db.execute<{
+    two_factor_enabled: boolean;
+    two_factor_backup_codes: string[];
+  }>(
     sql`SELECT two_factor_enabled, two_factor_backup_codes FROM users WHERE id = ${userId} LIMIT 1`,
   );
   const row = (rows as any).rows?.[0] as any;
@@ -170,9 +176,10 @@ export async function checkMFAForLogin(
   db: NodePgDatabase<Record<string, any>>,
   userId: string,
 ): Promise<{ required: boolean; tokenHash: string | null }> {
-  const rows = await db.execute<{ two_factor_enabled: boolean; two_factor_backup_codes: string[] }>(
-    sql`SELECT two_factor_enabled FROM users WHERE id = ${userId} LIMIT 1`,
-  );
+  const rows = await db.execute<{
+    two_factor_enabled: boolean;
+    two_factor_backup_codes: string[];
+  }>(sql`SELECT two_factor_enabled FROM users WHERE id = ${userId} LIMIT 1`);
   const row = (rows as any).rows?.[0] as any;
   if (!row || !row.two_factor_enabled) {
     return { required: false, tokenHash: null };

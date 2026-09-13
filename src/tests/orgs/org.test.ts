@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createTestApp } from "../helpers/test-client";
 
 const testEnv = {
@@ -12,7 +12,7 @@ describe("Org routes — no DB", () => {
     for (const [k, v] of Object.entries(testEnv)) process.env[k] ??= v;
   });
   afterAll(() => {
-    for (const k of Object.keys(testEnv)) delete process.env[k];
+    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
   });
 
   test("GET /api/orgs without auth returns 401", async () => {

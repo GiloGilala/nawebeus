@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { authMiddleware } from "../../server/middleware/auth";
-import { listUserSessions, revokeSession, getSessionDetail } from "../../services/auth/session";
 import { NotFoundError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { authMiddleware } from "../../server/middleware/auth";
 import { writeAuditLog } from "../../services/audit";
+import { getSessionDetail, listUserSessions, revokeSession } from "../../services/auth/session";
 
 const router = new Hono();
 

@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { apiKeyRootRouter } from "../app/api-keys";
+import { authRouter } from "../app/auth";
+import { orgRootRouter } from "../app/orgs";
+import { userRouter } from "../app/users";
 import { success } from "../lib/response";
 import { errorHandler } from "./middleware/error-handler";
-import { authRouter } from "../app/auth";
-import { userRouter } from "../app/users";
-import { orgRootRouter } from "../app/orgs";
 
 export function createApp() {
   const app = new Hono();
@@ -19,6 +20,7 @@ export function createApp() {
   app.route("/api", authRouter);
   app.route("/api", userRouter);
   app.route("/api", orgRootRouter);
+  app.route("/api", apiKeyRootRouter);
 
   app.notFound((c) => {
     c.status(404);
@@ -50,6 +52,7 @@ export function createAppWithDb(deps: { db: import("../lib/db").Db }) {
   app.route("/api", authRouter);
   app.route("/api", userRouter);
   app.route("/api", orgRootRouter);
+  app.route("/api", apiKeyRootRouter);
 
   app.notFound((c) => {
     c.status(404);

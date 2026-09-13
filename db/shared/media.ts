@@ -1,17 +1,17 @@
+import { desc, relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
-  decimal,
   bigint,
-  jsonb,
-  timestamp,
-  index,
+  boolean,
   check,
+  decimal,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql, desc } from "drizzle-orm";
 import { mediaAssetTypeEnum, mediaAttachedToTypeEnum } from "../shared/enums";
 
 // =============================================================================
@@ -269,12 +269,8 @@ export const mediaAssets = pgTable(
     // Not FK — asset must survive uploader leaving the org
     uploadedBy: varchar("uploaded_by", { length: 32 }).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -417,10 +413,7 @@ export const mediaAssets = pgTable(
     index("idx_ma_library_name").on(table.organizationId, table.name),
 
     // Recently uploaded — "what did we just upload?"
-    index("idx_ma_recent_uploaded").on(
-      table.organizationId,
-      desc(table.createdAt),
-    ),
+    index("idx_ma_recent_uploaded").on(table.organizationId, desc(table.createdAt)),
 
     // ── Attachment lookup ─────────────────────────────────────────────────────
 

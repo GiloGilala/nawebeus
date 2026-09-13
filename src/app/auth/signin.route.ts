@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import { z } from "zod";
-import { signIn } from "../../services/auth/auth.service";
 import { ValidationError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { signIn } from "../../services/auth/auth.service";
 
 const signinSchema = z.object({
   email: z.string().email("Invalid email format"),
@@ -32,10 +32,13 @@ router.post("/signin", async (c) => {
   }
 
   const db = c.var.db;
-  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("X-Forwarded-For") ?? "unknown";
+  // Deliberately left undefined when no forwarding header is present. Do not
+  // substitute a placeholder: "unknown" is not a valid `inet` and 500s the
+  // sign-in, and "0.0.0.0" would record a fabricated address.
+  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("X-Forwarded-For");
 
   const result = await signIn(db, parsed.data.email, parsed.data.password, {
-    ip,
+    ...(ip ? { ip } : {}),
     rememberMe: parsed.data.rememberMe,
     ...(parsed.data.mfaCode ? { mfaCode: parsed.data.mfaCode } : {}),
   });
@@ -43,13 +46,19 @@ router.post("/signin", async (c) => {
   if (result.requiresMfa) {
     // Don't set cookies yet; client must submit MFA code in a follow-up request
     return c.json(
-      success({ requiresMfa: true, mfaMethod: result.mfaMethod, sessionId: result.sessionId }),
+      success({
+        requiresMfa: true,
+        mfaMethod: result.mfaMethod,
+        sessionId: result.sessionId,
+      }),
     );
   }
 
+  const isProduction = process.env.NODE_ENV === "production";
+
   setCookie(c, "nawebeus_access", result.accessToken!, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProduction,
     sameSite: "Strict",
     path: "/",
     maxAge: 900,
@@ -59,11 +68,14 @@ router.post("/signin", async (c) => {
   const refreshMaxAge = parsed.data.rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24 * 7;
   setCookie(c, "nawebeus_refresh", result.refreshToken!, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProduction,
     sameSite: "Strict",
     path: "/api/auth",
     maxAge: refreshMaxAge,
-    partitioned: true,
+    // CHIPS `Partitioned` is only legal alongside `Secure`; setting it
+    // unconditionally threw at runtime outside production, so sign-in worked in
+    // prod and 500'd in dev and test.
+    ...(isProduction ? { partitioned: true } : {}),
   });
 
   return c.json(

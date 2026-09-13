@@ -85,36 +85,36 @@
 //     Distributions check this before sending. emailInvalid + bounceCount
 //     track hard bounces for deliverability hygiene.
 
+import { relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
   bigint,
+  boolean,
+  check,
   decimal,
-  numeric,
+  index,
+  integer,
   jsonb,
+  numeric,
+  pgTable,
+  text,
   timestamp,
   unique,
   uniqueIndex,
-  index,
-  check,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
+import { contacts } from "../shared/contacts";
 import {
-  pressReleaseStatusEnum,
-  prDistributionChannelEnum,
-  prDistributionStatusEnum,
-  prInitiativeStatusEnum,
-  prCrisisTypeEnum,
-  journalistTierEnum,
-  journalistNdprConsentStatusEnum,
   journalistContactMethodEnum,
+  journalistNdprConsentStatusEnum,
+  journalistTierEnum,
   prAttributionMethodEnum,
   prCoverageSentimentLabelEnum,
+  prCrisisTypeEnum,
+  prDistributionChannelEnum,
+  prDistributionStatusEnum,
+  pressReleaseStatusEnum,
+  prInitiativeStatusEnum,
 } from "../shared/enums";
-import { contacts } from "../shared/contacts";
 
 // =============================================================================
 // JOURNALISTS
@@ -186,9 +186,7 @@ export const journalists = pgTable(
     telegram: varchar("telegram", { length: 100 }),
     emailSecondary: varchar("email_secondary", { length: 255 }),
 
-    preferredContactMethod: journalistContactMethodEnum(
-      "preferred_contact_method",
-    )
+    preferredContactMethod: journalistContactMethodEnum("preferred_contact_method")
       .default("email")
       .notNull(),
 
@@ -277,26 +275,13 @@ export const journalists = pgTable(
     notes: text("notes"),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_j_expertise_score_range",
-      sql`${table.expertiseScore} BETWEEN 0 AND 100`,
-    ),
-    check(
-      "chk_j_relationship_score_range",
-      sql`${table.relationshipScore} BETWEEN 0 AND 100`,
-    ),
-    check(
-      "chk_j_influence_score_range",
-      sql`${table.influenceScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_j_expertise_score_range", sql`${table.expertiseScore} BETWEEN 0 AND 100`),
+    check("chk_j_relationship_score_range", sql`${table.relationshipScore} BETWEEN 0 AND 100`),
+    check("chk_j_influence_score_range", sql`${table.influenceScore} BETWEEN 0 AND 100`),
     check(
       "chk_j_response_rate_range",
       sql`${table.responseRate} IS NULL
@@ -307,18 +292,9 @@ export const journalists = pgTable(
       sql`${table.avgResponseTimeHours} IS NULL
         OR ${table.avgResponseTimeHours} >= 0`,
     ),
-    check(
-      "chk_j_interaction_count_non_negative",
-      sql`${table.interactionCount} >= 0`,
-    ),
-    check(
-      "chk_j_coverage_count_non_negative",
-      sql`${table.coverageCount} >= 0`,
-    ),
-    check(
-      "chk_j_email_bounce_count_non_negative",
-      sql`${table.emailBounceCount} >= 0`,
-    ),
+    check("chk_j_interaction_count_non_negative", sql`${table.interactionCount} >= 0`),
+    check("chk_j_coverage_count_non_negative", sql`${table.coverageCount} >= 0`),
+    check("chk_j_email_bounce_count_non_negative", sql`${table.emailBounceCount} >= 0`),
     check(
       "chk_j_ndpr_consent_date_consistency",
       sql`${table.ndprConsentStatus} NOT IN ('granted', 'withdrawn')
@@ -335,12 +311,8 @@ export const journalists = pgTable(
     index("idx_j_tier").on(table.tier),
     index("idx_j_ndpr").on(table.ndprConsentStatus),
     index("idx_j_relationship_score").on(table.relationshipScore),
-    index("idx_j_email_invalid")
-      .on(table.emailInvalid)
-      .where(sql`${table.emailInvalid} = TRUE`),
-    index("idx_j_timezone")
-      .on(table.timezone)
-      .where(sql`${table.timezone} IS NOT NULL`),
+    index("idx_j_email_invalid").on(table.emailInvalid).where(sql`${table.emailInvalid} = TRUE`),
+    index("idx_j_timezone").on(table.timezone).where(sql`${table.timezone} IS NOT NULL`),
 
     // GIN (raw SQL migration):
     // CREATE INDEX idx_j_beats ON journalists USING GIN(beats);
@@ -438,9 +410,7 @@ export const pressReleases = pgTable(
 
     // ─── Timing ───────────────────────────────────────────────────────────────
     embargoAt: timestamp("embargo_at", { withTimezone: true }),
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
     distributionAt: timestamp("distribution_at", { withTimezone: true }),
     publishedAt: timestamp("published_at", { withTimezone: true }),
 
@@ -500,12 +470,8 @@ export const pressReleases = pgTable(
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (table) => [
@@ -565,14 +531,8 @@ export const pressReleases = pgTable(
       sql`${table.estimatedReadingMinutes} IS NULL
         OR ${table.estimatedReadingMinutes} >= 0`,
     ),
-    check(
-      "chk_pr_distribution_count_non_negative",
-      sql`${table.distributionCount} >= 0`,
-    ),
-    check(
-      "chk_pr_coverage_count_non_negative",
-      sql`${table.coverageCount} >= 0`,
-    ),
+    check("chk_pr_distribution_count_non_negative", sql`${table.distributionCount} >= 0`),
+    check("chk_pr_coverage_count_non_negative", sql`${table.coverageCount} >= 0`),
 
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_pr_org").on(table.organizationId, table.createdAt),
@@ -668,9 +628,7 @@ export const prDistributions = pgTable(
     // ─── Status & Scheduling ──────────────────────────────────────────────────
     status: prDistributionStatusEnum("status").default("queued").notNull(),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
 
@@ -691,23 +649,13 @@ export const prDistributions = pgTable(
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_dist_targets_not_empty",
-      sql`array_length(${table.targetJournalistIds}, 1) > 0`,
-    ),
+    check("chk_dist_targets_not_empty", sql`array_length(${table.targetJournalistIds}, 1) > 0`),
     check("chk_dist_target_count_non_negative", sql`${table.targetCount} >= 0`),
-    check(
-      "chk_dist_delivered_lte_target",
-      sql`${table.deliveredCount} <= ${table.targetCount}`,
-    ),
+    check("chk_dist_delivered_lte_target", sql`${table.deliveredCount} <= ${table.targetCount}`),
     check(
       "chk_dist_open_lte_delivered",
       sql`${table.openCount} <= ${table.deliveredCount}
@@ -746,9 +694,7 @@ export const prDistributions = pgTable(
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_dist_press_release").on(table.pressReleaseId, table.createdAt),
     index("idx_dist_org").on(table.organizationId, table.createdAt),
-    index("idx_dist_queued")
-      .on(table.scheduledAt)
-      .where(sql`${table.status} = 'queued'`),
+    index("idx_dist_queued").on(table.scheduledAt).where(sql`${table.status} = 'queued'`),
     index("idx_dist_failed")
       .on(table.organizationId, table.retryCount)
       .where(sql`${table.status} = 'failed'`),
@@ -805,9 +751,7 @@ export const prInitiatives = pgTable(
     // ─── Timeline ─────────────────────────────────────────────────────────────
     startDate: timestamp("start_date", { withTimezone: true }).notNull(),
     endDate: timestamp("end_date", { withTimezone: true }),
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
 
     // ─── Target KPIs ──────────────────────────────────────────────────────────
     targetCoverageCount: integer("target_coverage_count"),
@@ -853,9 +797,7 @@ export const prInitiatives = pgTable(
       precision: 15,
       scale: 2,
     }).default("0"),
-    actualImpressions: bigint("actual_impressions", { mode: "number" })
-      .default(0)
-      .notNull(),
+    actualImpressions: bigint("actual_impressions", { mode: "number" }).default(0).notNull(),
     actualSentiment: decimal("actual_sentiment", { precision: 3, scale: 2 }),
     actualResponseRate: decimal("actual_response_rate", {
       precision: 5,
@@ -890,12 +832,8 @@ export const prInitiatives = pgTable(
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
@@ -923,18 +861,9 @@ export const prInitiatives = pgTable(
       sql`${table.actualResponseRate} IS NULL
         OR ${table.actualResponseRate} BETWEEN 0 AND 1`,
     ),
-    check(
-      "chk_camp_actual_coverage_non_negative",
-      sql`${table.actualCoverageCount} >= 0`,
-    ),
-    check(
-      "chk_camp_social_mention_non_negative",
-      sql`${table.socialMentionCount} >= 0`,
-    ),
-    check(
-      "chk_camp_backlink_count_non_negative",
-      sql`${table.backlinkCount} >= 0`,
-    ),
+    check("chk_camp_actual_coverage_non_negative", sql`${table.actualCoverageCount} >= 0`),
+    check("chk_camp_social_mention_non_negative", sql`${table.socialMentionCount} >= 0`),
+    check("chk_camp_backlink_count_non_negative", sql`${table.backlinkCount} >= 0`),
     check(
       "chk_camp_approved_budget_consistency",
       sql`${table.approvedBudgetNaira} IS NULL
@@ -1045,12 +974,8 @@ export const prCoverageAttribution = pgTable(
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
@@ -1084,10 +1009,7 @@ export const prCoverageAttribution = pgTable(
         OR ${table.shareOfVoice} BETWEEN 0 AND 1`,
     ),
     check("chk_cov_impressions_non_negative", sql`${table.impressions} >= 0`),
-    check(
-      "chk_cov_brand_mention_count_non_negative",
-      sql`${table.brandMentionCount} >= 0`,
-    ),
+    check("chk_cov_brand_mention_count_non_negative", sql`${table.brandMentionCount} >= 0`),
     check(
       "chk_cov_verification_consistency",
       sql`(${table.verifiedBy} IS NULL) = (${table.verifiedAt} IS NULL)`,
@@ -1099,17 +1021,12 @@ export const prCoverageAttribution = pgTable(
     index("idx_cov_journalist")
       .on(table.journalistId)
       .where(sql`${table.journalistId} IS NOT NULL`),
-    index("idx_cov_article")
-      .on(table.articleId)
-      .where(sql`${table.articleId} IS NOT NULL`),
+    index("idx_cov_article").on(table.articleId).where(sql`${table.articleId} IS NOT NULL`),
     index("idx_cov_outlet").on(table.organizationId, table.outlet),
     index("idx_cov_unverified")
       .on(table.organizationId, table.createdAt)
       .where(sql`${table.verifiedAt} IS NULL`),
-    index("idx_cov_attribution_method").on(
-      table.organizationId,
-      table.attributionMethod,
-    ),
+    index("idx_cov_attribution_method").on(table.organizationId, table.attributionMethod),
     index("idx_cov_media_type").on(table.organizationId, table.mediaType),
   ],
 );
@@ -1163,12 +1080,8 @@ export const mediaLists = pgTable(
     tags: text("tags").array(),
 
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // Static lists use memberIds; dynamic lists use criteria
@@ -1235,12 +1148,8 @@ export const pitchTemplates = pgTable(
     tags: text("tags").array(),
 
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("chk_pt_usage_count_non_negative", sql`${table.usageCount} >= 0`),
@@ -1289,9 +1198,7 @@ export const prEvents = pgTable(
 
     startAt: timestamp("start_at", { withTimezone: true }).notNull(),
     endAt: timestamp("end_at", { withTimezone: true }),
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
 
     venue: text("venue"),
     isVirtual: boolean("is_virtual").default(false).notNull(),
@@ -1309,12 +1216,8 @@ export const prEvents = pgTable(
     tags: text("tags").array(),
 
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
@@ -1358,9 +1261,7 @@ export const prEvents = pgTable(
     index("idx_pe_status").on(table.organizationId, table.status),
     index("idx_pe_upcoming")
       .on(table.organizationId, table.startAt)
-      .where(
-        sql`${table.status} IN ('planning', 'invitations_sent', 'confirmed')`,
-      ),
+      .where(sql`${table.status} IN ('planning', 'invitations_sent', 'confirmed')`),
   ],
 );
 
@@ -1408,18 +1309,11 @@ export const awardSubmissions = pgTable(
     entryFeeNaira: numeric("entry_fee_naira", { precision: 15, scale: 2 }),
 
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_asw_entry_fee_non_negative",
-      sql`${table.entryFeeNaira}::numeric >= 0`,
-    ),
+    check("chk_asw_entry_fee_non_negative", sql`${table.entryFeeNaira}::numeric >= 0`),
 
     // announcementDate must be after submissionDeadline (if both set)
     check(
@@ -1482,18 +1376,11 @@ export const analystRelations = pgTable(
     tags: text("tags").array(),
 
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_ar_briefing_count_non_negative",
-      sql`${table.briefingCount} >= 0`,
-    ),
+    check("chk_ar_briefing_count_non_negative", sql`${table.briefingCount} >= 0`),
 
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_ar_org").on(table.organizationId),
@@ -1537,44 +1424,38 @@ export const pressReleasesRelations = relations(pressReleases, ({ many }) => ({
   //   Audit → audit_log WHERE source_module = 'pr' AND resource_id = this.id
 }));
 
-export const prDistributionsRelations = relations(
-  prDistributions,
-  ({ one }) => ({
-    pressRelease: one(pressReleases, {
-      fields: [prDistributions.pressReleaseId],
-      references: [pressReleases.id],
-      relationName: "pressRelease_distributions",
-    }),
-
-    // Cross-module references (resolved at application layer):
-    //   targetJournalistIds → journalists.id (this module)
-    //   contact_interactions WHERE distribution_id = this.id
+export const prDistributionsRelations = relations(prDistributions, ({ one }) => ({
+  pressRelease: one(pressReleases, {
+    fields: [prDistributions.pressReleaseId],
+    references: [pressReleases.id],
+    relationName: "pressRelease_distributions",
   }),
-);
+
+  // Cross-module references (resolved at application layer):
+  //   targetJournalistIds → journalists.id (this module)
+  //   contact_interactions WHERE distribution_id = this.id
+}));
 
 export const prInitiativesRelations = relations(prInitiatives, (_) => ({
   // pressReleaseIds is TEXT[] — resolved at application layer:
   //   SELECT * FROM press_releases WHERE id = ANY(initiative.press_release_ids)
 }));
 
-export const prCoverageAttributionRelations = relations(
-  prCoverageAttribution,
-  ({ one }) => ({
-    pressRelease: one(pressReleases, {
-      fields: [prCoverageAttribution.pressReleaseId],
-      references: [pressReleases.id],
-      relationName: "pressRelease_coverageAttributions",
-    }),
-    journalist: one(journalists, {
-      fields: [prCoverageAttribution.journalistId],
-      references: [journalists.id],
-      relationName: "journalist_coverageAttributions",
-    }),
-
-    // Cross-module references (resolved at application layer):
-    //   articleId → media_articles.id (monitoring module)
+export const prCoverageAttributionRelations = relations(prCoverageAttribution, ({ one }) => ({
+  pressRelease: one(pressReleases, {
+    fields: [prCoverageAttribution.pressReleaseId],
+    references: [pressReleases.id],
+    relationName: "pressRelease_coverageAttributions",
   }),
-);
+  journalist: one(journalists, {
+    fields: [prCoverageAttribution.journalistId],
+    references: [journalists.id],
+    relationName: "journalist_coverageAttributions",
+  }),
+
+  // Cross-module references (resolved at application layer):
+  //   articleId → media_articles.id (monitoring module)
+}));
 
 export const mediaListsRelations = relations(mediaLists, (_) => ({
   // memberIds is TEXT[] — resolved at application layer

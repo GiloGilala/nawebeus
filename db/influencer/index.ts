@@ -84,36 +84,36 @@
 //     If branching is needed (parallel drafts), add previousSubmissionId
 //     self-FK.
 
+import { relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
   bigint,
+  boolean,
+  check,
   decimal,
-  numeric,
+  index,
+  integer,
   jsonb,
+  numeric,
+  pgTable,
+  text,
   timestamp,
   unique,
   uniqueIndex,
-  index,
-  check,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
-import {
-  influencerTierEnum,
-  influencerStatusEnum,
-  influencerProgramTypeEnum,
-  influencerProgramStatusEnum,
-  influencerAssignmentStatusEnum,
-  influencerPaymentStatusEnum,
-  influencerContentTypeEnum,
-  influencerContentStatusEnum,
-  paymentStatusEnum,
-  paymentMethodEnum,
-} from "../shared/enums";
 import { contacts } from "../shared/contacts";
+import {
+  influencerAssignmentStatusEnum,
+  influencerContentStatusEnum,
+  influencerContentTypeEnum,
+  influencerPaymentStatusEnum,
+  influencerProgramStatusEnum,
+  influencerProgramTypeEnum,
+  influencerStatusEnum,
+  influencerTierEnum,
+  paymentMethodEnum,
+  paymentStatusEnum,
+} from "../shared/enums";
 
 // =============================================================================
 // INFLUENCERS
@@ -175,15 +175,11 @@ export const influencers = pgTable(
     averageViews: integer("average_views").default(0),
 
     // ─── Scoring (all 0–100) ──────────────────────────────────────────────────
-    influenceScore: decimal("influence_score", { precision: 5, scale: 2 })
-      .default("0")
-      .notNull(),
+    influenceScore: decimal("influence_score", { precision: 5, scale: 2 }).default("0").notNull(),
     authenticityScore: decimal("authenticity_score", { precision: 5, scale: 2 })
       .default("0")
       .notNull(),
-    fraudScore: decimal("fraud_score", { precision: 5, scale: 2 })
-      .default("0")
-      .notNull(),
+    fraudScore: decimal("fraud_score", { precision: 5, scale: 2 }).default("0").notNull(),
     brandSafetyScore: decimal("brand_safety_score", { precision: 5, scale: 2 })
       .default("0")
       .notNull(),
@@ -230,43 +226,21 @@ export const influencers = pgTable(
     notes: text("notes"),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_inf_follower_count_non_negative",
-      sql`${table.followerCount} >= 0`,
-    ),
+    check("chk_inf_follower_count_non_negative", sql`${table.followerCount} >= 0`),
     check(
       "chk_inf_engagement_rate_range",
       sql`${table.engagementRate} IS NULL
         OR ${table.engagementRate} BETWEEN 0 AND 1`,
     ),
-    check(
-      "chk_inf_influence_score_range",
-      sql`${table.influenceScore} BETWEEN 0 AND 100`,
-    ),
-    check(
-      "chk_inf_authenticity_score_range",
-      sql`${table.authenticityScore} BETWEEN 0 AND 100`,
-    ),
-    check(
-      "chk_inf_fraud_score_range",
-      sql`${table.fraudScore} BETWEEN 0 AND 100`,
-    ),
-    check(
-      "chk_inf_brand_safety_score_range",
-      sql`${table.brandSafetyScore} BETWEEN 0 AND 100`,
-    ),
-    check(
-      "chk_inf_relationship_score_range",
-      sql`${table.relationshipScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_inf_influence_score_range", sql`${table.influenceScore} BETWEEN 0 AND 100`),
+    check("chk_inf_authenticity_score_range", sql`${table.authenticityScore} BETWEEN 0 AND 100`),
+    check("chk_inf_fraud_score_range", sql`${table.fraudScore} BETWEEN 0 AND 100`),
+    check("chk_inf_brand_safety_score_range", sql`${table.brandSafetyScore} BETWEEN 0 AND 100`),
+    check("chk_inf_relationship_score_range", sql`${table.relationshipScore} BETWEEN 0 AND 100`),
     check(
       "chk_inf_audience_nigerian_range",
       sql`${table.audienceNigerianPercent} IS NULL
@@ -277,10 +251,7 @@ export const influencers = pgTable(
       sql`${table.averageRating} IS NULL
         OR ${table.averageRating} BETWEEN 1 AND 5`,
     ),
-    check(
-      "chk_inf_program_count_non_negative",
-      sql`${table.programCount} >= 0`,
-    ),
+    check("chk_inf_program_count_non_negative", sql`${table.programCount} >= 0`),
 
     // Blacklist consistency: if status = 'blacklisted', all three required
     check(
@@ -332,29 +303,19 @@ export const influencerPrograms = pgTable(
 
     name: varchar("name", { length: 200 }).notNull(),
     description: text("description"),
-    programType: influencerProgramTypeEnum("campaign_type")
-      .default("brand_awareness")
-      .notNull(),
+    programType: influencerProgramTypeEnum("campaign_type").default("brand_awareness").notNull(),
 
     // ─── Timeline ─────────────────────────────────────────────────────────────
     startDate: timestamp("start_date", { withTimezone: true }).notNull(),
     endDate: timestamp("end_date", { withTimezone: true }),
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
 
     // ─── Status ───────────────────────────────────────────────────────────────
-    status: influencerProgramStatusEnum("status")
-      .default("planning")
-      .notNull(),
+    status: influencerProgramStatusEnum("status").default("planning").notNull(),
 
     // ─── Budget (Naira) ───────────────────────────────────────────────────────
-    budgetNaira: numeric("budget_naira", { precision: 15, scale: 2 })
-      .notNull()
-      .default("0"),
-    spentNaira: numeric("spent_naira", { precision: 15, scale: 2 }).default(
-      "0",
-    ),
+    budgetNaira: numeric("budget_naira", { precision: 15, scale: 2 }).notNull().default("0"),
+    spentNaira: numeric("spent_naira", { precision: 15, scale: 2 }).default("0"),
     currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
 
     // ─── Creative Brief ───────────────────────────────────────────────────────
@@ -363,9 +324,7 @@ export const influencerPrograms = pgTable(
     requiredHashtags: text("required_hashtags").array(),
     prohibitedKeywords: text("prohibited_keywords").array(),
     requiredMentions: text("required_mentions").array(),
-    requiresApconDisclosure: boolean("requires_apcon_disclosure")
-      .default(true)
-      .notNull(),
+    requiresApconDisclosure: boolean("requires_apcon_disclosure").default(true).notNull(),
 
     // ─── Targeting ────────────────────────────────────────────────────────────
     targetAudience: jsonb("target_audience"),
@@ -386,12 +345,8 @@ export const influencerPrograms = pgTable(
     }),
 
     // ─── Actual Performance (denormalized) ───────────────────────────────────
-    actualReach: bigint("actual_reach", { mode: "number" })
-      .default(0)
-      .notNull(),
-    actualEngagements: bigint("actual_engagements", { mode: "number" })
-      .default(0)
-      .notNull(),
+    actualReach: bigint("actual_reach", { mode: "number" }).default(0).notNull(),
+    actualEngagements: bigint("actual_engagements", { mode: "number" }).default(0).notNull(),
     actualConversions: integer("actual_conversions").default(0).notNull(),
     revenueAttributedNaira: numeric("revenue_attributed_naira", {
       precision: 15,
@@ -401,18 +356,11 @@ export const influencerPrograms = pgTable(
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_ic_budget_non_negative",
-      sql`${table.budgetNaira}::numeric >= 0`,
-    ),
+    check("chk_ic_budget_non_negative", sql`${table.budgetNaira}::numeric >= 0`),
     check("chk_ic_spent_non_negative", sql`${table.spentNaira}::numeric >= 0`),
     check(
       "chk_ic_spent_lte_budget",
@@ -424,14 +372,8 @@ export const influencerPrograms = pgTable(
         OR ${table.endDate} > ${table.startDate}`,
     ),
     check("chk_ic_actual_reach_non_negative", sql`${table.actualReach} >= 0`),
-    check(
-      "chk_ic_actual_engagements_non_negative",
-      sql`${table.actualEngagements} >= 0`,
-    ),
-    check(
-      "chk_ic_actual_conversions_non_negative",
-      sql`${table.actualConversions} >= 0`,
-    ),
+    check("chk_ic_actual_engagements_non_negative", sql`${table.actualEngagements} >= 0`),
+    check("chk_ic_actual_conversions_non_negative", sql`${table.actualConversions} >= 0`),
 
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_icmp_org").on(table.organizationId),
@@ -463,9 +405,7 @@ export const influencerProgramAssignments = pgTable(
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Status ───────────────────────────────────────────────────────────────
-    status: influencerAssignmentStatusEnum("status")
-      .default("identified")
-      .notNull(),
+    status: influencerAssignmentStatusEnum("status").default("identified").notNull(),
 
     // ─── Contract ─────────────────────────────────────────────────────────────
     // Structured deliverable list — see JSDoc
@@ -485,9 +425,7 @@ export const influencerProgramAssignments = pgTable(
 
     // Status rolled up from payments table:
     // pending (no payments), partial (some but not all paid), paid, overdue, refunded
-    paymentStatus: influencerPaymentStatusEnum("payment_status")
-      .default("pending")
-      .notNull(),
+    paymentStatus: influencerPaymentStatusEnum("payment_status").default("pending").notNull(),
 
     // Bank/mobile money details (encrypted at application layer)
     paymentDetails: jsonb("payment_details"),
@@ -537,19 +475,12 @@ export const influencerProgramAssignments = pgTable(
     feedbackNotes: text("feedback_notes"),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // One assignment per influencer per program
-    unique("uq_ica_program_influencer").on(
-      table.programId,
-      table.influencerId,
-    ),
+    unique("uq_ica_program_influencer").on(table.programId, table.influencerId),
 
     // couponCode unique per program (if set)
     uniqueIndex("uq_ica_program_coupon")
@@ -581,10 +512,7 @@ export const influencerProgramAssignments = pgTable(
     index("idx_ica_program").on(table.programId),
     index("idx_ica_influencer").on(table.influencerId),
     index("idx_ica_status").on(table.organizationId, table.status),
-    index("idx_ica_payment_status").on(
-      table.organizationId,
-      table.paymentStatus,
-    ),
+    index("idx_ica_payment_status").on(table.organizationId, table.paymentStatus),
     index("idx_ica_payment_overdue")
       .on(table.organizationId, table.paymentStatus)
       .where(sql`${table.paymentStatus} = 'overdue'`),
@@ -654,16 +582,11 @@ export const influencerContentSubmissions = pgTable(
     publishedAt: timestamp("published_at", { withTimezone: true }),
 
     // No updatedAt — append-only; revisions are new rows
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // revisionNumber unique per assignment
-    unique("uq_ics_assignment_revision").on(
-      table.assignmentId,
-      table.revisionNumber,
-    ),
+    unique("uq_ics_assignment_revision").on(table.assignmentId, table.revisionNumber),
 
     check(
       "chk_ics_brand_safety_score_range",
@@ -678,10 +601,7 @@ export const influencerContentSubmissions = pgTable(
     check("chk_ics_reach_non_negative", sql`${table.reach} >= 0`),
     check("chk_ics_engagements_non_negative", sql`${table.engagements} >= 0`),
     check("chk_ics_conversions_non_negative", sql`${table.conversions} >= 0`),
-    check(
-      "chk_ics_revision_number_positive",
-      sql`${table.revisionNumber} >= 1`,
-    ),
+    check("chk_ics_revision_number_positive", sql`${table.revisionNumber} >= 1`),
     check(
       "chk_ics_platform_url_status",
       sql`${table.platformUrl} IS NULL
@@ -705,9 +625,7 @@ export const influencerContentSubmissions = pgTable(
     index("idx_ics_assignment").on(table.assignmentId, table.revisionNumber),
     index("idx_ics_status").on(table.status),
     index("idx_ics_type").on(table.contentType),
-    index("idx_ics_published")
-      .on(table.publishedAt)
-      .where(sql`${table.publishedAt} IS NOT NULL`),
+    index("idx_ics_published").on(table.publishedAt).where(sql`${table.publishedAt} IS NOT NULL`),
     index("idx_ics_apcon")
       .on(table.organizationId, table.apconDisclosurePresent)
       .where(
@@ -804,12 +722,8 @@ export const influencerPayments = pgTable(
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
     paidAt: timestamp("paid_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // amountNaira must be non-zero (refunds are negative)
@@ -823,10 +737,7 @@ export const influencerPayments = pgTable(
     ),
 
     // paidAt only when status = 'completed'
-    check(
-      "chk_pay_paid_at_status",
-      sql`${table.paidAt} IS NULL OR ${table.status} = 'completed'`,
-    ),
+    check("chk_pay_paid_at_status", sql`${table.paidAt} IS NULL OR ${table.status} = 'completed'`),
 
     // invoiceUrl only when status is processing or completed
     check(
@@ -868,14 +779,11 @@ export const influencersRelations = relations(influencers, ({ one, many }) => ({
   }),
 }));
 
-export const influencerProgramsRelations = relations(
-  influencerPrograms,
-  ({ many }) => ({
-    assignments: many(influencerProgramAssignments, {
-      relationName: "program_assignments",
-    }),
+export const influencerProgramsRelations = relations(influencerPrograms, ({ many }) => ({
+  assignments: many(influencerProgramAssignments, {
+    relationName: "program_assignments",
   }),
-);
+}));
 
 export const influencerProgramAssignmentsRelations = relations(
   influencerProgramAssignments,

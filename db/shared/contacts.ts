@@ -1,21 +1,21 @@
-import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
-  jsonb,
-  timestamp,
-  unique,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
-  contactKindEnum,
-  contactInteractionTypeEnum,
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  varchar,
+} from "drizzle-orm/pg-core";
+import {
   contactInteractionDirectionEnum,
   contactInteractionOutcomeEnum,
+  contactInteractionTypeEnum,
+  contactKindEnum,
   followUpStatusEnum,
   interactionPriorityEnum,
   interactionVisibilityEnum,
@@ -183,12 +183,8 @@ export const contacts = pgTable(
     // Not FK — contact record outlives the user who added it
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -206,16 +202,10 @@ export const contacts = pgTable(
     ),
 
     // relationshipScore must be within 0-100
-    check(
-      "chk_contacts_relationship_score",
-      sql`${table.relationshipScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_contacts_relationship_score", sql`${table.relationshipScore} BETWEEN 0 AND 100`),
 
     // interactionCount must be non-negative
-    check(
-      "chk_contacts_interaction_count",
-      sql`${table.interactionCount} >= 0`,
-    ),
+    check("chk_contacts_interaction_count", sql`${table.interactionCount} >= 0`),
 
     // version must be positive (starts at 1)
     check("chk_contacts_version", sql`${table.version} >= 1`),
@@ -232,11 +222,7 @@ export const contacts = pgTable(
     // ── Primary queries ───────────────────────────────────────────────────────
 
     // Contact list — active contacts of a given kind for an org
-    index("idx_contacts_org_kind_active").on(
-      table.organizationId,
-      table.kind,
-      table.isActive,
-    ),
+    index("idx_contacts_org_kind_active").on(table.organizationId, table.kind, table.isActive),
 
     // Relationship score ranking with kind filter
     index("idx_contacts_relationship_score").on(
@@ -281,8 +267,6 @@ export const contacts = pgTable(
 
 // journalists detail table lives in pr/index.ts (shared-PK inheritance from contacts)
 // influencers detail table lives in influencer/index.ts (shared-PK inheritance from contacts)
-
-
 
 // =============================================================================
 // CONTACT INTERACTIONS
@@ -422,9 +406,7 @@ export const contactInteractions = pgTable(
     priority: interactionPriorityEnum("priority").default("medium").notNull(),
 
     // Who can see this note
-    visibility: interactionVisibilityEnum("visibility")
-      .default("organization")
-      .notNull(),
+    visibility: interactionVisibilityEnum("visibility").default("organization").notNull(),
 
     // ─── External Reference (for idempotent sync) ────────────────────────────
     // Gmail Message ID, WhatsApp ID, Slack TS, Zoom Meeting ID, etc.
@@ -442,9 +424,7 @@ export const contactInteractions = pgTable(
     followUpNote: text("follow_up_note"),
 
     // Replaces boolean followUpCompleted — see JSDoc above
-    followUpStatus: followUpStatusEnum("follow_up_status")
-      .default("pending")
-      .notNull(),
+    followUpStatus: followUpStatusEnum("follow_up_status").default("pending").notNull(),
 
     // Set when followUpStatus transitions to 'completed'
     followUpCompletedAt: timestamp("follow_up_completed_at", {
@@ -456,9 +436,7 @@ export const contactInteractions = pgTable(
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
 
     // Append-only — no updatedAt (only followUp fields can change)
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -519,27 +497,16 @@ export const contactInteractions = pgTable(
     // ── Interaction type analytics ────────────────────────────────────────────
 
     // Interaction type breakdown — "how many phone calls vs emails this month?"
-    index("idx_ci_type_created").on(
-      table.organizationId,
-      table.interactionType,
-      table.createdAt,
-    ),
+    index("idx_ci_type_created").on(table.organizationId, table.interactionType, table.createdAt),
 
     // Outcome reporting — "how many interactions resulted in coverage?"
-    index("idx_ci_outcome_created").on(
-      table.organizationId,
-      table.outcome,
-      table.createdAt,
-    ),
+    index("idx_ci_outcome_created").on(table.organizationId, table.outcome, table.createdAt),
 
     // Priority-based views — "show me urgent pending follow-ups"
     index("idx_ci_priority_status").on(table.priority, table.followUpStatus),
 
     // External reference lookup — idempotent sync from Gmail/WhatsApp/Slack
-    unique("uq_ci_org_external_ref").on(
-      table.organizationId,
-      table.externalReference,
-    ),
+    unique("uq_ci_org_external_ref").on(table.organizationId, table.externalReference),
   ],
 );
 
@@ -579,14 +546,11 @@ export const contactsRelations = relations(contacts, ({ one, many }) => ({
   }),
 }));
 
-export const contactInteractionsRelations = relations(
-  contactInteractions,
-  ({ one }) => ({
-    // Base contact row (real FK — enforced by Postgres)
-    contact: one(contacts, {
-      fields: [contactInteractions.contactId],
-      references: [contacts.id],
-      relationName: "contact_interactions",
-    }),
+export const contactInteractionsRelations = relations(contactInteractions, ({ one }) => ({
+  // Base contact row (real FK — enforced by Postgres)
+  contact: one(contacts, {
+    fields: [contactInteractions.contactId],
+    references: [contacts.id],
+    relationName: "contact_interactions",
   }),
-);
+}));

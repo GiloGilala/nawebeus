@@ -25,7 +25,10 @@ export function err(error: AppError): ErrorEnvelope {
     },
   };
   if ("details" in error && error.details) {
-    envelope.error.details = error.details as { field: string; message: string }[];
+    envelope.error.details = error.details as {
+      field: string;
+      message: string;
+    }[];
   } else if ("lockedUntil" in error && (error as { lockedUntil?: Date }).lockedUntil) {
     envelope.error.details = {
       lockedUntil: (error as { lockedUntil: Date }).lockedUntil.toISOString(),

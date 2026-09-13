@@ -1,6 +1,6 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { ForbiddenError, NotFoundError, ConflictError } from "../../lib/errors";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import { writeAuditLog } from "../audit";
 import type { MemberProfile } from "./member.service";
 
@@ -47,7 +47,11 @@ export async function assignRole(
   if (!target) throw new NotFoundError("Member not found in this organization");
 
   // --- Look up the new role ---
-  const newRoleRows = await db.execute<{ code: string; name: string; level: number }>(
+  const newRoleRows = await db.execute<{
+    code: string;
+    name: string;
+    level: number;
+  }>(
     sql`SELECT code, name, level FROM roles WHERE id = ${input.roleId} AND organization_id = ${orgId} AND deleted_at IS NULL LIMIT 1`,
   );
   const newRole = (newRoleRows as any).rows?.[0] as any;

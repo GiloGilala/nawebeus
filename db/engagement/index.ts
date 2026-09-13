@@ -112,30 +112,30 @@
 //     join is on indexed columns and only happens on response detail
 //     view, not inbox list.
 
-import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
-  decimal,
-  jsonb,
-  timestamp,
-  inet,
-  unique,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
-  platformEnum,
-  authorTierEnum,
-  sentimentLabelEnum,
-  intentLabelEnum,
-  priorityEnum,
-  engagementWorkflowStatusEnum,
-  engagementBreachTypeEnum,
+  boolean,
+  check,
+  decimal,
+  index,
+  inet,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  varchar,
+} from "drizzle-orm/pg-core";
+import {
   aiModelEnum,
+  authorTierEnum,
+  engagementBreachTypeEnum,
+  engagementWorkflowStatusEnum,
+  intentLabelEnum,
+  platformEnum,
+  priorityEnum,
+  sentimentLabelEnum,
 } from "../shared/enums";
 
 // =============================================================================
@@ -172,9 +172,7 @@ export const engagementSlaPolicies = pgTable(
     resolutionMinutes: integer("resolution_minutes"),
 
     // Alert when this % of the SLA window is consumed (default: 80%)
-    escalationThresholdPercent: integer("escalation_threshold_percent")
-      .default(80)
-      .notNull(),
+    escalationThresholdPercent: integer("escalation_threshold_percent").default(80).notNull(),
 
     // ─── Business Hours ───────────────────────────────────────────────────────
     businessHoursOnly: boolean("business_hours_only").default(false).notNull(),
@@ -183,25 +181,16 @@ export const engagementSlaPolicies = pgTable(
     businessHours: jsonb("business_hours"),
 
     // IANA timezone for SLA calculations
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
 
     isActive: boolean("is_active").default(true).notNull(),
     createdBy: varchar("created_by", { length: 32 }).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_sla_first_response_positive",
-      sql`${table.firstResponseMinutes} > 0`,
-    ),
+    check("chk_sla_first_response_positive", sql`${table.firstResponseMinutes} > 0`),
     check(
       "chk_sla_resolution_positive",
       sql`${table.resolutionMinutes} IS NULL
@@ -224,10 +213,7 @@ export const engagementSlaPolicies = pgTable(
     ),
 
     index("idx_sla_org_active").on(table.organizationId, table.isActive),
-    index("idx_sla_org_priority").on(
-      table.organizationId,
-      table.slaPolicyPriority,
-    ),
+    index("idx_sla_org_priority").on(table.organizationId, table.slaPolicyPriority),
   ],
 );
 
@@ -279,9 +265,7 @@ export const engagementMessages = pgTable(
     authorAvatarUrl: text("author_avatar_url"),
     authorFollowerCount: integer("author_follower_count").default(0).notNull(),
     authorVerified: boolean("author_verified").default(false).notNull(),
-    authorInfluenceScore: integer("author_influence_score")
-      .default(0)
-      .notNull(),
+    authorInfluenceScore: integer("author_influence_score").default(0).notNull(),
     authorTier: authorTierEnum("author_tier"),
     authorCountry: varchar("author_country", { length: 2 }),
 
@@ -395,12 +379,8 @@ export const engagementMessages = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     closedAt: timestamp("closed_at", { withTimezone: true }),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("uq_em_org_platform_message").on(
@@ -409,10 +389,7 @@ export const engagementMessages = pgTable(
       table.platformMessageId,
     ),
 
-    check(
-      "chk_em_influence_score_range",
-      sql`${table.authorInfluenceScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_em_influence_score_range", sql`${table.authorInfluenceScore} BETWEEN 0 AND 100`),
     check(
       "chk_em_sentiment_score_range",
       sql`${table.sentimentScore} IS NULL
@@ -521,31 +498,18 @@ export const engagementMessages = pgTable(
     ),
 
     // Response count non-negative
-    check(
-      "chk_em_response_count_non_negative",
-      sql`${table.responseCount} >= 0`,
-    ),
+    check("chk_em_response_count_non_negative", sql`${table.responseCount} >= 0`),
 
     // ── Indexes ───────────────────────────────────────────────────────────────
 
     // Main inbox view
-    index("idx_em_org_status").on(
-      table.organizationId,
-      table.status,
-      table.receivedAt,
-    ),
+    index("idx_em_org_status").on(table.organizationId, table.status, table.receivedAt),
 
     // Newest-first inbox (your suggestion)
-    index("idx_em_org_received_desc").on(
-      table.organizationId,
-      table.receivedAt,
-    ),
+    index("idx_em_org_received_desc").on(table.organizationId, table.receivedAt),
 
     // Active conversations sorted by recent activity
-    index("idx_em_org_last_activity").on(
-      table.organizationId,
-      table.lastActivityAt,
-    ),
+    index("idx_em_org_last_activity").on(table.organizationId, table.lastActivityAt),
 
     // Agent's inbox
     index("idx_em_assignee")
@@ -574,18 +538,10 @@ export const engagementMessages = pgTable(
     index("idx_em_platform_thread").on(table.platform, table.platformThreadId),
 
     // Platform filter
-    index("idx_em_platform").on(
-      table.organizationId,
-      table.platform,
-      table.receivedAt,
-    ),
+    index("idx_em_platform").on(table.organizationId, table.platform, table.receivedAt),
 
     // Sentiment filter
-    index("idx_em_sentiment").on(
-      table.organizationId,
-      table.sentimentLabel,
-      table.receivedAt,
-    ),
+    index("idx_em_sentiment").on(table.organizationId, table.sentimentLabel, table.receivedAt),
 
     // SLA policy lookup
     index("idx_em_sla_policy").on(table.slaPolicyId),
@@ -700,12 +656,8 @@ export const engagementResponses = pgTable(
     // ─── Versioning ───────────────────────────────────────────────────────────
     version: integer("version").default(1).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
@@ -767,9 +719,7 @@ export const engagementResponses = pgTable(
 
     index("idx_er_message").on(table.messageId, table.createdAt),
 
-    index("idx_er_scheduled")
-      .on(table.scheduledFor)
-      .where(sql`${table.status} = 'scheduled'`),
+    index("idx_er_scheduled").on(table.scheduledFor).where(sql`${table.status} = 'scheduled'`),
 
     index("idx_er_approval")
       .on(table.approvalRequestId)
@@ -832,23 +782,13 @@ export const engagementRoutingRules = pgTable(
     lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
     lastErrorMessage: text("last_error_message"),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("chk_err_priority_positive", sql`${table.routingRulePriority} > 0`),
-    check(
-      "chk_err_evaluation_count_non_negative",
-      sql`${table.evaluationCount} >= 0`,
-    ),
-    check(
-      "chk_err_match_lte_evaluation",
-      sql`${table.matchCount} <= ${table.evaluationCount}`,
-    ),
+    check("chk_err_evaluation_count_non_negative", sql`${table.evaluationCount} >= 0`),
+    check("chk_err_match_lte_evaluation", sql`${table.matchCount} <= ${table.evaluationCount}`),
 
     // lastErrorAt only valid when lastErrorMessage is set
     check(
@@ -913,16 +853,11 @@ export const engagementSlaBreaches = pgTable(
     escalatedAt: timestamp("escalated_at", { withTimezone: true }),
 
     // No updatedAt — append-only
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("chk_slb_minutes_overdue_positive", sql`${table.minutesOverdue} > 0`),
-    check(
-      "chk_slb_breached_after_started",
-      sql`${table.breachedAt} > ${table.slaStartedAt}`,
-    ),
+    check("chk_slb_breached_after_started", sql`${table.breachedAt} > ${table.slaStartedAt}`),
     check(
       "chk_slb_escalation_consistency",
       sql`(${table.escalatedTo} IS NULL) = (${table.escalatedAt} IS NULL)`,
@@ -1008,9 +943,7 @@ export const engagementAiSuggestions = pgTable(
     feedbackAt: timestamp("feedback_at", { withTimezone: true }),
 
     // No updatedAt — suggestions are immutable once created
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
@@ -1054,135 +987,117 @@ export const engagementAiSuggestions = pgTable(
 // RELATIONS
 // =============================================================================
 
-export const engagementSlaPoliciesRelations = relations(
-  engagementSlaPolicies,
-  ({ many }) => ({
-    messages: many(engagementMessages, {
-      relationName: "slaPolicy_messages",
-    }),
-    slaBreaches: many(engagementSlaBreaches, {
-      relationName: "slaPolicy_breaches",
-    }),
+export const engagementSlaPoliciesRelations = relations(engagementSlaPolicies, ({ many }) => ({
+  messages: many(engagementMessages, {
+    relationName: "slaPolicy_messages",
   }),
-);
-
-export const engagementMessagesRelations = relations(
-  engagementMessages,
-  ({ one, many }) => ({
-    slaPolicy: one(engagementSlaPolicies, {
-      fields: [engagementMessages.slaPolicyId],
-      references: [engagementSlaPolicies.id],
-      relationName: "slaPolicy_messages",
-    }),
-
-    parentMessage: one(engagementMessages, {
-      fields: [engagementMessages.parentMessageId],
-      references: [engagementMessages.id],
-      relationName: "engagementMessage_replies",
-    }),
-    childMessages: many(engagementMessages, {
-      relationName: "engagementMessage_replies",
-    }),
-
-    rootMessage: one(engagementMessages, {
-      fields: [engagementMessages.rootMessageId],
-      references: [engagementMessages.id],
-      relationName: "engagementMessage_thread",
-    }),
-    threadMessages: many(engagementMessages, {
-      relationName: "engagementMessage_thread",
-    }),
-
-    mergedInto: one(engagementMessages, {
-      fields: [engagementMessages.mergedIntoMessageId],
-      references: [engagementMessages.id],
-      relationName: "engagementMessage_mergedMessages",
-    }),
-    mergedMessages: many(engagementMessages, {
-      relationName: "engagementMessage_mergedMessages",
-    }),
-
-    responses: many(engagementResponses, {
-      relationName: "message_responses",
-    }),
-
-    slaBreaches: many(engagementSlaBreaches, {
-      relationName: "message_slaBreaches",
-    }),
-
-    aiSuggestions: many(engagementAiSuggestions, {
-      relationName: "message_aiSuggestions",
-    }),
-
-    // Cross-module references (resolved at application layer):
-    //   Attachments → media_assets WHERE attached_to_type = 'engagement_response'
-    //     AND attached_to_id IN (responses for this message)
-    //   Approval → approval_requests WHERE entity_type = 'engagement_response'
-    //   Audit → audit_log WHERE source_module = 'engagement'
-    //   Performance → analytics_aggregates WHERE dimension_2 = 'engagement_summary'
+  slaBreaches: many(engagementSlaBreaches, {
+    relationName: "slaPolicy_breaches",
   }),
-);
+}));
 
-export const engagementResponsesRelations = relations(
-  engagementResponses,
-  ({ one }) => ({
-    message: one(engagementMessages, {
-      fields: [engagementResponses.messageId],
-      references: [engagementMessages.id],
-      relationName: "message_responses",
-    }),
-
-    aiSuggestion: one(engagementAiSuggestions, {
-      fields: [engagementResponses.aiSuggestionId],
-      references: [engagementAiSuggestions.id],
-      relationName: "aiSuggestion_response",
-    }),
-
-    // Cross-module references (resolved at application layer):
-    //   templateId → templates.id
-    //   approvalRequestId → approval_requests.id
-    //   Attachments → media_assets WHERE attached_to_id = this.id
+export const engagementMessagesRelations = relations(engagementMessages, ({ one, many }) => ({
+  slaPolicy: one(engagementSlaPolicies, {
+    fields: [engagementMessages.slaPolicyId],
+    references: [engagementSlaPolicies.id],
+    relationName: "slaPolicy_messages",
   }),
-);
 
-export const engagementRoutingRulesRelations = relations(
-  engagementRoutingRules,
-  () => ({
-    // No Drizzle relations — rule conditions/actions reference IDs
-    // stored as JSONB, resolved at the application layer.
+  parentMessage: one(engagementMessages, {
+    fields: [engagementMessages.parentMessageId],
+    references: [engagementMessages.id],
+    relationName: "engagementMessage_replies",
   }),
-);
-
-export const engagementSlaBreachesRelations = relations(
-  engagementSlaBreaches,
-  ({ one }) => ({
-    message: one(engagementMessages, {
-      fields: [engagementSlaBreaches.messageId],
-      references: [engagementMessages.id],
-      relationName: "message_slaBreaches",
-    }),
-
-    slaPolicy: one(engagementSlaPolicies, {
-      fields: [engagementSlaBreaches.slaPolicyId],
-      references: [engagementSlaPolicies.id],
-      relationName: "slaPolicy_breaches",
-    }),
+  childMessages: many(engagementMessages, {
+    relationName: "engagementMessage_replies",
   }),
-);
 
-export const engagementAiSuggestionsRelations = relations(
-  engagementAiSuggestions,
-  ({ one }) => ({
-    message: one(engagementMessages, {
-      fields: [engagementAiSuggestions.messageId],
-      references: [engagementMessages.id],
-      relationName: "message_aiSuggestions",
-    }),
-
-    usedInResponse: one(engagementResponses, {
-      fields: [engagementAiSuggestions.usedInResponseId],
-      references: [engagementResponses.id],
-      relationName: "aiSuggestion_response",
-    }),
+  rootMessage: one(engagementMessages, {
+    fields: [engagementMessages.rootMessageId],
+    references: [engagementMessages.id],
+    relationName: "engagementMessage_thread",
   }),
-);
+  threadMessages: many(engagementMessages, {
+    relationName: "engagementMessage_thread",
+  }),
+
+  mergedInto: one(engagementMessages, {
+    fields: [engagementMessages.mergedIntoMessageId],
+    references: [engagementMessages.id],
+    relationName: "engagementMessage_mergedMessages",
+  }),
+  mergedMessages: many(engagementMessages, {
+    relationName: "engagementMessage_mergedMessages",
+  }),
+
+  responses: many(engagementResponses, {
+    relationName: "message_responses",
+  }),
+
+  slaBreaches: many(engagementSlaBreaches, {
+    relationName: "message_slaBreaches",
+  }),
+
+  aiSuggestions: many(engagementAiSuggestions, {
+    relationName: "message_aiSuggestions",
+  }),
+
+  // Cross-module references (resolved at application layer):
+  //   Attachments → media_assets WHERE attached_to_type = 'engagement_response'
+  //     AND attached_to_id IN (responses for this message)
+  //   Approval → approval_requests WHERE entity_type = 'engagement_response'
+  //   Audit → audit_log WHERE source_module = 'engagement'
+  //   Performance → analytics_aggregates WHERE dimension_2 = 'engagement_summary'
+}));
+
+export const engagementResponsesRelations = relations(engagementResponses, ({ one }) => ({
+  message: one(engagementMessages, {
+    fields: [engagementResponses.messageId],
+    references: [engagementMessages.id],
+    relationName: "message_responses",
+  }),
+
+  aiSuggestion: one(engagementAiSuggestions, {
+    fields: [engagementResponses.aiSuggestionId],
+    references: [engagementAiSuggestions.id],
+    relationName: "aiSuggestion_response",
+  }),
+
+  // Cross-module references (resolved at application layer):
+  //   templateId → templates.id
+  //   approvalRequestId → approval_requests.id
+  //   Attachments → media_assets WHERE attached_to_id = this.id
+}));
+
+export const engagementRoutingRulesRelations = relations(engagementRoutingRules, () => ({
+  // No Drizzle relations — rule conditions/actions reference IDs
+  // stored as JSONB, resolved at the application layer.
+}));
+
+export const engagementSlaBreachesRelations = relations(engagementSlaBreaches, ({ one }) => ({
+  message: one(engagementMessages, {
+    fields: [engagementSlaBreaches.messageId],
+    references: [engagementMessages.id],
+    relationName: "message_slaBreaches",
+  }),
+
+  slaPolicy: one(engagementSlaPolicies, {
+    fields: [engagementSlaBreaches.slaPolicyId],
+    references: [engagementSlaPolicies.id],
+    relationName: "slaPolicy_breaches",
+  }),
+}));
+
+export const engagementAiSuggestionsRelations = relations(engagementAiSuggestions, ({ one }) => ({
+  message: one(engagementMessages, {
+    fields: [engagementAiSuggestions.messageId],
+    references: [engagementMessages.id],
+    relationName: "message_aiSuggestions",
+  }),
+
+  usedInResponse: one(engagementResponses, {
+    fields: [engagementAiSuggestions.usedInResponseId],
+    references: [engagementResponses.id],
+    relationName: "aiSuggestion_response",
+  }),
+}));

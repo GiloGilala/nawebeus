@@ -1,13 +1,13 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { getUserByEmail } from "../users/user.service";
-import { createToken, consumeToken } from "./tokens";
-import { recordPasswordChange, isPasswordInHistory } from "./password-history";
-import { emailService } from "../email";
-import { writeAuditLog } from "../audit";
-import { validatePassword } from "../../lib/password";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { AuthError, ConflictError, NotFoundError } from "../../lib/errors";
+import { validatePassword } from "../../lib/password";
+import { writeAuditLog } from "../audit";
+import { emailService } from "../email";
+import { getUserByEmail } from "../users/user.service";
+import { isPasswordInHistory, recordPasswordChange } from "./password-history";
 import { revokeAllSessionsForUser } from "./session";
+import { consumeToken, createToken } from "./tokens";
 
 const RESET_TTL_MINUTES = 60;
 
@@ -83,7 +83,9 @@ export async function resetPassword(
     email: user.email,
   });
   if (!validation.valid) {
-    throw new ConflictError(`Password does not meet complexity requirements: ${validation.errors.join("; ")}`);
+    throw new ConflictError(
+      `Password does not meet complexity requirements: ${validation.errors.join("; ")}`,
+    );
   }
 
   const inHistory = await isPasswordInHistory(db, token.userId, newPassword);
@@ -113,11 +115,24 @@ export async function resetPassword(
 async function getUserById(
   db: NodePgDatabase<Record<string, any>>,
   userId: string,
-): Promise<{ id: string; email: string; username: string; status: string } | null> {
-  const rows = await db.execute<{ id: string; email: string; username: string; status: string }>(
-    sql`SELECT id, email, username, status FROM users WHERE id = ${userId} LIMIT 1`,
-  );
+): Promise<{
+  id: string;
+  email: string;
+  username: string;
+  status: string;
+} | null> {
+  const rows = await db.execute<{
+    id: string;
+    email: string;
+    username: string;
+    status: string;
+  }>(sql`SELECT id, email, username, status FROM users WHERE id = ${userId} LIMIT 1`);
   const row = (rows as any).rows?.[0] as any;
   if (!row) return null;
-  return { id: row.id, email: row.email, username: row.username, status: row.status };
+  return {
+    id: row.id,
+    email: row.email,
+    username: row.username,
+    status: row.status,
+  };
 }

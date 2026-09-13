@@ -1,8 +1,8 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../../lib/errors";
-import { revokeAllSessionsForUser } from "../auth/session";
 import { writeAuditLog } from "../audit";
+import { revokeAllSessionsForUser } from "../auth/session";
 
 const DELETION_GRACE_DAYS = 30;
 
@@ -118,9 +118,10 @@ export async function getAccountDeletionStatus(
   db: NodePgDatabase<Record<string, any>>,
   userId: string,
 ): Promise<{ deleted: boolean; scheduledDeletionAt: string | null }> {
-  const rows = await db.execute<{ deleted_at: string | null; scheduled_deletion_at: string | null }>(
-    sql`SELECT deleted_at, scheduled_deletion_at FROM users WHERE id = ${userId} LIMIT 1`,
-  );
+  const rows = await db.execute<{
+    deleted_at: string | null;
+    scheduled_deletion_at: string | null;
+  }>(sql`SELECT deleted_at, scheduled_deletion_at FROM users WHERE id = ${userId} LIMIT 1`);
   const row = (rows as any).rows?.[0] as any;
   if (!row) throw new NotFoundError("Account not found");
   return {

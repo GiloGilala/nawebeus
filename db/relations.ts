@@ -41,63 +41,51 @@
 //   engagement/index.ts  — engagement_responses → templates (shared/templates)
 
 import { relations } from "drizzle-orm";
-
-// ─── Shared modules ──────────────────────────────────────────────────────────
-import { contacts, contactInteractions } from "./shared/contacts";
-import { approvalRequests, approvalHistory } from "./shared/approval";
-import { alertRules, alertEvents } from "./shared/alerts";
-import { templates } from "./shared/templates";
-import { mediaAssets } from "./shared/media";
-import { auditLog } from "./shared/audit";
+import { campaignEntries, campaignEntryMethods, campaigns } from "./campaigns/index";
+import { carts, orders, productDiscounts, productSyncLogs, products } from "./commerce/index";
 import {
-  analyticsAggregates,
-  analyticsMetrics,
-  analyticsDashboards,
-  analyticsReports,
-  analyticsEvents,
-} from "./shared/analytics";
-
-// ─── Domain modules ──────────────────────────────────────────────────────────
-import {
-  journalists,
-  pressReleases,
-  prDistributions,
-  prInitiatives,
-  prCoverageAttribution,
-} from "./pr/index";
-import {
-  influencers,
-  influencerPrograms,
-  influencerProgramAssignments,
-  influencerContentSubmissions,
-} from "./influencer/index";
-import {
-  monitoringCampaigns,
-  mediaArticles,
-  monitoringCompetitors,
-  crisisIncidents,
-} from "./monitoring/index";
-import {
-  engagementSlaPolicies,
+  engagementAiSuggestions,
   engagementMessages,
   engagementResponses,
   engagementRoutingRules,
   engagementSlaBreaches,
-  engagementAiSuggestions,
+  engagementSlaPolicies,
 } from "./engagement/index";
+import {
+  influencerContentSubmissions,
+  influencerProgramAssignments,
+  influencerPrograms,
+  influencers,
+} from "./influencer/index";
+import {
+  crisisIncidents,
+  mediaArticles,
+  monitoringCampaigns,
+  monitoringCompetitors,
+} from "./monitoring/index";
+// ─── Domain modules ──────────────────────────────────────────────────────────
+import {
+  journalists,
+  prCoverageAttribution,
+  prDistributions,
+  pressReleases,
+  prInitiatives,
+} from "./pr/index";
 import { posts, publishingResults } from "./publishing/index";
+import { alertEvents, alertRules } from "./shared/alerts";
 import {
-  products,
-  productDiscounts,
-  orders,
-  carts,
-  productSyncLogs,
-} from "./commerce/index";
-import {
-  campaigns,
-  campaignEntries,
-  campaignEntryMethods,
-} from "./campaigns/index";
+  analyticsAggregates,
+  analyticsDashboards,
+  analyticsEvents,
+  analyticsMetrics,
+  analyticsReports,
+} from "./shared/analytics";
+import { approvalHistory, approvalRequests } from "./shared/approval";
+import { auditLog } from "./shared/audit";
+// ─── Shared modules ──────────────────────────────────────────────────────────
+import { contactInteractions, contacts } from "./shared/contacts";
+import { mediaAssets } from "./shared/media";
+import { templates } from "./shared/templates";
 
 // =============================================================================
 // CONTACTS ↔ DETAIL TABLES
@@ -114,29 +102,26 @@ import {
  * These relations are declared here (not in contacts.ts) because
  * contacts.ts is in shared/ and can't import from pr/ or influencer/.
  */
-export const contactsCrossModuleRelations = relations(
-  contacts,
-  ({ one, many }) => ({
-    // Detail table for journalists (pr module)
-    journalist: one(journalists, {
-      fields: [contacts.id],
-      references: [journalists.id],
-      relationName: "contact_journalist",
-    }),
-
-    // Detail table for influencers (influencer module)
-    influencer: one(influencers, {
-      fields: [contacts.id],
-      references: [influencers.id],
-      relationName: "contact_influencer",
-    }),
-
-    // All interactions for this contact (across all modules)
-    interactions: many(contactInteractions, {
-      relationName: "contact_interactions",
-    }),
+export const contactsCrossModuleRelations = relations(contacts, ({ one, many }) => ({
+  // Detail table for journalists (pr module)
+  journalist: one(journalists, {
+    fields: [contacts.id],
+    references: [journalists.id],
+    relationName: "contact_journalist",
   }),
-);
+
+  // Detail table for influencers (influencer module)
+  influencer: one(influencers, {
+    fields: [contacts.id],
+    references: [influencers.id],
+    relationName: "contact_influencer",
+  }),
+
+  // All interactions for this contact (across all modules)
+  interactions: many(contactInteractions, {
+    relationName: "contact_interactions",
+  }),
+}));
 
 /**
  * contact_interactions → press_releases (pr module)
@@ -192,31 +177,28 @@ export const contactInteractionsCrossModuleRelations = relations(
  * correctly with just entityType + entityId string matching — these
  * relations only add .with({ post: true }) query support.
  */
-export const approvalRequestsCrossModuleRelations = relations(
-  approvalRequests,
-  ({ one }) => ({
-    // When entityType = 'post'
-    post: one(posts, {
-      fields: [approvalRequests.entityId],
-      references: [posts.id],
-      relationName: "approvalRequest_post",
-    }),
-
-    // When entityType = 'press_release'
-    pressRelease: one(pressReleases, {
-      fields: [approvalRequests.entityId],
-      references: [pressReleases.id],
-      relationName: "approvalRequest_pressRelease",
-    }),
-
-    // When entityType = 'engagement_response'
-    engagementResponse: one(engagementResponses, {
-      fields: [approvalRequests.entityId],
-      references: [engagementResponses.id],
-      relationName: "approvalRequest_engagementResponse",
-    }),
+export const approvalRequestsCrossModuleRelations = relations(approvalRequests, ({ one }) => ({
+  // When entityType = 'post'
+  post: one(posts, {
+    fields: [approvalRequests.entityId],
+    references: [posts.id],
+    relationName: "approvalRequest_post",
   }),
-);
+
+  // When entityType = 'press_release'
+  pressRelease: one(pressReleases, {
+    fields: [approvalRequests.entityId],
+    references: [pressReleases.id],
+    relationName: "approvalRequest_pressRelease",
+  }),
+
+  // When entityType = 'engagement_response'
+  engagementResponse: one(engagementResponses, {
+    fields: [approvalRequests.entityId],
+    references: [engagementResponses.id],
+    relationName: "approvalRequest_engagementResponse",
+  }),
+}));
 
 // =============================================================================
 // CRISIS INCIDENTS ↔ ALERT EVENTS
@@ -229,17 +211,14 @@ export const approvalRequestsCrossModuleRelations = relations(
  * to the alert_event that detected the crisis. This forms the
  * traceability chain: alert_rule → alert_event → crisis_incident.
  */
-export const crisisIncidentsCrossModuleRelations = relations(
-  crisisIncidents,
-  ({ one }) => ({
-    // The alert event that triggered this crisis
-    originAlertEvent: one(alertEvents, {
-      fields: [crisisIncidents.originAlertEventId],
-      references: [alertEvents.id],
-      relationName: "crisisIncident_originAlertEvent",
-    }),
+export const crisisIncidentsCrossModuleRelations = relations(crisisIncidents, ({ one }) => ({
+  // The alert event that triggered this crisis
+  originAlertEvent: one(alertEvents, {
+    fields: [crisisIncidents.originAlertEventId],
+    references: [alertEvents.id],
+    relationName: "crisisIncident_originAlertEvent",
   }),
-);
+}));
 
 // =============================================================================
 // PR COVERAGE ↔ MONITORING ARTICLES
@@ -314,17 +293,14 @@ export const postsCrossModuleRelations = relations(posts, ({ one }) => ({
 /**
  * press_releases → approval_requests (shared/approval.ts)
  */
-export const pressReleasesCrossModuleRelations = relations(
-  pressReleases,
-  ({ one }) => ({
-    // Current pending approval request
-    currentApprovalRequest: one(approvalRequests, {
-      fields: [pressReleases.currentApprovalRequestId],
-      references: [approvalRequests.id],
-      relationName: "pressRelease_currentApprovalRequest",
-    }),
+export const pressReleasesCrossModuleRelations = relations(pressReleases, ({ one }) => ({
+  // Current pending approval request
+  currentApprovalRequest: one(approvalRequests, {
+    fields: [pressReleases.currentApprovalRequestId],
+    references: [approvalRequests.id],
+    relationName: "pressRelease_currentApprovalRequest",
   }),
-);
+}));
 
 /**
  * engagement_responses → templates (shared/templates.ts)
@@ -356,14 +332,11 @@ export const engagementResponsesCrossModuleRelations = relations(
 /**
  * campaigns → templates (shared/templates.ts)
  */
-export const campaignsCrossModuleRelations = relations(
-  campaigns,
-  ({ one }) => ({
-    // The template this campaign was created from
-    template: one(templates, {
-      fields: [campaigns.templateId],
-      references: [templates.id],
-      relationName: "campaign_template",
-    }),
+export const campaignsCrossModuleRelations = relations(campaigns, ({ one }) => ({
+  // The template this campaign was created from
+  template: one(templates, {
+    fields: [campaigns.templateId],
+    references: [templates.id],
+    relationName: "campaign_template",
   }),
-);
+}));

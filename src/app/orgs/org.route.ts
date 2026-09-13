@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { authMiddleware } from "../../server/middleware/auth";
-import { requireAbility } from "../../server/middleware/rbac";
-import { requireOrgMatch } from "../../server/middleware/org-match";
-import { listUserOrgs, getOrg, updateOrg, isOrgMember } from "../../services/orgs/org.service";
-import { success } from "../../lib/response";
 import { ForbiddenError } from "../../lib/errors";
+import { success } from "../../lib/response";
+import { authMiddleware } from "../../server/middleware/auth";
+import { requireOrgMatch } from "../../server/middleware/org-match";
+import { requireAbility } from "../../server/middleware/rbac";
+import { getOrg, isOrgMember, listUserOrgs, updateOrg } from "../../services/orgs/org.service";
 
 const updateOrgSchema = z.object({
   name: z.string().min(1).max(200).optional(),

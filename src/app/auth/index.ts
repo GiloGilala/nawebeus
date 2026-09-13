@@ -1,12 +1,12 @@
 import { Hono } from "hono";
-import { signupRouter } from "./signup.route";
+import { mfaRouter } from "./mfa.route";
+import { passwordResetRouter } from "./password-reset.route";
+import { refreshRouter } from "./refresh.route";
+import { sessionsRouter } from "./sessions.route";
 import { signinRouter } from "./signin.route";
 import { signoutRouter } from "./signout.route";
-import { refreshRouter } from "./refresh.route";
+import { signupRouter } from "./signup.route";
 import { verificationRouter } from "./verification.route";
-import { passwordResetRouter } from "./password-reset.route";
-import { mfaRouter } from "./mfa.route";
-import { sessionsRouter } from "./sessions.route";
 
 const authRouter = new Hono();
 

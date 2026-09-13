@@ -1,14 +1,14 @@
+import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { sql } from "drizzle-orm";
+import { ForbiddenError, ValidationError } from "../../lib/errors";
+import { getOrgContext } from "../../lib/org-context";
+import { success } from "../../lib/response";
 import { authMiddleware } from "../../server/middleware/auth";
 import { requireOrgMatch } from "../../server/middleware/org-match";
 import { requireAbility } from "../../server/middleware/rbac";
+import { bulkInviteMembers, inviteMember } from "../../services/orgs/invitation.service";
 import { assignRole } from "../../services/orgs/role-assignment.service";
-import { inviteMember, bulkInviteMembers } from "../../services/orgs/invitation.service";
-import { ValidationError, ForbiddenError } from "../../lib/errors";
-import { success } from "../../lib/response";
-import { getOrgContext } from "../../lib/org-context";
 
 const assignRoleSchema = z.object({
   userId: z.string().uuid(),
@@ -113,7 +113,12 @@ router.post("/orgs/:orgId/members/invite/bulk", requireAbility("create", "member
   const parsed = bulkInviteSchema.parse(body);
 
   const result = await bulkInviteMembers(db, orgId, actingUserId, parsed.csv as any);
-  return c.json(success({ successes: result.successes.length, failures: result.failures }));
+  return c.json(
+    success({
+      successes: result.successes.length,
+      failures: result.failures,
+    }),
+  );
 });
 
 export { router as roleRouter };

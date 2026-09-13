@@ -1,11 +1,11 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { AbilityBuilder, createMongoAbility } from "@casl/ability";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { loadConfig } from "../../lib/config";
+import type { AppAbility } from "../../server/middleware/auth";
 import { errorHandler } from "../../server/middleware/error-handler";
 import { requireAbility } from "../../server/middleware/rbac";
-import { AbilityBuilder, createMongoAbility } from "@casl/ability";
-import type { AppAbility } from "../../server/middleware/auth";
-import { loadConfig } from "../../lib/config";
 import { createTestApp } from "../helpers/test-client";
 import { withTestDb } from "../helpers/test-db";
 
@@ -20,7 +20,7 @@ describe("requireAbility — no DB needed", () => {
     for (const [k, v] of Object.entries(testEnv)) process.env[k] ??= v;
   });
   afterAll(() => {
-    for (const k of Object.keys(testEnv)) delete process.env[k];
+    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
   });
 
   test("missing ability on context returns 403", async () => {
@@ -91,7 +91,7 @@ describe.skipIf(!hasDb())("RBAC integration", () => {
     loadConfig();
   });
   afterAll(() => {
-    for (const k of Object.keys(testEnv)) delete process.env[k];
+    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
   });
 
   test("authMiddleware loads ability for valid user", async () => {
@@ -100,17 +100,17 @@ describe.skipIf(!hasDb())("RBAC integration", () => {
       const { requireAbility } = await import("../../server/middleware/rbac");
 
       const app = createTestApp(db);
-      app.get(
-        "/api/protected",
-        authMiddleware,
-        requireAbility("read", "users"),
-        (c) => c.json({ data: { ok: true } }),
+      app.get("/api/protected", authMiddleware, requireAbility("read", "users"), (c) =>
+        c.json({ data: { ok: true } }),
       );
 
       const signinRes = await app.request("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "admin@nawebeus.com", password: "Admin@123456" }),
+        body: JSON.stringify({
+          email: "admin@nawebeus.com",
+          password: "Admin@123456",
+        }),
       });
 
       const cookie = signinRes.headers.get("set-cookie") ?? "";
@@ -128,17 +128,17 @@ describe.skipIf(!hasDb())("RBAC integration", () => {
       const { requireAbility } = await import("../../server/middleware/rbac");
 
       const app = createTestApp(db);
-      app.get(
-        "/api/secret",
-        authMiddleware,
-        requireAbility("delete", "nonexistent"),
-        (c) => c.json({ ok: true }),
+      app.get("/api/secret", authMiddleware, requireAbility("delete", "nonexistent"), (c) =>
+        c.json({ ok: true }),
       );
 
       const signinRes = await app.request("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "admin@nawebeus.com", password: "Admin@123456" }),
+        body: JSON.stringify({
+          email: "admin@nawebeus.com",
+          password: "Admin@123456",
+        }),
       });
 
       const cookie = signinRes.headers.get("set-cookie") ?? "";

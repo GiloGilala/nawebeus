@@ -118,11 +118,7 @@ export const publishingResultStatusEnum = pgEnum("publishing_result_status", [
   "cancelled",
 ]);
 
-export const scheduleTypeEnum = pgEnum("schedule_type", [
-  "immediate",
-  "scheduled",
-  "recurring",
-]);
+export const scheduleTypeEnum = pgEnum("schedule_type", ["immediate", "scheduled", "recurring"]);
 
 // =============================================================================
 // APPROVAL
@@ -270,6 +266,12 @@ export const auditCategoryEnum = pgEnum("audit_category", [
 export const auditSourceModuleEnum = pgEnum("audit_source_module", [
   "core",
   "admin",
+  // `compliance` and `security` are referenced by unified_audit_log's CHECK
+  // constraints and partial indexes, and by AuditModule in
+  // src/services/audit.ts. Omitting them made the enum reject its own
+  // constraints, which broke `bun run db:push` outright.
+  "compliance",
+  "security",
   "engagement",
   "publishing",
   "listening",
@@ -374,10 +376,7 @@ export const moderationStatusEnum = pgEnum("moderation_status", [
  * The two contact subtypes that currently exist.
  * Extend when customers, vendors, or partners are added.
  */
-export const contactKindEnum = pgEnum("contact_kind", [
-  "journalist",
-  "influencer",
-]);
+export const contactKindEnum = pgEnum("contact_kind", ["journalist", "influencer"]);
 
 /**
  * Unified interaction type covering both journalist and influencer interactions.
@@ -467,10 +466,11 @@ export const contactInteractionTypeEnum = pgEnum("contact_interaction_type", [
   "contract_signed",
 ]);
 
-export const contactInteractionDirectionEnum = pgEnum(
-  "contact_interaction_direction",
-  ["inbound", "outbound", "automatic"],
-);
+export const contactInteractionDirectionEnum = pgEnum("contact_interaction_direction", [
+  "inbound",
+  "outbound",
+  "automatic",
+]);
 
 /**
  * Unified outcome covering both journalist and influencer interaction outcomes.
@@ -479,24 +479,21 @@ export const contactInteractionDirectionEnum = pgEnum(
  *   prInteractionOutcomeEnum         (pr module)
  *   influencerInteractionOutcomeEnum (influencer module)
  */
-export const contactInteractionOutcomeEnum = pgEnum(
-  "contact_interaction_outcome",
-  [
-    // Shared
-    "positive",
-    "neutral",
-    "negative",
-    "no_response",
-    // Journalist-specific
-    "coverage",
-    "meeting_scheduled",
-    "interview_scheduled",
-    // Influencer-specific
-    "content_published",
-    "contract_signed",
-    "declined",
-  ],
-);
+export const contactInteractionOutcomeEnum = pgEnum("contact_interaction_outcome", [
+  // Shared
+  "positive",
+  "neutral",
+  "negative",
+  "no_response",
+  // Journalist-specific
+  "coverage",
+  "meeting_scheduled",
+  "interview_scheduled",
+  // Influencer-specific
+  "content_published",
+  "contract_signed",
+  "declined",
+]);
 
 // =============================================================================
 // ANALYTICS
@@ -519,10 +516,15 @@ export const analyticsMetricTypeEnum = pgEnum("analytics_metric_type", [
   "ratio",
 ]);
 
-export const analyticsAggregationMethodEnum = pgEnum(
-  "analytics_aggregation_method",
-  ["sum", "avg", "count", "min", "max", "last", "median"],
-);
+export const analyticsAggregationMethodEnum = pgEnum("analytics_aggregation_method", [
+  "sum",
+  "avg",
+  "count",
+  "min",
+  "max",
+  "last",
+  "median",
+]);
 
 export const analyticsExportFormatEnum = pgEnum("analytics_export_format", [
   "csv",
@@ -632,12 +634,7 @@ export const industryEnum = pgEnum("industry", [
   "other",
 ]);
 
-export const deviceTypeEnum = pgEnum("device_type", [
-  "desktop",
-  "mobile",
-  "tablet",
-  "unknown",
-]);
+export const deviceTypeEnum = pgEnum("device_type", ["desktop", "mobile", "tablet", "unknown"]);
 
 export const loginFailureReasonEnum = pgEnum("login_failure_reason", [
   "invalid_password",
@@ -705,10 +702,7 @@ export const retentionActionEnum = pgEnum("retention_action", [
 // APP CONFIG (merged system_config + feature_flags)
 // =============================================================================
 
-export const configKindEnum = pgEnum("config_kind", [
-  "system_config",
-  "feature_flag",
-]);
+export const configKindEnum = pgEnum("config_kind", ["system_config", "feature_flag"]);
 
 export const configEnvironmentEnum = pgEnum("config_environment", [
   "development",
@@ -765,10 +759,13 @@ export const socialAccountStatusEnum = pgEnum("social_account_status", [
   "pending_verification",
 ]);
 
-export const socialAccountOperationTypeEnum = pgEnum(
-  "social_account_operation_type",
-  ["health_check", "token_refresh", "sync", "reconnect", "disconnect"],
-);
+export const socialAccountOperationTypeEnum = pgEnum("social_account_operation_type", [
+  "health_check",
+  "token_refresh",
+  "sync",
+  "reconnect",
+  "disconnect",
+]);
 
 export const tokenRefreshTriggerEnum = pgEnum("token_refresh_trigger", [
   "proactive",
@@ -781,10 +778,11 @@ export const tokenRefreshTriggerEnum = pgEnum("token_refresh_trigger", [
 // LISTENING & MONITORING
 // =============================================================================
 
-export const monitoringCampaignStatusEnum = pgEnum(
-  "monitoring_campaign_status",
-  ["active", "paused", "archived"],
-);
+export const monitoringCampaignStatusEnum = pgEnum("monitoring_campaign_status", [
+  "active",
+  "paused",
+  "archived",
+]);
 
 export const mediaArticleSourceTypeEnum = pgEnum("media_article_source_type", [
   "newspaper",
@@ -823,12 +821,7 @@ export const newsSourceTypeEnum = pgEnum("news_source_type", [
  * Source tier — replaces the integer-based sourceTier on media_articles.
  * tier_1 = major national/international, tier_4 = blogs/independent media.
  */
-export const sourceTierEnum = pgEnum("source_tier", [
-  "tier_1",
-  "tier_2",
-  "tier_3",
-  "tier_4",
-]);
+export const sourceTierEnum = pgEnum("source_tier", ["tier_1", "tier_2", "tier_3", "tier_4"]);
 
 export const sourceStatusEnum = pgEnum("source_status", [
   "active",
@@ -861,10 +854,12 @@ export const politicalLeaningEnum = pgEnum("political_leaning", [
   "unknown",
 ]);
 
-export const mediaArticleIngestSourceEnum = pgEnum(
-  "media_article_ingest_source",
-  ["social_listening", "pr_monitoring", "wire", "manual"],
-);
+export const mediaArticleIngestSourceEnum = pgEnum("media_article_ingest_source", [
+  "social_listening",
+  "pr_monitoring",
+  "wire",
+  "manual",
+]);
 
 export const brandMentionContextEnum = pgEnum("brand_mention_context", [
   "primary",
@@ -880,13 +875,7 @@ export const crisisStatusEnum = pgEnum("crisis_status", [
   "false_positive",
 ]);
 
-export const authorTierEnum = pgEnum("author_tier", [
-  "mega",
-  "macro",
-  "mid",
-  "micro",
-  "nano",
-]);
+export const authorTierEnum = pgEnum("author_tier", ["mega", "macro", "mid", "micro", "nano"]);
 
 export const competitorCategoryEnum = pgEnum("competitor_category", [
   "direct",
@@ -945,35 +934,27 @@ export const processingStatusEnum = pgEnum("processing_status", [
  * Response states: draft → pending_review → approved → sent
  *                        → failed → scheduled → cancelled
  */
-export const engagementWorkflowStatusEnum = pgEnum(
-  "engagement_workflow_status",
-  [
-    // Message states
-    "new",
-    "assigned",
-    "in_progress",
-    "awaiting_info",
-    "awaiting_customer",
-    "resolved",
-    "closed",
-    "snoozed",
-    // Response states
-    "draft",
-    "pending_review",
-    "approved",
-    "sent",
-    "failed",
-    "scheduled",
-    "cancelled",
-  ],
-);
-
-export const priorityEnum = pgEnum("engagement_priority", [
-  "critical",
-  "high",
-  "medium",
-  "low",
+export const engagementWorkflowStatusEnum = pgEnum("engagement_workflow_status", [
+  // Message states
+  "new",
+  "assigned",
+  "in_progress",
+  "awaiting_info",
+  "awaiting_customer",
+  "resolved",
+  "closed",
+  "snoozed",
+  // Response states
+  "draft",
+  "pending_review",
+  "approved",
+  "sent",
+  "failed",
+  "scheduled",
+  "cancelled",
 ]);
+
+export const priorityEnum = pgEnum("engagement_priority", ["critical", "high", "medium", "low"]);
 
 export const aiModelEnum = pgEnum("ai_model", [
   "gpt-4",
@@ -1007,16 +988,14 @@ export const journalistContactMethodEnum = pgEnum("journalist_contact_method", [
   "telegram",
 ]);
 
-export const journalistNdprConsentStatusEnum = pgEnum(
-  "journalist_ndpr_consent_status",
-  ["pending", "granted", "withdrawn", "expired"],
-);
-
-export const journalistTierEnum = pgEnum("journalist_tier", [
-  "tier1",
-  "tier2",
-  "tier3",
+export const journalistNdprConsentStatusEnum = pgEnum("journalist_ndpr_consent_status", [
+  "pending",
+  "granted",
+  "withdrawn",
+  "expired",
 ]);
+
+export const journalistTierEnum = pgEnum("journalist_tier", ["tier1", "tier2", "tier3"]);
 
 export const prAttributionMethodEnum = pgEnum("pr_attribution_method", [
   "keyword_match",
@@ -1062,27 +1041,28 @@ export const influencerProgramTypeEnum = pgEnum("influencer_program_type", [
   "crisis_response",
 ]);
 
-export const influencerProgramStatusEnum = pgEnum(
-  "influencer_program_status",
-  ["planning", "active", "paused", "completed", "archived", "cancelled"],
-);
+export const influencerProgramStatusEnum = pgEnum("influencer_program_status", [
+  "planning",
+  "active",
+  "paused",
+  "completed",
+  "archived",
+  "cancelled",
+]);
 
-export const influencerAssignmentStatusEnum = pgEnum(
-  "influencer_assignment_status",
-  [
-    "identified",
-    "invited",
-    "negotiating",
-    "accepted",
-    "declined",
-    "contracted",
-    "content_submitted",
-    "content_approved",
-    "published",
-    "completed",
-    "cancelled",
-  ],
-);
+export const influencerAssignmentStatusEnum = pgEnum("influencer_assignment_status", [
+  "identified",
+  "invited",
+  "negotiating",
+  "accepted",
+  "declined",
+  "contracted",
+  "content_submitted",
+  "content_approved",
+  "published",
+  "completed",
+  "cancelled",
+]);
 
 export const influencerPaymentStatusEnum = pgEnum("influencer_payment_status", [
   "pending",
@@ -1224,22 +1204,19 @@ export const giveawayCampaignStatusEnum = pgEnum("giveaway_campaign_status", [
   "archived",
 ]);
 
-export const campaignEntryMethodTypeEnum = pgEnum(
-  "campaign_entry_method_type",
-  [
-    "follow",
-    "like",
-    "comment",
-    "share",
-    "tag_friends",
-    "visit_website",
-    "email_subscribe",
-    "refer_friend",
-    "custom",
-    "purchase",
-    "review",
-  ],
-);
+export const campaignEntryMethodTypeEnum = pgEnum("campaign_entry_method_type", [
+  "follow",
+  "like",
+  "comment",
+  "share",
+  "tag_friends",
+  "visit_website",
+  "email_subscribe",
+  "refer_friend",
+  "custom",
+  "purchase",
+  "review",
+]);
 
 export const entrySourceEnum = pgEnum("entry_source", [
   "web",
@@ -1281,12 +1258,7 @@ export const winnerStatusEnum = pgEnum("winner_status", [
   "expired",
 ]);
 
-export const fraudRiskLevelEnum = pgEnum("fraud_risk_level", [
-  "low",
-  "medium",
-  "high",
-  "critical",
-]);
+export const fraudRiskLevelEnum = pgEnum("fraud_risk_level", ["low", "medium", "high", "critical"]);
 
 export const contentTypeEnum = pgEnum("content_type", [
   "form",
@@ -1308,13 +1280,7 @@ export const paymentMethodTypeEnum = pgEnum("payment_method_type", [
   "ussd",
 ]);
 
-export const cardBrandEnum = pgEnum("card_brand", [
-  "visa",
-  "mastercard",
-  "verve",
-  "amex",
-  "other",
-]);
+export const cardBrandEnum = pgEnum("card_brand", ["visa", "mastercard", "verve", "amex", "other"]);
 
 export const invoiceStatusEnum = pgEnum("invoice_status", [
   "draft",
@@ -1362,142 +1328,253 @@ export const usageMetricTypeEnum = pgEnum("usage_metric_type", [
 // SESSION
 // =============================================================================
 
-export const sessionTypePgEnum = pgEnum('session_type', ['web', 'mobile', 'api', 'cli'])
+export const sessionTypePgEnum = pgEnum("session_type", ["web", "mobile", "api", "cli"]);
 
-export const loginMethodPgEnum = pgEnum('login_method', ['password', 'oauth', 'sso'])
+export const loginMethodPgEnum = pgEnum("login_method", ["password", "oauth", "sso"]);
 
-export const securityLevelPgEnum = pgEnum('security_level', ['low', 'medium', 'high', 'critical'])
+export const securityLevelPgEnum = pgEnum("security_level", ["low", "medium", "high", "critical"]);
 
-export const sessionStatusPgEnum = pgEnum('session_status', ['active', 'expired', 'revoked'])
+export const sessionStatusPgEnum = pgEnum("session_status", ["active", "expired", "revoked"]);
 
 // =============================================================================
 // ROLE
 // =============================================================================
 
-export const roleTypePgEnum = pgEnum('role_type', ['system', 'custom'])
+export const roleTypePgEnum = pgEnum("role_type", ["system", "custom"]);
 
-export const roleScopePgEnum = pgEnum('role_scope', ['global', 'organization', 'project'])
+export const roleScopePgEnum = pgEnum("role_scope", ["global", "organization", "project"]);
 
-export const roleStatusPgEnum = pgEnum('role_status', ['active', 'inactive', 'archived'])
+export const roleStatusPgEnum = pgEnum("role_status", ["active", "inactive", "archived"]);
 
 // =============================================================================
 // ROLE ASSIGNMENT
 // =============================================================================
 
-export const roleAssignmentSourcePgEnum = pgEnum('role_assignment_source', ['system', 'manual', 'inherited'])
+export const roleAssignmentSourcePgEnum = pgEnum("role_assignment_source", [
+  "system",
+  "manual",
+  "inherited",
+]);
 
-export const roleAssignmentStatusPgEnum = pgEnum('role_assignment_status', ['active', 'revoked', 'pending'])
+export const roleAssignmentStatusPgEnum = pgEnum("role_assignment_status", [
+  "active",
+  "revoked",
+  "pending",
+]);
 
-export const roleAssignmentStatusEnum = roleAssignmentStatusPgEnum
+export const roleAssignmentStatusEnum = roleAssignmentStatusPgEnum;
 
 // =============================================================================
 // PERMISSION
 // =============================================================================
 
-export const permissionScopePgEnum = pgEnum('permission_scope', ['global', 'organization', 'resource'])
+export const permissionScopePgEnum = pgEnum("permission_scope", [
+  "global",
+  "organization",
+  "resource",
+]);
 
-export const permissionTypePgEnum = pgEnum('permission_type', ['read', 'write', 'execute', 'admin', 'system'])
+export const permissionTypePgEnum = pgEnum("permission_type", [
+  "read",
+  "write",
+  "execute",
+  "admin",
+  "system",
+]);
 
-export const permissionStatusPgEnum = pgEnum('permission_status', ['active', 'inactive', 'revoked'])
+export const permissionStatusPgEnum = pgEnum("permission_status", [
+  "active",
+  "inactive",
+  "revoked",
+]);
 
 // =============================================================================
 // API KEY
 // =============================================================================
 
-export const apiKeyStatusPgEnum = pgEnum('api_key_status', ['active', 'inactive', 'revoked'])
+export const apiKeyStatusPgEnum = pgEnum("api_key_status", ["active", "inactive", "revoked"]);
 
-export const apiKeyTypePgEnum = pgEnum('api_key_type', ['read', 'write', 'admin'])
+export const apiKeyTypePgEnum = pgEnum("api_key_type", ["read", "write", "admin"]);
 
-export const apiKeyPermissionLevelPgEnum = pgEnum('api_key_permission_level', ['read', 'write', 'admin', 'read_only'])
+export const apiKeyPermissionLevelPgEnum = pgEnum("api_key_permission_level", [
+  "read",
+  "write",
+  "admin",
+  "read_only",
+]);
 
-export const apiKeyEnvironmentPgEnum = pgEnum('api_key_environment', ['production', 'staging', 'development'])
+export const apiKeyEnvironmentPgEnum = pgEnum("api_key_environment", [
+  "production",
+  "staging",
+  "development",
+]);
 
-export const apiKeySecurityLevelPgEnum = pgEnum('api_key_security_level', ['low', 'medium', 'high', 'standard'])
+export const apiKeySecurityLevelPgEnum = pgEnum("api_key_security_level", [
+  "low",
+  "medium",
+  "high",
+  "critical",
+  "standard",
+]);
 
-export const keyRotationStrategyPgEnum = pgEnum('key_rotation_strategy', ['manual', 'automatic', 'periodic', 'none'])
+export const keyRotationStrategyPgEnum = pgEnum("key_rotation_strategy", [
+  "manual",
+  "automatic",
+  "periodic",
+  "none",
+]);
 
-export const revocationTypePgEnum = pgEnum('revocation_type', ['user', 'admin', 'system', 'security', 'manual'])
+export const revocationTypePgEnum = pgEnum("revocation_type", [
+  "user",
+  "admin",
+  "system",
+  "security",
+  "manual",
+]);
 
 // =============================================================================
 // OAUTH
 // =============================================================================
 
-export const oauthProviderEnum = pgEnum('oauth_provider', ['google', 'github', 'microsoft', 'apple'])
+export const oauthProviderEnum = pgEnum("oauth_provider", [
+  "google",
+  "github",
+  "microsoft",
+  "apple",
+]);
 
-export const oauthProviderPgEnum = oauthProviderEnum
+export const oauthProviderPgEnum = oauthProviderEnum;
 
-export const oauthStatusEnum = pgEnum('oauth_status', ['active', 'inactive', 'revoked'])
+export const oauthStatusEnum = pgEnum("oauth_status", ["active", "inactive", "revoked"]);
 
-export const oauthConnectionStatusEnum = pgEnum('oauth_connection_status', ['active', 'pending', 'revoked'])
+export const oauthConnectionStatusEnum = pgEnum("oauth_connection_status", [
+  "active",
+  "pending",
+  "revoked",
+]);
 
-export const oauthScopeEnum = pgEnum('oauth_scope', ['read', 'write', 'admin'])
+export const oauthScopeEnum = pgEnum("oauth_scope", ["read", "write", "admin"]);
 
-export const oauthTokenStatusEnum = pgEnum('oauth_token_status', ['active', 'expired', 'revoked'])
+export const oauthTokenStatusEnum = pgEnum("oauth_token_status", ["active", "expired", "revoked"]);
 
-export const oauthAccountStatusPgEnum = pgEnum('oauth_account_status', ['active', 'inactive', 'revoked'])
+export const oauthAccountStatusPgEnum = pgEnum("oauth_account_status", [
+  "active",
+  "inactive",
+  "revoked",
+]);
 
-export const connectionStatusPgEnum = pgEnum('connection_status', ['active', 'pending', 'revoked', 'connected'])
+export const connectionStatusPgEnum = pgEnum("connection_status", [
+  "active",
+  "pending",
+  "revoked",
+  "connected",
+]);
 
-export const consentLevelPgEnum = pgEnum('consent_level', ['none', 'partial', 'full', 'basic'])
+export const consentLevelPgEnum = pgEnum("consent_level", ["none", "partial", "full", "basic"]);
 
 // =============================================================================
 // TOKEN
 // =============================================================================
 
-export const tokenTypePgEnum = pgEnum('token_type', ['access', 'refresh', 'email_verification', 'password_reset', 'invite'])
+export const tokenTypePgEnum = pgEnum("token_type", [
+  "access",
+  "refresh",
+  "email_verification",
+  "password_reset",
+  "invite",
+  "otp",
+  "magic_link",
+]);
 
-export const tokenStatusPgEnum = pgEnum('token_status', ['active', 'expired', 'revoked', 'valid'])
+export const tokenStatusPgEnum = pgEnum("token_status", ["active", "expired", "revoked", "valid"]);
 
-export const revokeReasonPgEnum = pgEnum('revoke_reason', ['user', 'admin', 'security', 'timeout', 'password_change'])
+export const revokeReasonPgEnum = pgEnum("revoke_reason", [
+  "user",
+  "admin",
+  "security",
+  "timeout",
+  "password_change",
+]);
 
 // =============================================================================
 // USER ROLE
 // =============================================================================
 
-export const userRoleAssignmentStatusPgEnum = pgEnum('user_role_assignment_status', ['active', 'revoked', 'pending'])
+export const userRoleAssignmentStatusPgEnum = pgEnum("user_role_assignment_status", [
+  "active",
+  "revoked",
+  "pending",
+]);
 
-export const userRoleSourcePgEnum = pgEnum('user_role_source', ['system', 'manual', 'inherited'])
+export const userRoleSourcePgEnum = pgEnum("user_role_source", ["system", "manual", "inherited"]);
 
 // =============================================================================
 // SUBSCRIPTION & USER
 // =============================================================================
 
-export const subscriptionPlanPgEnum = pgEnum('subscription_plan', ['free', 'starter', 'professional', 'enterprise'])
+export const subscriptionPlanPgEnum = pgEnum("subscription_plan", [
+  "free",
+  "starter",
+  "professional",
+  "enterprise",
+]);
 
-export const profileVisibilityPgEnum = pgEnum('profile_visibility', ['public', 'org_only', 'private'])
+export const profileVisibilityPgEnum = pgEnum("profile_visibility", [
+  "public",
+  "org_only",
+  "private",
+]);
 
-export const pgUserThemeEnum = pgEnum('user_theme', ['light', 'dark', 'system'])
+export const pgUserThemeEnum = pgEnum("user_theme", ["light", "dark", "system"]);
 
-export const roleValueTypePgEnum = pgEnum('role_value_type', ['admin', 'member', 'viewer', 'user'])
+export const roleValueTypePgEnum = pgEnum("role_value_type", ["admin", "member", "viewer", "user"]);
 
 // =============================================================================
 // ENGAGEMENT LEVEL
 // =============================================================================
 
-export const engagementLevelPgEnum = pgEnum('engagement_level', ['none', 'low', 'medium', 'high', 'full', 'active'])
+export const engagementLevelPgEnum = pgEnum("engagement_level", [
+  "none",
+  "low",
+  "medium",
+  "high",
+  "full",
+  "active",
+]);
 
 // =============================================================================
 // ORGANIZATION
 // =============================================================================
 
-export const organizationTypePgEnum = pgEnum('organization_type', ['individual', 'company', 'agency', 'government', 'team'])
+export const organizationTypePgEnum = pgEnum("organization_type", [
+  "individual",
+  "company",
+  "agency",
+  "government",
+  "team",
+]);
 
-export const organizationStatusPgEnum = pgEnum('organization_status', ['active', 'suspended', 'deleted', 'pending'])
+export const organizationStatusPgEnum = pgEnum("organization_status", [
+  "active",
+  "suspended",
+  "deleted",
+  "pending",
+]);
 
 // =============================================================================
 // ALIASES (import names that differ from the canonical enum name)
 // =============================================================================
 
-export const deviceTypePgEnum = deviceTypeEnum
+export const deviceTypePgEnum = deviceTypeEnum;
 
-export const platformPgEnum = platformEnum
+export const platformPgEnum = platformEnum;
 
-export const invitationStatusPgEnum = invitationStatusEnum
+export const invitationStatusPgEnum = invitationStatusEnum;
 
-export const memberStatusPgEnum = memberStatusEnum
+export const memberStatusPgEnum = memberStatusEnum;
 
-export const industryPgEnum = industryEnum
+export const industryPgEnum = industryEnum;
 
-export const userStatusPgEnum = userStatusEnum
+export const userStatusPgEnum = userStatusEnum;
 
-export const userRoleStatusPgEnum = userStatusEnum
+export const userRoleStatusPgEnum = userStatusEnum;

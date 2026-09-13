@@ -1,7 +1,7 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { hashPassword } from "./password";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { PASSWORD_RULES } from "../../lib/password";
+import { hashPassword } from "./password";
 
 export async function recordPasswordChange(
   db: NodePgDatabase<Record<string, any>>,

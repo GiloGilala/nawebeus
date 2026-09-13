@@ -1,4 +1,6 @@
 // @/db/schemas/billing/plans.ts
+
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -11,17 +13,16 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
-import { subscriptions } from "./subscriptions";
-import {
-  subscriptionPlanPgEnum,
-  planStatusPgEnum,
-  pricingModelPgEnum,
-  currencyPgEnum,
-} from "../shared/enums";
-import { PlanFeatures } from "@/server/billing/types/plan-types";
+import type { PlanFeatures } from "@/server/billing/types/plan-types";
 import { users } from "../core/users";
 import { tablePrefix } from "../schema-utils";
+import {
+  currencyPgEnum,
+  planStatusPgEnum,
+  pricingModelPgEnum,
+  subscriptionPlanPgEnum,
+} from "../shared/enums";
+import { subscriptions } from "./subscriptions";
 
 // ============================================
 // DEFAULT FEATURES - SOCIAL PLAN
@@ -132,9 +133,7 @@ export const plans = pgTable(
     // ============================================
     // PRICING
     // ============================================
-    pricingModel: pricingModelPgEnum("pricing_model")
-      .notNull()
-      .default("flat_rate"),
+    pricingModel: pricingModelPgEnum("pricing_model").notNull().default("flat_rate"),
 
     // Base pricing (in cents)
     priceMonthly: integer("price_monthly"),
@@ -172,14 +171,9 @@ export const plans = pgTable(
     // ============================================
     // FEATURES & LIMITS
     // ============================================
-    features: jsonb("features")
-      .$type<PlanFeatures>()
-      .notNull()
-      .default(defaultFeatures),
+    features: jsonb("features").$type<PlanFeatures>().notNull().default(defaultFeatures),
 
-    featureHighlights: jsonb("feature_highlights")
-      .$type<string[]>()
-      .default([]),
+    featureHighlights: jsonb("feature_highlights").$type<string[]>().default([]),
 
     upcomingFeatures: jsonb("upcoming_features").$type<string[]>().default([]),
 
@@ -198,12 +192,8 @@ export const plans = pgTable(
     allowDowngrade: boolean("allow_downgrade").notNull().default(true),
 
     // Geographic availability
-    availableCountries: jsonb("available_countries")
-      .$type<string[]>()
-      .default([]),
-    restrictedCountries: jsonb("restricted_countries")
-      .$type<string[]>()
-      .default([]),
+    availableCountries: jsonb("available_countries").$type<string[]>().default([]),
+    restrictedCountries: jsonb("restricted_countries").$type<string[]>().default([]),
 
     // ============================================
     // PROCESSOR INTEGRATION
@@ -232,13 +222,9 @@ export const plans = pgTable(
     minimumSeats: integer("minimum_seats").default(1),
     maximumSeats: integer("maximum_seats"),
 
-    requiresBusinessEmail: boolean("requires_business_email")
-      .notNull()
-      .default(false),
+    requiresBusinessEmail: boolean("requires_business_email").notNull().default(false),
     requiresContract: boolean("requires_contract").notNull().default(false),
-    requiresSalesContact: boolean("requires_sales_contact")
-      .notNull()
-      .default(false),
+    requiresSalesContact: boolean("requires_sales_contact").notNull().default(false),
 
     // Commitment
     minimumCommitmentMonths: integer("minimum_commitment_months").default(0),
@@ -279,12 +265,8 @@ export const plans = pgTable(
     // ============================================
     // UPGRADE RULES
     // ============================================
-    allowedUpgradeTargets: jsonb("allowed_upgrade_targets")
-      .$type<string[]>()
-      .default([]),
-    allowedDowngradeTargets: jsonb("allowed_downgrade_targets")
-      .$type<string[]>()
-      .default([]),
+    allowedUpgradeTargets: jsonb("allowed_upgrade_targets").$type<string[]>().default([]),
+    allowedDowngradeTargets: jsonb("allowed_downgrade_targets").$type<string[]>().default([]),
 
     // ============================================
     // BILLING CYCLE LIMITS
@@ -333,9 +315,7 @@ export const plans = pgTable(
     expiryDate: timestamp("expiry_date", { withTimezone: true }),
 
     // Grandfathering
-    allowGrandfathering: boolean("allow_grandfathering")
-      .notNull()
-      .default(false),
+    allowGrandfathering: boolean("allow_grandfathering").notNull().default(false),
     grandfatheringUntil: timestamp("grandfathering_until", {
       withTimezone: true,
     }),
@@ -360,9 +340,7 @@ export const plans = pgTable(
     // ============================================
     // TIMESTAMPS & LIFECYCLE
     // ============================================
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull()
@@ -378,9 +356,7 @@ export const plans = pgTable(
     // ============================================
     // UNIQUE CONSTRAINTS
     // ============================================
-    uniqueIndex("plans_slug_unique")
-      .on(table.slug)
-      .where(sql`archived_at IS NULL`),
+    uniqueIndex("plans_slug_unique").on(table.slug).where(sql`archived_at IS NULL`),
 
     // ============================================
     // CORE INDEXES
@@ -430,29 +406,27 @@ export const plans = pgTable(
     // COMPOSITE INDEXES
     // ============================================
     // Active public plans for pricing page
-    index("plans_public_active_idx").on(
-      table.sortOrder,
-      table.isPublic,
-      table.status,
-    ).where(sql`
+    index("plans_public_active_idx")
+      .on(table.sortOrder, table.isPublic, table.status)
+      .where(sql`
         is_public = true 
         AND status = 'active' 
         AND archived_at IS NULL
       `),
 
     // Plans available for signup
-    index("plans_available_for_signup_idx").on(
-      table.tier,
-      table.allowNewSignups,
-      table.status,
-    ).where(sql`
+    index("plans_available_for_signup_idx")
+      .on(table.tier, table.allowNewSignups, table.status)
+      .where(sql`
         allow_new_signups = true 
         AND status = 'active' 
         AND archived_at IS NULL
       `),
 
     // Featured plans
-    index("plans_featured_idx").on(table.sortOrder, table.isFeatured).where(sql`
+    index("plans_featured_idx")
+      .on(table.sortOrder, table.isFeatured)
+      .where(sql`
         is_featured = true 
         AND is_public = true 
         AND status = 'active' 
@@ -460,11 +434,9 @@ export const plans = pgTable(
       `),
 
     // Current active plans
-    index("plans_current_active_idx").on(
-      table.effectiveDate,
-      table.expiryDate,
-      table.status,
-    ).where(sql`
+    index("plans_current_active_idx")
+      .on(table.effectiveDate, table.expiryDate, table.status)
+      .where(sql`
         status = 'active' 
         AND archived_at IS NULL
       `),
@@ -472,13 +444,9 @@ export const plans = pgTable(
     // ============================================
     // JSONB GIN INDEXES
     // ============================================
-    index("plans_features_gin_idx")
-      .using("gin", table.features)
-      .where(sql`features IS NOT NULL`),
+    index("plans_features_gin_idx").using("gin", table.features).where(sql`features IS NOT NULL`),
 
-    index("plans_metadata_gin_idx")
-      .using("gin", table.metadata)
-      .where(sql`metadata IS NOT NULL`),
+    index("plans_metadata_gin_idx").using("gin", table.metadata).where(sql`metadata IS NOT NULL`),
 
     index("plans_comparison_features_gin_idx")
       .using("gin", table.comparisonFeatures)
@@ -543,9 +511,7 @@ export const planSelectors = {
     slug: plans.slug,
     tier: plans.tier,
     displayName: plans.displayName,
-    productType: sql<
-      PlanFeatures["productType"]
-    >`${plans.features}->>'productType'`,
+    productType: sql<PlanFeatures["productType"]>`${plans.features}->>'productType'`,
     priceMonthly: plans.priceMonthly,
     priceAnnual: plans.priceAnnual,
     currency: plans.currency,
@@ -559,9 +525,7 @@ export const planSelectors = {
     slug: plans.slug,
     tier: plans.tier,
     displayName: plans.displayName,
-    productType: sql<
-      PlanFeatures["productType"]
-    >`${plans.features}->>'productType'`,
+    productType: sql<PlanFeatures["productType"]>`${plans.features}->>'productType'`,
     description: plans.description,
     tagline: plans.tagline,
     priceMonthly: plans.priceMonthly,

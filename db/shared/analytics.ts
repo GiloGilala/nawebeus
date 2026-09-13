@@ -1,29 +1,29 @@
+import { desc, relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
   bigint,
+  boolean,
+  check,
   decimal,
-  numeric,
-  jsonb,
-  timestamp,
-  unique,
   index,
+  inet,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
   primaryKey,
   serial,
-  inet,
-  check,
+  text,
+  timestamp,
+  unique,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql, desc } from "drizzle-orm";
 import {
-  analyticsGranularityEnum,
-  analyticsMetricTypeEnum,
   analyticsAggregationMethodEnum,
+  analyticsEventSourceEnum,
   analyticsExportFormatEnum,
   analyticsExportStatusEnum,
-  analyticsEventSourceEnum,
+  analyticsGranularityEnum,
+  analyticsMetricTypeEnum,
 } from "../shared/enums";
 
 // =============================================================================
@@ -111,9 +111,7 @@ export const analyticsEvents = pgTable(
 
     // When the event was written to the database
     // May differ from eventTimestamp for delayed/batched writes
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -127,18 +125,12 @@ export const analyticsEvents = pgTable(
 
     // eventTimestamp must be a valid past/present timestamp
     // (allows up to 24h clock skew; rejects far-future or pre-epoch dates)
-    check(
-      "chk_aev_event_timestamp",
-      sql`${table.eventTimestamp} <= now() + interval '24 hours'`,
-    ),
+    check("chk_aev_event_timestamp", sql`${table.eventTimestamp} <= now() + interval '24 hours'`),
 
     // ── Primary time-series query ────────────────────────────────────────────
 
     // Primary time-series query — org events in time order
-    index("idx_aev_org_time").on(
-      table.organizationId,
-      desc(table.eventTimestamp),
-    ),
+    index("idx_aev_org_time").on(table.organizationId, desc(table.eventTimestamp)),
 
     // Event type lookup — "how many posts were published this week?"
     index("idx_aev_type_time").on(table.eventType, desc(table.eventTimestamp)),
@@ -221,9 +213,7 @@ export const analyticsMetrics = pgTable(
     aggregationMethod: analyticsAggregationMethodEnum("aggregation_method")
       .default("sum")
       .notNull(),
-    defaultGranularity: analyticsGranularityEnum("default_granularity")
-      .default("day")
-      .notNull(),
+    defaultGranularity: analyticsGranularityEnum("default_granularity").default("day").notNull(),
 
     // ─── Display Formatting ──────────────────────────────────────────────────
     currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
@@ -240,12 +230,8 @@ export const analyticsMetrics = pgTable(
     // Not FK — metric definitions outlive their creators
     createdById: varchar("created_by_id", { length: 32 }),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -274,10 +260,7 @@ export const analyticsMetrics = pgTable(
     ),
 
     // decimals must be in valid range
-    check(
-      "chk_am_decimals_range",
-      sql`${table.decimals} >= 0 AND ${table.decimals} <= 10`,
-    ),
+    check("chk_am_decimals_range", sql`${table.decimals} >= 0 AND ${table.decimals} <= 10`),
 
     // ── Uniqueness ───────────────────────────────────────────────────────────
 
@@ -289,17 +272,13 @@ export const analyticsMetrics = pgTable(
     // ── Primary lookups ──────────────────────────────────────────────────────
 
     // Active metrics for an org (includes system metrics via NULL org)
-    index("idx_am_org_active")
-      .on(table.organizationId)
-      .where(sql`${table.isActive} = TRUE`),
+    index("idx_am_org_active").on(table.organizationId).where(sql`${table.isActive} = TRUE`),
 
     // Category grouping — used by metric selector in dashboard builder
     index("idx_am_category").on(table.category),
 
     // System metric lookup — used at application startup to cache definitions
-    index("idx_am_system")
-      .on(table.name)
-      .where(sql`${table.isSystem} = TRUE`),
+    index("idx_am_system").on(table.name).where(sql`${table.isSystem} = TRUE`),
 
     // GIN index on tags — applied via raw SQL migration:
     // CREATE INDEX idx_am_tags ON analytics_metrics USING GIN(tags);
@@ -523,11 +502,7 @@ export const analyticsAggregates = pgTable(
       .where(sql`${table.platform} != ''`),
 
     // Entity history — "show me reach for post XYZ over time"
-    index("idx_aag_entity_time").on(
-      table.dimension1,
-      table.dimension2,
-      desc(table.timeBucket),
-    ),
+    index("idx_aag_entity_time").on(table.dimension1, table.dimension2, desc(table.timeBucket)),
 
     // Granularity filter — dashboard queries always specify granularity
     index("idx_aag_org_granularity_time").on(
@@ -603,9 +578,7 @@ export const analyticsDashboards = pgTable(
 
     // Auto-refresh interval in seconds — 0 = no auto-refresh
     // Default: 300 (5 minutes)
-    refreshIntervalSeconds: integer("refresh_interval_seconds")
-      .default(300)
-      .notNull(),
+    refreshIntervalSeconds: integer("refresh_interval_seconds").default(300).notNull(),
 
     // ─── Sharing ─────────────────────────────────────────────────────────────
     isShared: boolean("is_shared").default(false).notNull(),
@@ -620,12 +593,8 @@ export const analyticsDashboards = pgTable(
     // Not FK — dashboard outlives creator if they leave the org
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 
     // Soft delete — hard delete via retention policy after 30 days
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -735,9 +704,7 @@ export const analyticsReports = pgTable(
     recipients: jsonb("recipients"),
 
     // ─── Delivery Options ────────────────────────────────────────────────────
-    deliveryFormat: analyticsExportFormatEnum("delivery_format")
-      .default("pdf")
-      .notNull(),
+    deliveryFormat: analyticsExportFormatEnum("delivery_format").default("pdf").notNull(),
     includeRawData: boolean("include_raw_data").default(false).notNull(),
     includeCharts: boolean("include_charts").default(true).notNull(),
 
@@ -758,20 +725,14 @@ export const analyticsReports = pgTable(
     // ─── Schedule Tracking ───────────────────────────────────────────────────
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),
-    consecutiveFailureCount: integer("consecutive_failure_count")
-      .default(0)
-      .notNull(),
+    consecutiveFailureCount: integer("consecutive_failure_count").default(0).notNull(),
 
     // ─── Audit ───────────────────────────────────────────────────────────────
     // Not FK — report outlives creator if they leave the org
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -837,9 +798,7 @@ export const analyticsReports = pgTable(
     index("idx_ar_org").on(table.organizationId, desc(table.createdAt)),
 
     // Scheduled report runner — find reports due for execution
-    index("idx_ar_scheduled_next_run")
-      .on(table.nextRunAt)
-      .where(sql`${table.isScheduled} = TRUE`),
+    index("idx_ar_scheduled_next_run").on(table.nextRunAt).where(sql`${table.isScheduled} = TRUE`),
 
     // Failed schedule alerting — reports failing repeatedly
     index("idx_ar_failing")
@@ -847,9 +806,7 @@ export const analyticsReports = pgTable(
       .where(sql`${table.consecutiveFailureCount} > 2`),
 
     // White-label reports — Agency tier feature flag check
-    index("idx_ar_white_label")
-      .on(table.organizationId)
-      .where(sql`${table.isWhiteLabel} = TRUE`),
+    index("idx_ar_white_label").on(table.organizationId).where(sql`${table.isWhiteLabel} = TRUE`),
 
     // Creator's own reports
     index("idx_ar_creator").on(table.createdById),
@@ -894,22 +851,16 @@ export const analyticsMetricsRelations = relations(analyticsMetrics, (_) => ({
   // Declared in shared/alerts.ts to avoid circular import
 }));
 
-export const analyticsAggregatesRelations = relations(
-  analyticsAggregates,
-  (_) => ({
-    // Composite PK table — no FK relations.
-    // dimension1 + dimension2 identify the entity at application layer.
-    // metricName resolves to analytics_metrics.name at application layer.
-  }),
-);
+export const analyticsAggregatesRelations = relations(analyticsAggregates, (_) => ({
+  // Composite PK table — no FK relations.
+  // dimension1 + dimension2 identify the entity at application layer.
+  // metricName resolves to analytics_metrics.name at application layer.
+}));
 
-export const analyticsDashboardsRelations = relations(
-  analyticsDashboards,
-  (_) => ({
-    // widgets JSONB references analytics_metrics.name — resolved at app layer.
-    // createdById references users — resolved at application layer.
-  }),
-);
+export const analyticsDashboardsRelations = relations(analyticsDashboards, (_) => ({
+  // widgets JSONB references analytics_metrics.name — resolved at app layer.
+  // createdById references users — resolved at application layer.
+}));
 
 export const analyticsReportsRelations = relations(analyticsReports, (_) => ({
   // templateId references templates — cross-module, resolved at app layer.

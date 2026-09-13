@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { sendVerificationEmail, verifyEmail } from "../../services/auth/verification";
 import { ValidationError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { sendVerificationEmail, verifyEmail } from "../../services/auth/verification";
 
 const router = new Hono();
 
@@ -42,7 +42,9 @@ router.post("/resend-verification", async (c) => {
 router.get("/verify-email", async (c) => {
   const token = c.req.query("token");
   if (!token) {
-    throw new ValidationError("Token is required", [{ field: "token", message: "Token is required" }]);
+    throw new ValidationError("Token is required", [
+      { field: "token", message: "Token is required" },
+    ]);
   }
 
   const db = c.var.db;

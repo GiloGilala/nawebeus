@@ -1,4 +1,31 @@
-const SPECIAL_CHARS = ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "-", "=", "[", "]", "{", "}", "|", ";", ":", ",", ".", "<", ">", "?"];
+const SPECIAL_CHARS = [
+  "!",
+  "@",
+  "#",
+  "$",
+  "%",
+  "^",
+  "&",
+  "*",
+  "(",
+  ")",
+  "_",
+  "+",
+  "-",
+  "=",
+  "[",
+  "]",
+  "{",
+  "}",
+  "|",
+  ";",
+  ":",
+  ",",
+  ".",
+  "<",
+  ">",
+  "?",
+];
 
 const COMMON_PASSWORDS = new Set([
   "password",
@@ -94,7 +121,11 @@ export function validatePassword(
 
   if (options?.email) {
     const emailLocal = options.email.split("@")[0];
-    if (emailLocal && emailLocal.length >= 3 && password.toLowerCase().includes(emailLocal.toLowerCase())) {
+    if (
+      emailLocal &&
+      emailLocal.length >= 3 &&
+      password.toLowerCase().includes(emailLocal.toLowerCase())
+    ) {
       errors.push("Password must not contain the email address");
     }
   }

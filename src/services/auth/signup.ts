@@ -1,11 +1,11 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { hashPassword } from "./password";
-import { generateSecureToken, hashToken } from "../../lib/tokens";
-import { writeAuditLog } from "../audit";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
 import { ConflictError, ValidationError } from "../../lib/errors";
+import { generateSecureToken, hashToken } from "../../lib/tokens";
+import { writeAuditLog } from "../audit";
 import { emailService } from "../email";
+import { hashPassword } from "./password";
 
 export interface SignupInput {
   email: string;
@@ -70,7 +70,17 @@ export async function signup(
   input: SignupInput,
 ): Promise<SignupResult> {
   const config = getConfig();
-  const { email, password, fullName, organizationName, industry, teamSize, termsAccepted, privacyAccepted, marketingOptIn } = input;
+  const {
+    email,
+    password,
+    fullName,
+    organizationName,
+    industry,
+    teamSize,
+    termsAccepted,
+    privacyAccepted,
+    marketingOptIn,
+  } = input;
 
   if (!termsAccepted || !privacyAccepted) {
     throw new ValidationError("Terms and Privacy must be accepted");
@@ -81,7 +91,9 @@ export async function signup(
     sql`SELECT id FROM users WHERE email = ${email} AND deleted_at IS NULL LIMIT 1`,
   );
   if ((existing as any).rows?.length > 0) {
-    throw new ConflictError("A user with this email already exists. Log in or reset your password.");
+    throw new ConflictError(
+      "A user with this email already exists. Log in or reset your password.",
+    );
   }
 
   // Check duplicate org slug
@@ -100,7 +112,10 @@ export async function signup(
 
   // Create user with password history
   const now = new Date().toISOString();
-  const userRows = await db.execute<{ id: string; password_history: string[] | null }>(
+  const userRows = await db.execute<{
+    id: string;
+    password_history: string[] | null;
+  }>(
     sql`
       INSERT INTO users (
         email, password, password_history, username, first_name, last_name,
@@ -159,9 +174,7 @@ export async function signup(
   );
 
   // Set user's organization
-  await db.execute(
-    sql`UPDATE users SET organization_id = ${orgId} WHERE id = ${userId}`,
-  );
+  await db.execute(sql`UPDATE users SET organization_id = ${orgId} WHERE id = ${userId}`);
 
   // Create org membership (user is Owner)
   await db.execute(

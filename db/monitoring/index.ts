@@ -71,38 +71,38 @@
 //     brandColor on competitors is a UI concern, not a data concern.
 //     Store in frontend theme config.
 
-import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
-  bigint,
-  decimal,
-  numeric,
-  jsonb,
-  timestamp,
-  uniqueIndex,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
-  monitoringCampaignStatusEnum,
-  mediaArticleSourceTypeEnum,
-  sentimentLabelEnum,
+  bigint,
+  boolean,
+  check,
+  decimal,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  varchar,
+} from "drizzle-orm/pg-core";
+import {
   brandMentionContextEnum,
-  crisisStatusEnum,
   competitorCategoryEnum,
-  newsSourceTypeEnum,
-  sourceTierEnum,
-  sourceStatusEnum,
   credibilityRatingEnum,
-  politicalLeaningEnum,
-  platformEnum,
+  crisisStatusEnum,
+  mediaArticleSourceTypeEnum,
   mentionSourceEnum,
   mentionTypeEnum,
+  monitoringCampaignStatusEnum,
+  newsSourceTypeEnum,
+  platformEnum,
+  politicalLeaningEnum,
   processingStatusEnum,
+  sentimentLabelEnum,
+  sourceStatusEnum,
+  sourceTierEnum,
 } from "../shared/enums";
 
 // =============================================================================
@@ -155,40 +155,40 @@ export const monitoringCampaigns = pgTable(
     // Structured query configuration (richer than flat keywords + booleanExpression)
     queryConfig: jsonb("query_config")
       .$type<{
-        includeTerms?: Array<string>
-        excludeTerms?: Array<string>
-        exactPhrases?: Array<string>
-        anyOfTerms?: Array<string>
+        includeTerms?: Array<string>;
+        excludeTerms?: Array<string>;
+        exactPhrases?: Array<string>;
+        anyOfTerms?: Array<string>;
 
         // Hashtag/mention filters
-        hashtags?: Array<string>
-        excludeHashtags?: Array<string>
-        mentions?: Array<string>
-        excludeAccounts?: Array<string>
+        hashtags?: Array<string>;
+        excludeHashtags?: Array<string>;
+        mentions?: Array<string>;
+        excludeAccounts?: Array<string>;
 
         // Engagement filters
-        minLikes?: number
-        minShares?: number
-        minComments?: number
-        minFollowers?: number
+        minLikes?: number;
+        minShares?: number;
+        minComments?: number;
+        minFollowers?: number;
 
         // Content filters
-        hasLinks?: boolean
-        hasMedia?: boolean
-        hasVideo?: boolean
-        isVerifiedOnly?: boolean
+        hasLinks?: boolean;
+        hasMedia?: boolean;
+        hasVideo?: boolean;
+        isVerifiedOnly?: boolean;
 
         // Sentiment filters
-        sentiment?: Array<"positive" | "negative" | "neutral">
+        sentiment?: Array<"positive" | "negative" | "neutral">;
 
         // Custom scoring weights
         weightings?: {
-          keywords?: number
-          hashtags?: number
-          mentions?: number
-          engagement?: number
-          authorScore?: number
-        }
+          keywords?: number;
+          hashtags?: number;
+          mentions?: number;
+          engagement?: number;
+          authorScore?: number;
+        };
       }>()
       .default({}),
 
@@ -204,48 +204,46 @@ export const monitoringCampaigns = pgTable(
     platformSettings: jsonb("platform_settings")
       .$type<{
         [platform: string]: {
-          enabled: boolean
-          filters?: Record<string, any>
-          rateLimit?: number
-          apiEndpoint?: string
-          credentialsId?: string
-        }
+          enabled: boolean;
+          filters?: Record<string, any>;
+          rateLimit?: number;
+          apiEndpoint?: string;
+          credentialsId?: string;
+        };
       }>()
       .default({}),
 
     geoScope: jsonb("geo_scope")
       .$type<{
-        countries?: Array<string>
-        regions?: Array<string>
-        cities?: Array<string>
+        countries?: Array<string>;
+        regions?: Array<string>;
+        cities?: Array<string>;
         radius?: {
-          latitude: number
-          longitude: number
-          radiusKm: number
-        }
+          latitude: number;
+          longitude: number;
+          radiusKm: number;
+        };
         customRegions?: Array<{
-          name: string
-          coordinates: Array<{ lat: number; lng: number }>
-        }>
+          name: string;
+          coordinates: Array<{ lat: number; lng: number }>;
+        }>;
       }>()
       .default({}),
 
     // ─── Alert Configuration ──────────────────────────────────────────────────
     alertEnabled: boolean("alert_enabled").default(false).notNull(),
-    alertFrequency: varchar("alert_frequency", { length: 20 })
-      .default("daily")
-      .notNull(),
+    alertFrequency: varchar("alert_frequency", { length: 20 }).default("daily").notNull(),
     alertThreshold: integer("alert_threshold"),
     alertRecipients: jsonb("alert_recipients"),
 
     // ─── Scheduling ─────────────────────────────────────────────────────────────
     schedule: jsonb("schedule")
       .$type<{
-        timezone?: string
-        daysOfWeek?: Array<0 | 1 | 2 | 3 | 4 | 5 | 6>
-        hoursOfDay?: Array<number>
-        interval?: number
-        cronExpression?: string
+        timezone?: string;
+        daysOfWeek?: Array<0 | 1 | 2 | 3 | 4 | 5 | 6>;
+        hoursOfDay?: Array<number>;
+        interval?: number;
+        cronExpression?: string;
       }>()
       .default({}),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),
@@ -290,32 +288,17 @@ export const monitoringCampaigns = pgTable(
 
     // ─── Data Retention ────────────────────────────────────────────────────────
     retentionDays: integer("retention_days").default(90),
-    samplingRate: decimal("sampling_rate", { precision: 3, scale: 2 }).default(
-      "1.00",
-    ),
+    samplingRate: decimal("sampling_rate", { precision: 3, scale: 2 }).default("1.00"),
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_mc_keywords_not_empty",
-      sql`array_length(${table.keywords}, 1) > 0`,
-    ),
-    check(
-      "chk_mc_source_types_not_empty",
-      sql`array_length(${table.sourceTypes}, 1) > 0`,
-    ),
-    check(
-      "chk_mc_authority_score_range",
-      sql`${table.minAuthorityScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_mc_keywords_not_empty", sql`array_length(${table.keywords}, 1) > 0`),
+    check("chk_mc_source_types_not_empty", sql`array_length(${table.sourceTypes}, 1) > 0`),
+    check("chk_mc_authority_score_range", sql`${table.minAuthorityScore} BETWEEN 0 AND 100`),
     check(
       "chk_mc_precision_range",
       sql`${table.precisionScore} IS NULL
@@ -383,9 +366,7 @@ export const monitoringCampaigns = pgTable(
       .on(table.alertEnabled, table.alertFrequency)
       .where(sql`${table.alertEnabled} = TRUE`),
 
-    index("idx_mc_last_run")
-      .on(table.lastRunAt)
-      .where(sql`${table.status} = 'active'`),
+    index("idx_mc_last_run").on(table.lastRunAt).where(sql`${table.status} = 'active'`),
 
     // Recent errors — operations dashboard
     index("idx_mc_last_run_failed")
@@ -480,12 +461,12 @@ export const newsSources = pgTable(
     rssFeeds: jsonb("rss_feeds")
       .$type<
         Array<{
-          url: string
-          type: "main" | "category" | "author" | "tag"
-          category?: string
-          lastChecked?: string
-          itemCount?: number
-          isActive: boolean
+          url: string;
+          type: "main" | "category" | "author" | "tag";
+          category?: string;
+          lastChecked?: string;
+          itemCount?: number;
+          isActive: boolean;
         }>
       >()
       .default([]),
@@ -495,35 +476,35 @@ export const newsSources = pgTable(
     // ─── Contact & Coverage ────────────────────────────────────────────────────
     contactInfo: jsonb("contact_info")
       .$type<{
-        email?: string
-        phone?: string
-        pressEmail?: string
-        newsroomEmail?: string
-        tipsEmail?: string
+        email?: string;
+        phone?: string;
+        pressEmail?: string;
+        newsroomEmail?: string;
+        tipsEmail?: string;
         address?: {
-          line1?: string
-          line2?: string
-          city?: string
-          state?: string
-          postalCode?: string
-          country?: string
-        }
+          line1?: string;
+          line2?: string;
+          city?: string;
+          state?: string;
+          postalCode?: string;
+          country?: string;
+        };
       }>()
       .default({}),
 
     coverage: jsonb("coverage")
       .$type<{
         geographic?: {
-          global?: boolean
-          countries?: Array<string>
-          regions?: Array<string>
-          states?: Array<string>
-          cities?: Array<string>
-        }
-        topics?: Array<string>
-        industries?: Array<string>
-        categories?: Array<string>
-        languages?: Array<string>
+          global?: boolean;
+          countries?: Array<string>;
+          regions?: Array<string>;
+          states?: Array<string>;
+          cities?: Array<string>;
+        };
+        topics?: Array<string>;
+        industries?: Array<string>;
+        categories?: Array<string>;
+        languages?: Array<string>;
       }>()
       .default({}),
 
@@ -533,33 +514,33 @@ export const newsSources = pgTable(
     outletSocialHandles: jsonb("outlet_social_handles")
       .$type<{
         twitter?: {
-          handle: string
-          url: string
-          verified?: boolean
-          followers?: number
-        }
+          handle: string;
+          url: string;
+          verified?: boolean;
+          followers?: number;
+        };
         facebook?: {
-          handle: string
-          url: string
-          verified?: boolean
-          followers?: number
-        }
+          handle: string;
+          url: string;
+          verified?: boolean;
+          followers?: number;
+        };
         instagram?: {
-          handle: string
-          url: string
-          verified?: boolean
-          followers?: number
-        }
+          handle: string;
+          url: string;
+          verified?: boolean;
+          followers?: number;
+        };
         linkedin?: {
-          handle: string
-          url: string
-          followers?: number
-        }
+          handle: string;
+          url: string;
+          followers?: number;
+        };
         youtube?: {
-          handle: string
-          url: string
-          subscribers?: number
-        }
+          handle: string;
+          url: string;
+          subscribers?: number;
+        };
       }>()
       .default({}),
 
@@ -571,10 +552,10 @@ export const newsSources = pgTable(
     credibilityScore: integer("credibility_score").default(50),
 
     factCheckRating: jsonb("fact_check_rating").$type<{
-      rating?: "high" | "medium" | "low" | "mixed"
-      score?: number
-      source?: string
-      lastUpdated?: string
+      rating?: "high" | "medium" | "low" | "mixed";
+      score?: number;
+      source?: string;
+      lastUpdated?: string;
     }>(),
 
     // Authority metrics
@@ -592,41 +573,41 @@ export const newsSources = pgTable(
 
     editorialInfo: jsonb("editorial_info")
       .$type<{
-        editorInChief?: string
-        managingEditor?: string
+        editorInChief?: string;
+        managingEditor?: string;
         newsroom?: {
-          size?: number
-          locations?: Array<string>
-        }
+          size?: number;
+          locations?: Array<string>;
+        };
         keyJournalists?: Array<{
-          name: string
-          title?: string
-          beat?: string
-          email?: string
-          twitter?: string
-        }>
-        hasEthicsPolicy?: boolean
-        hasCorrectionsPolicy?: boolean
-        membershipAffiliations?: Array<string>
+          name: string;
+          title?: string;
+          beat?: string;
+          email?: string;
+          twitter?: string;
+        }>;
+        hasEthicsPolicy?: boolean;
+        hasCorrectionsPolicy?: boolean;
+        membershipAffiliations?: Array<string>;
       }>()
       .default({}),
 
     publishingStats: jsonb("publishing_stats")
       .$type<{
-        avgArticlesPerDay?: number
-        avgArticlesPerWeek?: number
-        avgArticlesPerMonth?: number
-        totalArticles?: number
+        avgArticlesPerDay?: number;
+        avgArticlesPerWeek?: number;
+        avgArticlesPerMonth?: number;
+        totalArticles?: number;
         contentMix?: {
-          news?: number
-          opinion?: number
-          analysis?: number
-          features?: number
-          multimedia?: number
-        }
-        updateFrequency?: "realtime" | "hourly" | "daily" | "weekly" | "monthly"
-        peakPublishingHours?: Array<number>
-        lastPublished?: string
+          news?: number;
+          opinion?: number;
+          analysis?: number;
+          features?: number;
+          multimedia?: number;
+        };
+        updateFrequency?: "realtime" | "hourly" | "daily" | "weekly" | "monthly";
+        peakPublishingHours?: Array<number>;
+        lastPublished?: string;
       }>()
       .default({}),
 
@@ -635,24 +616,19 @@ export const newsSources = pgTable(
 
     monitoringSettings: jsonb("monitoring_settings")
       .$type<{
-        enabled?: boolean
-        crawlFrequency?:
-          | "realtime"
-          | "every_5min"
-          | "every_15min"
-          | "hourly"
-          | "daily"
-        crawlDepth?: number
-        maxArticlesPerCrawl?: number
-        includeCategories?: Array<string>
-        excludeCategories?: Array<string>
-        minWordCount?: number
-        specificAuthors?: Array<string>
-        minQualityScore?: number
-        excludeOpinion?: boolean
-        excludeSyndicated?: boolean
-        checkDuplicates?: boolean
-        similarityThreshold?: number
+        enabled?: boolean;
+        crawlFrequency?: "realtime" | "every_5min" | "every_15min" | "hourly" | "daily";
+        crawlDepth?: number;
+        maxArticlesPerCrawl?: number;
+        includeCategories?: Array<string>;
+        excludeCategories?: Array<string>;
+        minWordCount?: number;
+        specificAuthors?: Array<string>;
+        minQualityScore?: number;
+        excludeOpinion?: boolean;
+        excludeSyndicated?: boolean;
+        checkDuplicates?: boolean;
+        similarityThreshold?: number;
       }>()
       .notNull()
       .default({
@@ -675,22 +651,22 @@ export const newsSources = pgTable(
     technicalInfo: jsonb("technical_info")
       .$type<{
         selectors?: {
-          article?: string
-          title?: string
-          author?: string
-          date?: string
-          content?: string
-          image?: string
-        }
-        apiKey?: string
-        apiFormat?: "json" | "xml" | "rss"
-        rateLimit?: number
-        cms?: string
-        framework?: string
-        avgResponseTime?: number
-        uptime?: number
-        requiresAuth?: boolean
-        authType?: "basic" | "oauth" | "api_key"
+          article?: string;
+          title?: string;
+          author?: string;
+          date?: string;
+          content?: string;
+          image?: string;
+        };
+        apiKey?: string;
+        apiFormat?: "json" | "xml" | "rss";
+        rateLimit?: number;
+        cms?: string;
+        framework?: string;
+        avgResponseTime?: number;
+        uptime?: number;
+        requiresAuth?: boolean;
+        authType?: "basic" | "oauth" | "api_key";
       }>()
       .default({}),
     robotsTxt: text("robots_txt"),
@@ -699,34 +675,28 @@ export const newsSources = pgTable(
     // ─── Relevance & Importance ────────────────────────────────────────────────
     relevanceScore: integer("relevance_score").default(50),
     importanceScore: integer("importance_score").default(50),
-    industryRelevance: jsonb("industry_relevance")
-      .$type<Record<string, number>>()
-      .default({}),
+    industryRelevance: jsonb("industry_relevance").$type<Record<string, number>>().default({}),
     topicTags: jsonb("topic_tags").$type<Array<string>>().default([]),
     expertiseAreas: jsonb("expertise_areas").$type<Array<string>>().default([]),
 
-    relationshipStatus: varchar("relationship_status", { length: 50 }).default(
-      "neutral",
-    ),
+    relationshipStatus: varchar("relationship_status", { length: 50 }).default("neutral"),
     coverageStats: jsonb("coverage_stats")
       .$type<{
-        totalMentions?: number
-        positiveMentions?: number
-        neutralMentions?: number
-        negativeMentions?: number
-        lastMentionDate?: string
-        avgSentiment?: number
-        frontPageMentions?: number
-        featureMentions?: number
+        totalMentions?: number;
+        positiveMentions?: number;
+        neutralMentions?: number;
+        negativeMentions?: number;
+        lastMentionDate?: string;
+        avgSentiment?: number;
+        frontPageMentions?: number;
+        featureMentions?: number;
       }>()
       .default({}),
 
     // ─── Lists & Tags ──────────────────────────────────────────────────────────
     mediaLists: jsonb("media_lists").$type<Array<string>>().default([]),
     tags: jsonb("tags").$type<Array<string>>().default([]),
-    customCategories: jsonb("custom_categories")
-      .$type<Array<string>>()
-      .default([]),
+    customCategories: jsonb("custom_categories").$type<Array<string>>().default([]),
 
     isPriority: boolean("is_priority").notNull().default(false),
     isCompetitor: boolean("is_competitor").notNull().default(false),
@@ -739,45 +709,43 @@ export const newsSources = pgTable(
 
     verificationData: jsonb("verification_data")
       .$type<{
-        method?: string
-        documents?: Array<string>
-        contactVerified?: boolean
-        domainVerified?: boolean
-        socialVerified?: boolean
+        method?: string;
+        documents?: Array<string>;
+        contactVerified?: boolean;
+        domainVerified?: boolean;
+        socialVerified?: boolean;
       }>()
       .default({}),
 
     qualityScore: integer("quality_score").default(50),
     qualityMetrics: jsonb("quality_metrics")
       .$type<{
-        contentQuality?: number
-        updateFrequency?: number
-        technicalReliability?: number
-        editorialStandards?: number
-        transparency?: number
+        contentQuality?: number;
+        updateFrequency?: number;
+        technicalReliability?: number;
+        editorialStandards?: number;
+        transparency?: number;
       }>()
       .default({}),
 
     // ─── Metadata & Notes ──────────────────────────────────────────────────────
     metadata: jsonb("metadata")
       .$type<{
-        source?: string
-        addedReason?: string
-        customFields?: Record<string, any>
+        source?: string;
+        addedReason?: string;
+        customFields?: Record<string, any>;
         externalIds?: {
-          cision?: string
-          meltwater?: string
-          muckrack?: string
-        }
+          cision?: string;
+          meltwater?: string;
+          muckrack?: string;
+        };
       }>()
       .default({}),
     internalNotes: text("internal_notes"),
     publicNotes: text("public_notes"),
 
     // ─── Timestamps ────────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -818,15 +786,12 @@ export const newsSources = pgTable(
       .where(sql`status = 'monitoring' AND deleted_at IS NULL`),
 
     // Composite — crawl queue
-    index("idx_ns_crawl_queue")
-      .on(table.status, table.nextCrawlAt, table.consecutiveFailures),
+    index("idx_ns_crawl_queue").on(table.status, table.nextCrawlAt, table.consecutiveFailures),
 
     // Composite — priority sources
     index("idx_ns_priority_queue")
       .on(table.isPriority, table.credibilityScore, table.relevanceScore)
-      .where(
-        sql`is_priority = true AND status = 'monitoring' AND deleted_at IS NULL`,
-      ),
+      .where(sql`is_priority = true AND status = 'monitoring' AND deleted_at IS NULL`),
 
     index("idx_ns_created_at").on(table.createdAt),
   ],
@@ -896,13 +861,13 @@ export const socialMentions = pgTable(
     media: jsonb("media")
       .$type<
         Array<{
-          type: "image" | "video" | "audio" | "document" | "gif"
-          url: string
-          thumbnailUrl?: string
-          width?: number
-          height?: number
-          duration?: number
-          altText?: string
+          type: "image" | "video" | "audio" | "document" | "gif";
+          url: string;
+          thumbnailUrl?: string;
+          width?: number;
+          height?: number;
+          duration?: number;
+          altText?: string;
         }>
       >()
       .default([]),
@@ -940,9 +905,10 @@ export const socialMentions = pgTable(
     clickCount: integer("click_count").default(0),
 
     totalEngagement: integer("total_engagement").default(0),
-    engagementRate: decimal("engagement_rate", { precision: 5, scale: 2 }).default(
-      "0",
-    ),
+    engagementRate: decimal("engagement_rate", {
+      precision: 5,
+      scale: 2,
+    }).default("0"),
 
     estimatedReach: integer("estimated_reach").default(0),
     estimatedImpressions: integer("estimated_impressions").default(0),
@@ -957,29 +923,29 @@ export const socialMentions = pgTable(
 
     emotions: jsonb("emotions")
       .$type<{
-        joy?: number
-        sadness?: number
-        anger?: number
-        fear?: number
-        surprise?: number
-        disgust?: number
-        trust?: number
-        anticipation?: number
+        joy?: number;
+        sadness?: number;
+        anger?: number;
+        fear?: number;
+        surprise?: number;
+        disgust?: number;
+        trust?: number;
+        anticipation?: number;
       }>()
       .default({}),
 
     tone: jsonb("tone")
       .$type<{
-        formal?: number
-        analytical?: number
-        confident?: number
-        tentative?: number
-        joyful?: number
-        sad?: number
-        angry?: number
-        anxious?: number
-        excited?: number
-        sarcastic?: number
+        formal?: number;
+        analytical?: number;
+        confident?: number;
+        tentative?: number;
+        joyful?: number;
+        sad?: number;
+        angry?: number;
+        anxious?: number;
+        excited?: number;
+        sarcastic?: number;
       }>()
       .default({}),
 
@@ -987,25 +953,23 @@ export const socialMentions = pgTable(
     keywords: jsonb("keywords")
       .$type<
         Array<{
-          keyword: string
-          relevance: number
-          position: number
-          sentiment?: string
+          keyword: string;
+          relevance: number;
+          position: number;
+          sentiment?: string;
         }>
       >()
       .default([]),
     hashtags: jsonb("hashtags").$type<Array<string>>().default([]),
-    mentionedAccounts: jsonb("mentioned_accounts")
-      .$type<Array<string>>()
-      .default([]),
+    mentionedAccounts: jsonb("mentioned_accounts").$type<Array<string>>().default([]),
     urls: jsonb("urls").$type<Array<string>>().default([]),
 
     topics: jsonb("topics")
       .$type<
         Array<{
-          name: string
-          confidence: number
-          category?: string
+          name: string;
+          confidence: number;
+          category?: string;
         }>
       >()
       .default([]),
@@ -1022,11 +986,11 @@ export const socialMentions = pgTable(
             | "brand"
             | "event"
             | "date"
-            | "money"
-          name: string
-          confidence: number
-          sentiment?: string
-          metadata?: Record<string, any>
+            | "money";
+          name: string;
+          confidence: number;
+          sentiment?: string;
+          metadata?: Record<string, any>;
         }>
       >()
       .default([]),
@@ -1034,11 +998,11 @@ export const socialMentions = pgTable(
     brandMentions: jsonb("brand_mentions")
       .$type<
         Array<{
-          brandName: string
-          context: string
-          sentiment: string
-          isPrimary: boolean
-          sentimentScore?: number
+          brandName: string;
+          context: string;
+          sentiment: string;
+          isPrimary: boolean;
+          sentimentScore?: number;
         }>
       >()
       .default([]),
@@ -1068,24 +1032,27 @@ export const socialMentions = pgTable(
     hasLocation: boolean("has_location").notNull().default(false),
 
     // ─── Relevance & Scoring ───────────────────────────────────────────────────
-    relevanceScore: decimal("relevance_score", { precision: 5, scale: 2 }).default(
-      "0",
-    ),
-    importanceScore: decimal("importance_score", { precision: 5, scale: 2 }).default(
-      "0",
-    ),
-    viralityScore: decimal("virality_score", { precision: 5, scale: 2 }).default(
-      "0",
-    ),
+    relevanceScore: decimal("relevance_score", {
+      precision: 5,
+      scale: 2,
+    }).default("0"),
+    importanceScore: decimal("importance_score", {
+      precision: 5,
+      scale: 2,
+    }).default("0"),
+    viralityScore: decimal("virality_score", {
+      precision: 5,
+      scale: 2,
+    }).default("0"),
     qualityScore: decimal("quality_score", { precision: 5, scale: 2 }).default("0"),
 
     matchedTerms: jsonb("matched_terms")
       .$type<
         Array<{
-          term: string
-          type: "keyword" | "hashtag" | "mention" | "phrase" | "regex"
-          position: number
-          score: number
+          term: string;
+          type: "keyword" | "hashtag" | "mention" | "phrase" | "regex";
+          position: number;
+          score: number;
         }>
       >()
       .default([]),
@@ -1093,17 +1060,17 @@ export const socialMentions = pgTable(
     // ─── Flags ─────────────────────────────────────────────────────────────────
     flags: jsonb("flags")
       .$type<{
-        isSpam?: boolean
-        isBot?: boolean
-        isNSFW?: boolean
-        isPotentialCrisis?: boolean
-        isOpportunity?: boolean
-        isComplaint?: boolean
-        isQuestion?: boolean
-        isPraise?: boolean
-        hasBrandMention?: boolean
-        hasCompetitorMention?: boolean
-        isDuplicate?: boolean
+        isSpam?: boolean;
+        isBot?: boolean;
+        isNSFW?: boolean;
+        isPotentialCrisis?: boolean;
+        isOpportunity?: boolean;
+        isComplaint?: boolean;
+        isQuestion?: boolean;
+        isPraise?: boolean;
+        hasBrandMention?: boolean;
+        hasCompetitorMention?: boolean;
+        isDuplicate?: boolean;
       }>()
       .notNull()
       .default({}),
@@ -1111,18 +1078,19 @@ export const socialMentions = pgTable(
     moderationFlags: jsonb("moderation_flags")
       .$type<
         Array<{
-          type: string
-          severity: "low" | "medium" | "high"
-          confidence: number
-          reason: string
+          type: string;
+          severity: "low" | "medium" | "high";
+          confidence: number;
+          reason: string;
         }>
       >()
       .default([]),
 
     spamScore: decimal("spam_score", { precision: 4, scale: 3 }).default("0"),
-    toxicityScore: decimal("toxicity_score", { precision: 4, scale: 3 }).default(
-      "0",
-    ),
+    toxicityScore: decimal("toxicity_score", {
+      precision: 4,
+      scale: 3,
+    }).default("0"),
     authenticityScore: decimal("authenticity_score", {
       precision: 4,
       scale: 3,
@@ -1131,10 +1099,10 @@ export const socialMentions = pgTable(
     // ─── AI Analysis ───────────────────────────────────────────────────────────
     aiAnalysis: jsonb("ai_analysis")
       .$type<{
-        summary?: string
-        keyPoints?: Array<string>
-        suggestedResponse?: string
-        urgencyLevel?: "low" | "medium" | "high" | "critical"
+        summary?: string;
+        keyPoints?: Array<string>;
+        suggestedResponse?: string;
+        urgencyLevel?: "low" | "medium" | "high" | "critical";
         intent?:
           | "question"
           | "complaint"
@@ -1143,28 +1111,26 @@ export const socialMentions = pgTable(
           | "support"
           | "purchase_intent"
           | "feedback"
-          | "other"
-        intentConfidence?: number
-        analyzedAt?: string
-        modelVersion?: string
+          | "other";
+        intentConfidence?: number;
+        analyzedAt?: string;
+        modelVersion?: string;
       }>()
       .default({}),
 
     // ─── Processing ────────────────────────────────────────────────────────────
-    processingStatus: processingStatusEnum("processing_status")
-      .notNull()
-      .default("pending"),
+    processingStatus: processingStatusEnum("processing_status").notNull().default("pending"),
     processingError: text("processing_error"),
     processedAt: timestamp("processed_at", { withTimezone: true }),
 
     // ─── Metadata ──────────────────────────────────────────────────────────────
     metadata: jsonb("metadata")
       .$type<{
-        crawlerId?: string
-        crawlerName?: string
-        importBatchId?: string
-        dataProvider?: string
-        customFields?: Record<string, any>
+        crawlerId?: string;
+        crawlerName?: string;
+        importBatchId?: string;
+        dataProvider?: string;
+        customFields?: Record<string, any>;
       }>()
       .default({}),
 
@@ -1172,13 +1138,9 @@ export const socialMentions = pgTable(
 
     // ─── Timestamps ────────────────────────────────────────────────────────────
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
-    fetchedAt: timestamp("fetched_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -1238,9 +1200,7 @@ export const socialMentions = pgTable(
     // Processing queue — mentions awaiting enrichment
     index("idx_sm_processing_queue")
       .on(table.processingStatus, table.fetchedAt)
-      .where(
-        sql`processing_status IN ('pending', 'failed') AND deleted_at IS NULL`,
-      ),
+      .where(sql`processing_status IN ('pending', 'failed') AND deleted_at IS NULL`),
 
     // High-priority mentions
     index("idx_sm_high_priority")
@@ -1301,10 +1261,9 @@ export const mediaArticles = pgTable(
     }).references(() => monitoringCampaigns.id, { onDelete: "set null" }),
 
     // Real FK to news_sources — SET NULL on delete
-    sourceId: varchar("source_id", { length: 32 }).references(
-      () => newsSources.id,
-      { onDelete: "set null" },
-    ),
+    sourceId: varchar("source_id", { length: 32 }).references(() => newsSources.id, {
+      onDelete: "set null",
+    }),
 
     // ─── Article Metadata ─────────────────────────────────────────────────────
     title: text("title").notNull(),
@@ -1323,20 +1282,18 @@ export const mediaArticles = pgTable(
     mediaFormat: varchar("media_format", { length: 30 }),
 
     sourceTier: integer("source_tier"),
-    sourceAuthorityScore: integer("source_authority_score")
-      .default(0)
-      .notNull(),
+    sourceAuthorityScore: integer("source_authority_score").default(0).notNull(),
 
     author: varchar("author", { length: 255 }),
     authors: jsonb("authors")
       .$type<
         Array<{
-          name: string
-          email?: string
-          bio?: string
-          url?: string
-          twitter?: string
-          avatar?: string
+          name: string;
+          email?: string;
+          bio?: string;
+          url?: string;
+          twitter?: string;
+          avatar?: string;
         }>
       >()
       .default([]),
@@ -1348,9 +1305,7 @@ export const mediaArticles = pgTable(
     readingTimeMinutes: integer("reading_time_minutes"),
 
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
-    ingestedAt: timestamp("ingested_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow(),
 
     language: varchar("language", { length: 5 }),
 
@@ -1377,29 +1332,27 @@ export const mediaArticles = pgTable(
 
     // Emotional tone analysis
     emotions: jsonb("emotions").$type<{
-      joy?: number
-      trust?: number
-      fear?: number
-      surprise?: number
-      sadness?: number
-      disgust?: number
-      anger?: number
-      anticipation?: number
+      joy?: number;
+      trust?: number;
+      fear?: number;
+      surprise?: number;
+      sadness?: number;
+      disgust?: number;
+      anger?: number;
+      anticipation?: number;
     }>(),
 
     tone: jsonb("tone").$type<{
-      analytical?: number
-      confident?: number
-      tentative?: number
-      formal?: number
-      casual?: number
+      analytical?: number;
+      confident?: number;
+      tentative?: number;
+      formal?: number;
+      casual?: number;
     }>(),
 
     // ─── Impact Metrics ───────────────────────────────────────────────────────
     impactScore: integer("impact_score").default(0).notNull(),
-    reachEstimate: bigint("reach_estimate", { mode: "number" })
-      .default(0)
-      .notNull(),
+    reachEstimate: bigint("reach_estimate", { mode: "number" }).default(0).notNull(),
 
     // Advertising Value Equivalent in Naira
     aveNaira: numeric("ave_naira", { precision: 15, scale: 2 }).default("0"),
@@ -1410,35 +1363,33 @@ export const mediaArticles = pgTable(
     quotes: jsonb("quotes")
       .$type<
         Array<{
-          text: string
-          speaker?: string
-          speakerTitle?: string
-          speakerOrganization?: string
-          context?: string
-          sentiment?: string
-          isDirectQuote: boolean
-          prominence: "headline" | "lede" | "body"
+          text: string;
+          speaker?: string;
+          speakerTitle?: string;
+          speakerOrganization?: string;
+          context?: string;
+          sentiment?: string;
+          isDirectQuote: boolean;
+          prominence: "headline" | "lede" | "body";
         }>
       >()
       .default([]),
     topicCategory: text("topic_category"),
     entityMentions: jsonb("entity_mentions"),
-    brandMentionContext: brandMentionContextEnum(
-      "brand_mention_context",
-    ),
+    brandMentionContext: brandMentionContextEnum("brand_mention_context"),
 
     // Structured brand mentions (richer upgrade of entityMentions)
     brandMentions: jsonb("brand_mentions")
       .$type<
         Array<{
-          brandId?: string
-          brandName: string
-          mentionCount: number
-          prominence: "headline" | "lede" | "body" | "quote"
-          sentiment: string
-          sentimentScore: number
-          contexts: Array<string>
-          quotes?: Array<string>
+          brandId?: string;
+          brandName: string;
+          mentionCount: number;
+          prominence: "headline" | "lede" | "body" | "quote";
+          sentiment: string;
+          sentimentScore: number;
+          contexts: Array<string>;
+          quotes?: Array<string>;
         }>
       >()
       .default([]),
@@ -1446,11 +1397,11 @@ export const mediaArticles = pgTable(
     competitorMentions: jsonb("competitor_mentions")
       .$type<
         Array<{
-          competitorId?: string
-          name: string
-          mentionCount: number
-          sentiment: string
-          contexts: Array<string>
+          competitorId?: string;
+          name: string;
+          mentionCount: number;
+          sentiment: string;
+          contexts: Array<string>;
         }>
       >()
       .default([]),
@@ -1458,12 +1409,12 @@ export const mediaArticles = pgTable(
     peopleMentioned: jsonb("people_mentioned")
       .$type<
         Array<{
-          name: string
-          title?: string
-          organization?: string
-          role?: string
-          isQuoted?: boolean
-          quotes?: Array<string>
+          name: string;
+          title?: string;
+          organization?: string;
+          role?: string;
+          isQuoted?: boolean;
+          quotes?: Array<string>;
         }>
       >()
       .default([]),
@@ -1471,10 +1422,10 @@ export const mediaArticles = pgTable(
     organizationsMentioned: jsonb("organizations_mentioned")
       .$type<
         Array<{
-          name: string
-          type?: string
-          role?: string
-          mentionCount?: number
+          name: string;
+          type?: string;
+          role?: string;
+          mentionCount?: number;
         }>
       >()
       .default([]),
@@ -1482,12 +1433,12 @@ export const mediaArticles = pgTable(
     locationsMentioned: jsonb("locations_mentioned")
       .$type<
         Array<{
-          name: string
-          type: "city" | "state" | "country" | "region"
+          name: string;
+          type: "city" | "state" | "country" | "region";
           coordinates?: {
-            latitude: number
-            longitude: number
-          }
+            latitude: number;
+            longitude: number;
+          };
         }>
       >()
       .default([]),
@@ -1516,29 +1467,29 @@ export const mediaArticles = pgTable(
     socialMetrics: jsonb("social_metrics")
       .$type<{
         facebook?: {
-          shares?: number
-          comments?: number
-          reactions?: number
-        }
+          shares?: number;
+          comments?: number;
+          reactions?: number;
+        };
         twitter?: {
-          tweets?: number
-          retweets?: number
-          likes?: number
-          replies?: number
-        }
+          tweets?: number;
+          retweets?: number;
+          likes?: number;
+          replies?: number;
+        };
         linkedin?: {
-          shares?: number
-          comments?: number
-          reactions?: number
-        }
+          shares?: number;
+          comments?: number;
+          reactions?: number;
+        };
         reddit?: {
-          posts?: number
-          upvotes?: number
-          comments?: number
-        }
+          posts?: number;
+          upvotes?: number;
+          comments?: number;
+        };
         pinterest?: {
-          pins?: number
-        }
+          pins?: number;
+        };
       }>()
       .default({}),
     totalShares: integer("total_shares").default(0),
@@ -1554,10 +1505,9 @@ export const mediaArticles = pgTable(
     // ─── Syndication ───────────────────────────────────────────────────────────
     isSyndicated: boolean("is_syndicated").notNull().default(false),
     originalSource: varchar("original_source", { length: 500 }),
-    syndicatedFrom: varchar("syndicated_from", { length: 32 }).references(
-      () => newsSources.id,
-      { onDelete: "set null" },
-    ),
+    syndicatedFrom: varchar("syndicated_from", { length: 32 }).references(() => newsSources.id, {
+      onDelete: "set null",
+    }),
 
     // ─── Editorial Review ─────────────────────────────────────────────────────
     // Per-article flag (not per-user; see table-level comment)
@@ -1574,12 +1524,8 @@ export const mediaArticles = pgTable(
     isArchived: boolean("is_archived").default(false).notNull(),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
@@ -1587,10 +1533,7 @@ export const mediaArticles = pgTable(
       sql`${table.sourceTier} IS NULL
         OR ${table.sourceTier} IN (1, 2, 3)`,
     ),
-    check(
-      "chk_ma_authority_score",
-      sql`${table.sourceAuthorityScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_ma_authority_score", sql`${table.sourceAuthorityScore} BETWEEN 0 AND 100`),
     check("chk_ma_impact_score", sql`${table.impactScore} BETWEEN 0 AND 1000`),
 
     check(
@@ -1637,10 +1580,7 @@ export const mediaArticles = pgTable(
     ),
 
     // wordCount must be non-negative (if set)
-    check(
-      "chk_ma_word_count",
-      sql`${table.wordCount} IS NULL OR ${table.wordCount} >= 0`,
-    ),
+    check("chk_ma_word_count", sql`${table.wordCount} IS NULL OR ${table.wordCount} >= 0`),
 
     // readingTimeMinutes must be non-negative (if set)
     check(
@@ -1664,17 +1604,9 @@ export const mediaArticles = pgTable(
     ),
 
     // Dashboard ranking (your suggestion)
-    index("idx_ma_org_impact").on(
-      table.organizationId,
-      table.impactScore,
-      table.publishedAt,
-    ),
+    index("idx_ma_org_impact").on(table.organizationId, table.impactScore, table.publishedAt),
 
-    index("idx_ma_sentiment").on(
-      table.organizationId,
-      table.sentimentLabel,
-      table.publishedAt,
-    ),
+    index("idx_ma_sentiment").on(table.organizationId, table.sentimentLabel, table.publishedAt),
 
     index("idx_ma_campaign").on(table.monitoringCampaignId, table.publishedAt),
 
@@ -1684,9 +1616,7 @@ export const mediaArticles = pgTable(
 
     index("idx_ma_impact").on(table.organizationId, table.impactScore),
 
-    index("idx_ma_hash")
-      .on(table.contentHash)
-      .where(sql`${table.contentHash} IS NOT NULL`),
+    index("idx_ma_hash").on(table.contentHash).where(sql`${table.contentHash} IS NOT NULL`),
 
     index("idx_ma_source").on(table.organizationId, table.sourceName),
 
@@ -1695,19 +1625,13 @@ export const mediaArticles = pgTable(
       .where(sql`${table.sourceTier} IS NOT NULL`),
 
     // Regional analysis (your suggestion)
-    index("idx_ma_org_country").on(
-      table.organizationId,
-      table.country,
-      table.publishedAt,
-    ),
+    index("idx_ma_org_country").on(table.organizationId, table.country, table.publishedAt),
 
     index("idx_ma_active")
       .on(table.organizationId, table.publishedAt)
       .where(sql`${table.isArchived} = FALSE`),
 
-    index("idx_ma_original")
-      .on(table.originalArticleId)
-      .where(sql`${table.isDuplicate} = TRUE`),
+    index("idx_ma_original").on(table.originalArticleId).where(sql`${table.isDuplicate} = TRUE`),
 
     // Unreviewed articles — editorial review queue
     index("idx_ma_pending_review")
@@ -1780,18 +1704,11 @@ export const monitoringCompetitors = pgTable(
     // Market share (manually entered, requires market research data)
     marketShare: decimal("market_share", { precision: 5, scale: 2 }),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_comp_keywords_not_empty",
-      sql`array_length(${table.keywords}, 1) > 0`,
-    ),
+    check("chk_comp_keywords_not_empty", sql`array_length(${table.keywords}, 1) > 0`),
     check("chk_comp_mention_count", sql`${table.mentionCount} >= 0`),
     check(
       "chk_comp_sov_range",
@@ -1891,9 +1808,7 @@ export const crisisIncidents = pgTable(
     originAlertEventId: varchar("origin_alert_event_id", { length: 32 }),
 
     // ─── Timing ───────────────────────────────────────────────────────────────
-    detectedAt: timestamp("detected_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
 
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     acknowledgedBy: varchar("acknowledged_by", { length: 32 }),
@@ -1914,9 +1829,7 @@ export const crisisIncidents = pgTable(
     resolutionSummary: text("resolution_summary"),
 
     // ─── Public Communication ─────────────────────────────────────────────────
-    publicStatementIssued: boolean("public_statement_issued")
-      .default(false)
-      .notNull(),
+    publicStatementIssued: boolean("public_statement_issued").default(false).notNull(),
     publicStatementUrl: text("public_statement_url"),
     publicStatementIssuedAt: timestamp("public_statement_issued_at", {
       withTimezone: true,
@@ -1949,12 +1862,8 @@ export const crisisIncidents = pgTable(
 
     currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("chk_ci_severity_range", sql`${table.severity} BETWEEN 1 AND 5`),
@@ -2050,23 +1959,20 @@ export const crisisIncidents = pgTable(
 // RELATIONS
 // =============================================================================
 
-export const monitoringCampaignsRelations = relations(
-  monitoringCampaigns,
-  ({ many }) => ({
-    mediaArticles: many(mediaArticles, {
-      relationName: "monitoringCampaign_mediaArticles",
-    }),
-
-    socialMentions: many(socialMentions, {
-      relationName: "monitoringCampaign_socialMentions",
-    }),
-
-    // Alert rules for this campaign are in shared/alerts.ts:
-    //   alert_rules WHERE source_module = 'monitoring'
-    //     AND scope_ids @> ARRAY[campaign.id]
-    // Resolved at application layer.
+export const monitoringCampaignsRelations = relations(monitoringCampaigns, ({ many }) => ({
+  mediaArticles: many(mediaArticles, {
+    relationName: "monitoringCampaign_mediaArticles",
   }),
-);
+
+  socialMentions: many(socialMentions, {
+    relationName: "monitoringCampaign_socialMentions",
+  }),
+
+  // Alert rules for this campaign are in shared/alerts.ts:
+  //   alert_rules WHERE source_module = 'monitoring'
+  //     AND scope_ids @> ARRAY[campaign.id]
+  // Resolved at application layer.
+}));
 
 export const newsSourcesRelations = relations(newsSources, ({ many }) => ({
   articles: many(mediaArticles, {
@@ -2074,87 +1980,75 @@ export const newsSourcesRelations = relations(newsSources, ({ many }) => ({
   }),
 }));
 
-export const socialMentionsRelations = relations(
-  socialMentions,
-  ({ one, many }) => ({
-    campaign: one(monitoringCampaigns, {
-      fields: [socialMentions.campaignId],
-      references: [monitoringCampaigns.id],
-      relationName: "monitoringCampaign_socialMentions",
-    }),
-
-    // Self-FK for threading (parent mention)
-    parent: one(socialMentions, {
-      fields: [socialMentions.parentId],
-      references: [socialMentions.id],
-      relationName: "socialMention_parent",
-    }),
-    replies: many(socialMentions, {
-      relationName: "socialMention_parent",
-    }),
+export const socialMentionsRelations = relations(socialMentions, ({ one, many }) => ({
+  campaign: one(monitoringCampaigns, {
+    fields: [socialMentions.campaignId],
+    references: [monitoringCampaigns.id],
+    relationName: "monitoringCampaign_socialMentions",
   }),
-);
 
-export const mediaArticlesRelations = relations(
-  mediaArticles,
-  ({ one, many }) => ({
-    monitoringCampaign: one(monitoringCampaigns, {
-      fields: [mediaArticles.monitoringCampaignId],
-      references: [monitoringCampaigns.id],
-      relationName: "monitoringCampaign_mediaArticles",
-    }),
-
-    // Real FK to news_sources
-    source: one(newsSources, {
-      fields: [mediaArticles.sourceId],
-      references: [newsSources.id],
-      relationName: "newsSource_mediaArticles",
-    }),
-
-    // Real FK
-    competitor: one(monitoringCompetitors, {
-      fields: [mediaArticles.competitorId],
-      references: [monitoringCompetitors.id],
-    }),
-
-    // Self-FK for duplicate chain
-    originalArticle: one(mediaArticles, {
-      fields: [mediaArticles.originalArticleId],
-      references: [mediaArticles.id],
-      relationName: "mediaArticle_duplicates",
-    }),
-    duplicates: many(mediaArticles, {
-      relationName: "mediaArticle_duplicates",
-    }),
-
-    // FK to news_sources for syndicated origin
-    syndicatedFromSource: one(newsSources, {
-      fields: [mediaArticles.syndicatedFrom],
-      references: [newsSources.id],
-      relationName: "mediaArticle_syndicatedFrom",
-    }),
+  // Self-FK for threading (parent mention)
+  parent: one(socialMentions, {
+    fields: [socialMentions.parentId],
+    references: [socialMentions.id],
+    relationName: "socialMention_parent",
   }),
-);
-
-export const monitoringCompetitorsRelations = relations(
-  monitoringCompetitors,
-  ({ many }) => ({
-    // Reverse relation: articles that mention this competitor
-    mediaArticles: many(mediaArticles),
+  replies: many(socialMentions, {
+    relationName: "socialMention_parent",
   }),
-);
+}));
 
-export const crisisIncidentsRelations = relations(
-  crisisIncidents,
-  ({ one }) => ({
-    // Real FK to media_articles
-    originArticle: one(mediaArticles, {
-      fields: [crisisIncidents.originArticleId],
-      references: [mediaArticles.id],
-      relationName: "crisisIncident_originArticle",
-    }),
-
-    // Cross-module reference (NOT FK):
-    //   originAlertEventId → alert_events.id (shared/alerts.ts)
+export const mediaArticlesRelations = relations(mediaArticles, ({ one, many }) => ({
+  monitoringCampaign: one(monitoringCampaigns, {
+    fields: [mediaArticles.monitoringCampaignId],
+    references: [monitoringCampaigns.id],
+    relationName: "monitoringCampaign_mediaArticles",
   }),
-);
+
+  // Real FK to news_sources
+  source: one(newsSources, {
+    fields: [mediaArticles.sourceId],
+    references: [newsSources.id],
+    relationName: "newsSource_mediaArticles",
+  }),
+
+  // Real FK
+  competitor: one(monitoringCompetitors, {
+    fields: [mediaArticles.competitorId],
+    references: [monitoringCompetitors.id],
+  }),
+
+  // Self-FK for duplicate chain
+  originalArticle: one(mediaArticles, {
+    fields: [mediaArticles.originalArticleId],
+    references: [mediaArticles.id],
+    relationName: "mediaArticle_duplicates",
+  }),
+  duplicates: many(mediaArticles, {
+    relationName: "mediaArticle_duplicates",
+  }),
+
+  // FK to news_sources for syndicated origin
+  syndicatedFromSource: one(newsSources, {
+    fields: [mediaArticles.syndicatedFrom],
+    references: [newsSources.id],
+    relationName: "mediaArticle_syndicatedFrom",
+  }),
+}));
+
+export const monitoringCompetitorsRelations = relations(monitoringCompetitors, ({ many }) => ({
+  // Reverse relation: articles that mention this competitor
+  mediaArticles: many(mediaArticles),
+}));
+
+export const crisisIncidentsRelations = relations(crisisIncidents, ({ one }) => ({
+  // Real FK to media_articles
+  originArticle: one(mediaArticles, {
+    fields: [crisisIncidents.originArticleId],
+    references: [mediaArticles.id],
+    relationName: "crisisIncident_originArticle",
+  }),
+
+  // Cross-module reference (NOT FK):
+  //   originAlertEventId → alert_events.id (shared/alerts.ts)
+}));

@@ -1,6 +1,6 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { createTestApp } from "../helpers/test-client";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { loadConfig } from "../../lib/config";
+import { createTestApp } from "../helpers/test-client";
 
 const testEnv = {
   DATABASE_URL: "postgresql://localhost:5432/test",
@@ -14,7 +14,7 @@ describe("Email change routes — no DB (validation + auth)", () => {
     loadConfig();
   });
   afterAll(() => {
-    for (const k of Object.keys(testEnv)) delete process.env[k];
+    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
   });
 
   test("POST /api/users/me/email-change without auth returns 401", async () => {

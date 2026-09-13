@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { ConsoleEmailTransport, createEmailService, type EmailMessage, type EmailTransport } from "../services/email";
+import {
+  ConsoleEmailTransport,
+  createEmailService,
+  type EmailMessage,
+  type EmailTransport,
+} from "../services/email";
 
 describe("ConsoleEmailTransport", () => {
   test("sendEmail returns sent=true and echoes recipient", async () => {
@@ -49,7 +54,11 @@ describe("createEmailService", () => {
       }),
     };
     const svc = createEmailService(fakeTransport);
-    const result = await svc.send({ to: "x@example.com", subject: "Hi", html: "<p>Hi</p>" });
+    const result = await svc.send({
+      to: "x@example.com",
+      subject: "Hi",
+      html: "<p>Hi</p>",
+    });
     expect(result.messageId).toBe("test-123");
     expect(result.recipient).toBe("x@example.com");
   });

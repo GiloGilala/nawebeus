@@ -20,9 +20,7 @@ let _config: Config | undefined;
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const result = envSchema.safeParse(env);
   if (!result.success) {
-    const errors = result.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ");
+    const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
     throw new Error(`Config validation failed: ${errors}`);
   }
   _config = result.data;

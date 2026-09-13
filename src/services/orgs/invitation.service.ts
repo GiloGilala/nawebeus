@@ -1,9 +1,9 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { generateSecureToken, hashToken } from "../../lib/tokens";
-import { emailService } from "../email";
-import { writeAuditLog } from "../audit";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
+import { generateSecureToken, hashToken } from "../../lib/tokens";
+import { writeAuditLog } from "../audit";
+import { emailService } from "../email";
 
 export interface InviteOneInput {
   email: string;
@@ -153,14 +153,21 @@ export async function bulkInviteMembers(
   orgId: string,
   actingUserId: string,
   rows: InviteCsvRow[],
-): Promise<{ successes: InviteResult[]; failures: { row: number; email: string; error: string }[] }> {
+): Promise<{
+  successes: InviteResult[];
+  failures: { row: number; email: string; error: string }[];
+}> {
   const successes: InviteResult[] = [];
   const failures: { row: number; email: string; error: string }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!row?.email || !row.email.includes("@")) {
-      failures.push({ row: i + 1, email: row?.email ?? "", error: "Invalid or missing email" });
+      failures.push({
+        row: i + 1,
+        email: row?.email ?? "",
+        error: "Invalid or missing email",
+      });
       continue;
     }
     try {
@@ -173,7 +180,11 @@ export async function bulkInviteMembers(
       const result = await inviteMember(db, orgId, actingUserId, inviteInput);
       successes.push(result);
     } catch (e) {
-      failures.push({ row: i + 1, email: row.email, error: e instanceof Error ? e.message : "Unknown error" });
+      failures.push({
+        row: i + 1,
+        email: row.email,
+        error: e instanceof Error ? e.message : "Unknown error",
+      });
     }
   }
 
@@ -186,7 +197,10 @@ export async function bulkInviteMembers(
     category: "authorization",
     resourceType: "organization",
     resourceId: orgId,
-    afterState: { successCount: successes.length, failureCount: failures.length },
+    afterState: {
+      successCount: successes.length,
+      failureCount: failures.length,
+    },
   });
 
   return { successes, failures };

@@ -1,7 +1,7 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { loadConfig } from "../../lib/config";
 import { createTestApp } from "../helpers/test-client";
 import { withTestDb } from "../helpers/test-db";
-import { loadConfig } from "../../lib/config";
 
 const hasDb = () => !!process.env.DATABASE_URL;
 
@@ -21,7 +21,7 @@ function setupTestEnv() {
 describe("POST /api/auth/signin — validation", () => {
   beforeAll(() => setupTestEnv());
   afterAll(() => {
-    for (const k of Object.keys(testEnv)) delete process.env[k];
+    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
   });
   test("signin with missing email returns 422", async () => {
     const app = createTestApp();
@@ -58,7 +58,7 @@ describe("POST /api/auth/signin — validation", () => {
 describe("auth middleware — validation", () => {
   beforeAll(() => setupTestEnv());
   afterAll(() => {
-    for (const k of Object.keys(testEnv)) delete process.env[k];
+    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
   });
   test("request without access token returns 401", async () => {
     const app = createTestApp();
@@ -84,7 +84,10 @@ describe.skipIf(!hasDb())("POST /api/auth/signin — integration", () => {
       const res = await app.request("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "admin@nawebeus.com", password: "Admin@123456" }),
+        body: JSON.stringify({
+          email: "admin@nawebeus.com",
+          password: "Admin@123456",
+        }),
       });
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -103,7 +106,10 @@ describe.skipIf(!hasDb())("POST /api/auth/signin — integration", () => {
       const res = await app.request("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "admin@nawebeus.com", password: "wrongpassword" }),
+        body: JSON.stringify({
+          email: "admin@nawebeus.com",
+          password: "wrongpassword",
+        }),
       });
       expect(res.status).toBe(401);
       const json = await res.json();

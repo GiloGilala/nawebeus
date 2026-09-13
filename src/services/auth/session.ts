@@ -1,5 +1,6 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { normaliseIp } from "../../lib/ip";
 
 export interface SessionRow {
   id: string;
@@ -57,7 +58,25 @@ export interface SessionListEntry {
   authenticationLevel: string | null;
 }
 
+/**
+ * Session / refresh-token lifetime, in seconds.
+ *
+ * Single source of truth: the refresh JWT's `exp` and the session row's
+ * `expires_at` describe the same window, so they must not be computed
+ * independently — a session row outliving its token (or vice versa) is a
+ * silent auth bug.
+ */
+export const SESSION_TTL_SECONDS = {
+  default: 7 * 24 * 60 * 60,
+  rememberMe: 30 * 24 * 60 * 60,
+} as const;
+
+export function sessionTtlSeconds(rememberMe: boolean): number {
+  return rememberMe ? SESSION_TTL_SECONDS.rememberMe : SESSION_TTL_SECONDS.default;
+}
+
 export interface CreateSessionOptions {
+  /** Raw client IP as read from a header. Normalised before it reaches the `inet` column. */
   ip?: string;
   userAgent?: string;
 }
@@ -65,6 +84,13 @@ export interface CreateSessionOptions {
 /**
  * Creates a session row with an explicit sessionId and a hash of the refresh token.
  * The token hash binds the refresh token to this specific session row.
+ *
+ * `options.ip` is normalised to a real address or `null`. Passing it through
+ * unchecked used to 500 the whole sign-in when the caller had no usable header:
+ * the route fell back to the literal string `"unknown"`, which `inet` rejects.
+ *
+ * `expires_at` is NOT NULL on the table and has no default, so it is derived here
+ * from the same TTL the refresh token is signed with.
  */
 export async function createSession(
   db: NodePgDatabase<Record<string, any>>,
@@ -74,10 +100,17 @@ export async function createSession(
   rememberMe: boolean,
   options?: CreateSessionOptions,
 ): Promise<SessionRow> {
-  const rows = await db.execute<{ id: string; user_id: string; status: string; is_revoked: boolean; session_token_hash: string }>(
+  const expiresAt = new Date(Date.now() + sessionTtlSeconds(rememberMe) * 1000).toISOString();
+  const rows = await db.execute<{
+    id: string;
+    user_id: string;
+    status: string;
+    is_revoked: boolean;
+    session_token_hash: string;
+  }>(
     sql`
-      INSERT INTO sessions (id, user_id, session_token_hash, type, login_method, status, remember_me, ip_address, user_agent)
-      VALUES (${sessionId}, ${userId}, ${tokenHash}, 'web', 'password', 'active', ${rememberMe}, ${options?.ip ?? null}, ${options?.userAgent ?? null})
+      INSERT INTO sessions (id, user_id, session_token_hash, type, login_method, status, remember_me, ip_address, user_agent, expires_at)
+      VALUES (${sessionId}, ${userId}, ${tokenHash}, 'web', 'password', 'active', ${rememberMe}, ${normaliseIp(options?.ip)}, ${options?.userAgent ?? null}, ${expiresAt})
       RETURNING id, user_id, status, is_revoked, session_token_hash
     `,
   );
@@ -95,7 +128,13 @@ export async function findSession(
   db: NodePgDatabase<Record<string, any>>,
   sessionId: string,
 ): Promise<SessionRow | null> {
-  const rows = await db.execute<{ id: string; user_id: string; status: string; is_revoked: boolean; session_token_hash: string }>(
+  const rows = await db.execute<{
+    id: string;
+    user_id: string;
+    status: string;
+    is_revoked: boolean;
+    session_token_hash: string;
+  }>(
     sql`SELECT id, user_id, status, is_revoked, session_token_hash FROM sessions WHERE id = ${sessionId} LIMIT 1`,
   );
   const row = (rows as any).rows?.[0] as any;

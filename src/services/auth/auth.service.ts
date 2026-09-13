@@ -1,14 +1,21 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
-import { AuthError, AccountLockedError } from "../../lib/errors";
-import { verifyPassword, hashPassword } from "./password";
-import { signAccessToken, signRefreshToken, verifyToken } from "./jwt";
-import { createSession, findSession, revokeSession, revokeAllSessionsForUser, hashToken } from "./session";
-import { verifyTOTP } from "./totp";
-import { writeAuditLog } from "../audit";
+import { AccountLockedError, AuthError } from "../../lib/errors";
 import { checkRateLimit } from "../../lib/rate-limit";
+import { writeAuditLog } from "../audit";
+import { type JwtPayload, signAccessToken, signRefreshToken, verifyToken } from "./jwt";
+import { hashPassword, verifyPassword } from "./password";
 import { recordPasswordChange } from "./password-history";
+import {
+  createSession,
+  findSession,
+  hashToken,
+  revokeAllSessionsForUser,
+  revokeSession,
+  sessionTtlSeconds,
+} from "./session";
+import { verifyTOTP } from "./totp";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
@@ -136,7 +143,8 @@ export async function signIn(
 
   // --- Create session ---
   const sessionId = crypto.randomUUID();
-  const refreshTtlSec = options?.rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
+  // Same TTL the session row records as `expires_at` — see sessionTtlSeconds.
+  const refreshTtlSec = sessionTtlSeconds(!!options?.rememberMe);
   const refreshToken = await signRefreshToken(
     sessionId,
     userId,
@@ -180,7 +188,7 @@ export async function refreshSession(
 ): Promise<SignInResult> {
   const config = getConfig();
 
-  let payload;
+  let payload: JwtPayload;
   try {
     payload = await verifyToken(refreshToken, config.JWT_REFRESH_SECRET);
   } catch {

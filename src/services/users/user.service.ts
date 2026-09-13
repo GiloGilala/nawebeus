@@ -1,5 +1,5 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../../lib/errors";
 
 export interface UserProfile {
@@ -66,7 +66,10 @@ export async function getUserByEmail(
   };
 }
 
-export async function getUser(db: NodePgDatabase<Record<string, any>>, userId: string): Promise<UserProfile> {
+export async function getUser(
+  db: NodePgDatabase<Record<string, any>>,
+  userId: string,
+): Promise<UserProfile> {
   const rows = await db.execute(
     sql`
       SELECT id, email, username, first_name, last_name, display_name,

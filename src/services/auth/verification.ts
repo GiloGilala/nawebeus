@@ -1,10 +1,10 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { getUserByEmail } from "../users/user.service";
-import { createToken, consumeToken, countRecentTokens } from "./tokens";
-import { emailService } from "../email";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { AuthError, ConflictError, NotFoundError } from "../../lib/errors";
 import { writeAuditLog } from "../audit";
-import { ConflictError, AuthError, NotFoundError } from "../../lib/errors";
+import { emailService } from "../email";
+import { getUserByEmail } from "../users/user.service";
+import { consumeToken, countRecentTokens, createToken } from "./tokens";
 
 const VERIFICATION_TTL_MINUTES = 24 * 60;
 const MAX_RESENDS_PER_HOUR = 3;
@@ -21,7 +21,10 @@ export async function sendVerificationEmail(
 ): Promise<SendVerificationResult> {
   const user = await getUserByEmail(db, email);
   if (!user) {
-    return { sent: false, message: "If an account with that email exists, a verification link has been sent." };
+    return {
+      sent: false,
+      message: "If an account with that email exists, a verification link has been sent.",
+    };
   }
 
   if (user.emailVerified) {
@@ -113,10 +116,18 @@ export async function verifyEmail(
 async function getUserById(
   db: NodePgDatabase<Record<string, any>>,
   userId: string,
-): Promise<{ id: string; email: string; emailVerified: boolean; status: string } | null> {
-  const rows = await db.execute<{ id: string; email: string; email_verified: boolean; status: string }>(
-    sql`SELECT id, email, email_verified, status FROM users WHERE id = ${userId} LIMIT 1`,
-  );
+): Promise<{
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  status: string;
+} | null> {
+  const rows = await db.execute<{
+    id: string;
+    email: string;
+    email_verified: boolean;
+    status: string;
+  }>(sql`SELECT id, email, email_verified, status FROM users WHERE id = ${userId} LIMIT 1`);
   const row = (rows as any).rows?.[0] as any;
   if (!row) return null;
   return {

@@ -3,6 +3,10 @@ import { AppError, InternalError } from "../../lib/errors";
 import { err } from "../../lib/response";
 
 export const errorHandler: ErrorHandler = (e, c) => {
+  if (process.env.NWB_DEBUG_ERRORS) {
+    // eslint-disable-next-line no-console
+    console.error("[NWB_DEBUG_ERRORS]", e);
+  }
   if (e instanceof AppError) {
     c.status(e.statusCode as 400 | 401 | 403 | 404 | 409 | 422 | 423 | 429 | 500);
     return c.json(err(e));

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validatePassword, PASSWORD_RULES } from "../lib/password";
+import { PASSWORD_RULES, validatePassword } from "../lib/password";
 
 describe("validatePassword", () => {
   const base = "Str0ng!Passw0rd";
@@ -47,13 +47,17 @@ describe("validatePassword", () => {
   });
 
   test("rejects passwords containing the username", () => {
-    const result = validatePassword("Str0ng!Passw0rdjohnjohn", { username: "john" });
+    const result = validatePassword("Str0ng!Passw0rdjohnjohn", {
+      username: "john",
+    });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("Password must not contain the username");
   });
 
   test("rejects passwords containing the email local part", () => {
-    const result = validatePassword("Str0ng!Passw0rdjohn", { email: "john@example.com" });
+    const result = validatePassword("Str0ng!Passw0rdjohn", {
+      email: "john@example.com",
+    });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("Password must not contain the email address");
   });

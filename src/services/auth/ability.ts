@@ -1,6 +1,6 @@
-import { AbilityBuilder, createMongoAbility, type Ability } from "@casl/ability";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { type Ability, AbilityBuilder, createMongoAbility } from "@casl/ability";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 export type Actions = "create" | "read" | "update" | "delete" | "manage";
 export type Subjects = string;

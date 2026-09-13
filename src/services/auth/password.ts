@@ -5,9 +5,6 @@ export async function hashPassword(plaintext: string): Promise<string> {
   });
 }
 
-export async function verifyPassword(
-  plaintext: string,
-  hash: string,
-): Promise<boolean> {
+export async function verifyPassword(plaintext: string, hash: string): Promise<boolean> {
   return await Bun.password.verify(plaintext, hash);
 }

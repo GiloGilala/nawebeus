@@ -18,15 +18,11 @@ export interface EmailTransport {
 
 export class ConsoleEmailTransport implements EmailTransport {
   async send(message: EmailMessage): Promise<EmailResult> {
-    const recipient = Array.isArray(message.to)
-      ? message.to.join(", ")
-      : message.to;
+    const recipient = Array.isArray(message.to) ? message.to.join(", ") : message.to;
     const messageId = `em_${crypto.randomUUID()}`;
 
     if (process.env.NODE_ENV !== "test") {
-      console.log(
-        `\n[EMAIL] To: ${recipient}\nSubject: ${message.subject}\n${message.html}\n`,
-      );
+      console.log(`\n[EMAIL] To: ${recipient}\nSubject: ${message.subject}\n${message.html}\n`);
     }
 
     return { sent: true, messageId, recipient };

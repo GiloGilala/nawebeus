@@ -1,10 +1,15 @@
+import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { sql } from "drizzle-orm";
-import { authMiddleware } from "../../server/middleware/auth";
-import { initiateMFASetup, confirmMFASetup, disableMFA, getMFAStatus } from "../../services/auth/mfa";
 import { ValidationError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { authMiddleware } from "../../server/middleware/auth";
+import {
+  confirmMFASetup,
+  disableMFA,
+  getMFAStatus,
+  initiateMFASetup,
+} from "../../services/auth/mfa";
 
 const confirmSchema = z.object({
   token: z.string().length(6, "TOTP code must be 6 digits"),

@@ -1,16 +1,28 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { signup, type SignupInput } from "../../services/auth/signup";
+import { ConflictError, ValidationError } from "../../lib/errors";
 import { validatePassword } from "../../lib/password";
-import { ValidationError, ConflictError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { type SignupInput, signup } from "../../services/auth/signup";
 
 const signupSchema = z.object({
   email: z.string().email("Invalid email format"),
   password: z.string().min(1, "Password is required"),
   fullName: z.string().min(2, "Full name must be at least 2 characters").max(100),
   organizationName: z.string().min(2, "Organization name must be at least 2 characters").max(100),
-  industry: z.enum(["banking", "fintech", "telecom", "fmcg", "pr_agency", "government", "media", "technology", "other"]).optional(),
+  industry: z
+    .enum([
+      "banking",
+      "fintech",
+      "telecom",
+      "fmcg",
+      "pr_agency",
+      "government",
+      "media",
+      "technology",
+      "other",
+    ])
+    .optional(),
   teamSize: z.string().optional(),
   termsAccepted: z.boolean().refine((v) => v === true, {
     message: "You must accept the Terms of Service",
@@ -64,7 +76,9 @@ router.post("/signup", async (c) => {
       privacyAccepted: parsed.data.privacyAccepted,
       ...(parsed.data.industry ? { industry: parsed.data.industry } : {}),
       ...(parsed.data.teamSize ? { teamSize: parsed.data.teamSize } : {}),
-      ...(parsed.data.marketingOptIn !== undefined ? { marketingOptIn: parsed.data.marketingOptIn } : {}),
+      ...(parsed.data.marketingOptIn !== undefined
+        ? { marketingOptIn: parsed.data.marketingOptIn }
+        : {}),
     };
     const result = await signup(db, input);
     c.status(201);

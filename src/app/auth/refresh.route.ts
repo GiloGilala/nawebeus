@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
-import { refreshSession } from "../../services/auth/auth.service";
 import { AuthError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { refreshSession } from "../../services/auth/auth.service";
 
 const router = new Hono();
 

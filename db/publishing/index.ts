@@ -57,23 +57,23 @@
 //     OR: draft → publishing → published (if immediate + no approval)
 //     cancelled: can be set from any non-terminal state.
 
-import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
-  jsonb,
-  timestamp,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/pg-core";
+import {
   contentStatusEnum,
-  scheduleTypeEnum,
-  publishingResultStatusEnum,
   platformEnum,
+  publishingResultStatusEnum,
+  scheduleTypeEnum,
 } from "../shared/enums";
 
 // =============================================================================
@@ -207,17 +207,13 @@ export const posts = pgTable(
     savedAt: timestamp("saved_at", { withTimezone: true }),
 
     // ─── Scheduling ───────────────────────────────────────────────────────────
-    scheduleType: scheduleTypeEnum("schedule_type")
-      .default("immediate")
-      .notNull(),
+    scheduleType: scheduleTypeEnum("schedule_type").default("immediate").notNull(),
 
     // When to publish (only used when scheduleType = 'scheduled')
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
 
     // IANA timezone — used for display and recurring schedule calculation
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
 
     // Recurrence config (only used when scheduleType = 'recurring')
     // { frequency: 'weekly', days: ['MON', 'WED'], time: '09:00' }
@@ -232,12 +228,8 @@ export const posts = pgTable(
     utmMedium: varchar("utm_medium", { length: 100 }),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -264,10 +256,7 @@ export const posts = pgTable(
     ),
 
     // platforms array must not be empty
-    check(
-      "chk_posts_platforms_not_empty",
-      sql`array_length(${table.platforms}, 1) > 0`,
-    ),
+    check("chk_posts_platforms_not_empty", sql`array_length(${table.platforms}, 1) > 0`),
 
     // previousVersionId cannot point to itself
     check(
@@ -289,9 +278,7 @@ export const posts = pgTable(
       .where(sql`${table.isLatestVersion} = TRUE`),
 
     // Publishing scheduler — "find posts ready to publish"
-    index("idx_posts_scheduled")
-      .on(table.scheduledAt)
-      .where(sql`${table.status} = 'scheduled'`),
+    index("idx_posts_scheduled").on(table.scheduledAt).where(sql`${table.status} = 'scheduled'`),
 
     // Creator's posts — "show me my drafts"
     index("idx_posts_creator")
@@ -318,9 +305,7 @@ export const posts = pgTable(
       .where(sql`${table.status} = 'published'`),
 
     // Template usage — "which posts were created from template X?"
-    index("idx_posts_template")
-      .on(table.templateId)
-      .where(sql`${table.templateId} IS NOT NULL`),
+    index("idx_posts_template").on(table.templateId).where(sql`${table.templateId} IS NOT NULL`),
 
     // Tags filter — GIN applied via raw SQL migration:
     // CREATE INDEX idx_posts_tags ON posts USING GIN(tags)
@@ -434,12 +419,8 @@ export const publishingResults = pgTable(
     publishedMediaUrls: text("published_media_urls").array(),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -483,14 +464,10 @@ export const publishingResults = pgTable(
     index("idx_pr_org").on(table.organizationId),
 
     // Publishing worker — "find queued results ready to publish"
-    index("idx_pr_queued")
-      .on(table.scheduledAt)
-      .where(sql`${table.status} = 'queued'`),
+    index("idx_pr_queued").on(table.scheduledAt).where(sql`${table.status} = 'queued'`),
 
     // Currently publishing — "what's being published right now?"
-    index("idx_pr_publishing")
-      .on(table.status)
-      .where(sql`${table.status} = 'publishing'`),
+    index("idx_pr_publishing").on(table.status).where(sql`${table.status} = 'publishing'`),
 
     // Retry worker — "find failed results eligible for retry"
     index("idx_pr_retry")
@@ -505,9 +482,7 @@ export const publishingResults = pgTable(
     index("idx_pr_platform").on(table.organizationId, table.platform),
 
     // Published results — metrics collection worker
-    index("idx_pr_published")
-      .on(table.publishedAt)
-      .where(sql`${table.status} = 'published'`),
+    index("idx_pr_published").on(table.publishedAt).where(sql`${table.status} = 'published'`),
 
     // Platform post lookup — "find our record for platform post ID Y"
     index("idx_pr_platform_post_id")
@@ -546,18 +521,15 @@ export const postsRelations = relations(posts, ({ one, many }) => ({
   //   createdBy        → core/index.ts users.id
 }));
 
-export const publishingResultsRelations = relations(
-  publishingResults,
-  ({ one }) => ({
-    post: one(posts, {
-      fields: [publishingResults.postId],
-      references: [posts.id],
-      relationName: "post_publishingResults",
-    }),
-
-    // Cross-module references (resolved at application layer):
-    //   Performance metrics → analytics_aggregates
-    //     WHERE dimension_1 = postId AND dimension_2 = 'post'
-    //     AND platform = this.platform
+export const publishingResultsRelations = relations(publishingResults, ({ one }) => ({
+  post: one(posts, {
+    fields: [publishingResults.postId],
+    references: [posts.id],
+    relationName: "post_publishingResults",
   }),
-);
+
+  // Cross-module references (resolved at application layer):
+  //   Performance metrics → analytics_aggregates
+  //     WHERE dimension_1 = postId AND dimension_2 = 'post'
+  //     AND platform = this.platform
+}));

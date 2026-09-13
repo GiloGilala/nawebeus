@@ -1,4 +1,6 @@
 // @/db/schemas/auth/organizations.ts
+
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -11,17 +13,12 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
-import { users } from "../core/users";
-import { tablePrefix, timestamps } from "../shared/schema-utils";
-import {
-  organizationTypePgEnum,
-  organizationStatusPgEnum,
-  industryPgEnum,
-} from "../shared/enums";
-import { OrganizationBillingAddress } from "@/server/organization/types/organization-type";
-import { organizationMembers } from "./organization-members";
+import type { OrganizationBillingAddress } from "@/server/organization/types/organization-type";
 import { roles } from "../core/roles";
+import { users } from "../core/users";
+import { industryPgEnum, organizationStatusPgEnum, organizationTypePgEnum } from "../shared/enums";
+import { tablePrefix, timestamps } from "../shared/schema-utils";
+import { organizationMembers } from "./organization-members";
 
 // ============================================
 // TYPES FOR JSON FIELDS
@@ -273,28 +270,27 @@ export interface OrganizationSecuritySettings {
 // DEFAULT VALUES - Now actually used
 // ============================================
 
-export const collaborationSettingsDefault =
-  (): OrganizationCollaborationSettings => ({
-    requireApprovalForPosts: false,
-    allowMemberInvites: true,
-    defaultMemberRole: "member",
-    allowExternalSharing: false,
-    requireTwoFactorAuth: false,
-    sessionTimeout: 1440,
-    requireEmailVerification: true,
-    approvalWorkflows: {
-      contentPublishing: false,
-      userInvitations: false,
-      budgetChanges: true,
-      settingsChanges: true,
-    },
-    notificationDefaults: {
-      emailDigest: true,
-      realTimeAlerts: true,
-      weeklyReports: true,
-      mentionNotifications: true,
-    },
-  });
+export const collaborationSettingsDefault = (): OrganizationCollaborationSettings => ({
+  requireApprovalForPosts: false,
+  allowMemberInvites: true,
+  defaultMemberRole: "member",
+  allowExternalSharing: false,
+  requireTwoFactorAuth: false,
+  sessionTimeout: 1440,
+  requireEmailVerification: true,
+  approvalWorkflows: {
+    contentPublishing: false,
+    userInvitations: false,
+    budgetChanges: true,
+    settingsChanges: true,
+  },
+  notificationDefaults: {
+    emailDigest: true,
+    realTimeAlerts: true,
+    weeklyReports: true,
+    mentionNotifications: true,
+  },
+});
 
 export const preferencesDefault = (): OrganizationPreferences => ({
   timezone: "UTC",
@@ -450,9 +446,7 @@ export const organizations = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id")
-      .primaryKey()
-      .default(sql`gen_random_uuid()`),
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
 
     name: varchar("name", { length: 200 }).notNull(),
     slug: varchar("slug", { length: 100 }).notNull().unique(),
@@ -472,16 +466,12 @@ export const organizations = pgTable(
     phone: varchar("phone", { length: 20 }),
     website: varchar("website", { length: 255 }),
 
-    address: jsonb("address")
-      .$type<OrganizationAddress>()
-      .default(sql`'{}'::jsonb`),
+    address: jsonb("address").$type<OrganizationAddress>().default(sql`'{}'::jsonb`),
     billingAddress: jsonb("billing_address")
       .$type<OrganizationBillingAddress>()
       .default(sql`'{}'::jsonb`),
 
-    socialLinks: jsonb("social_links")
-      .$type<OrganizationSocialLinks>()
-      .default(sql`'{}'::jsonb`),
+    socialLinks: jsonb("social_links").$type<OrganizationSocialLinks>().default(sql`'{}'::jsonb`),
 
     language: varchar("language", { length: 10 }).default("en-NG").notNull(),
     currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
@@ -506,9 +496,7 @@ export const organizations = pgTable(
       mode: "date",
     }),
 
-    setupData: jsonb("setup_data")
-      .$type<OrganizationSetupData>()
-      .default(sql`'{}'::jsonb`),
+    setupData: jsonb("setup_data").$type<OrganizationSetupData>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // OWNERSHIP & HIERARCHY
@@ -521,10 +509,9 @@ export const organizations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
 
-    parentOrganizationId: uuid("parent_organization_id").references(
-      (): any => organizations.id,
-      { onDelete: "set null" },
-    ),
+    parentOrganizationId: uuid("parent_organization_id").references((): any => organizations.id, {
+      onDelete: "set null",
+    }),
 
     isParent: boolean("is_parent").notNull().default(false),
 
@@ -532,18 +519,14 @@ export const organizations = pgTable(
     customDomainVerified: boolean("custom_domain_verified").default(false),
 
     // Consolidated whitelabel settings
-    whitelabel: jsonb("whitelabel")
-      .$type<OrganizationWhitelabel>()
-      .default(sql`'{}'::jsonb`),
+    whitelabel: jsonb("whitelabel").$type<OrganizationWhitelabel>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // TEAM & COLLABORATION
     // ============================================
     // NOTE: These are CACHED analytics values, NOT source of truth
     // Recalculated periodically from organization_members table
-    teamStats: jsonb("team_stats")
-      .$type<OrganizationTeamStats>()
-      .default(sql`'{}'::jsonb`),
+    teamStats: jsonb("team_stats").$type<OrganizationTeamStats>().default(sql`'{}'::jsonb`),
 
     collaborationSettings: jsonb("collaboration_settings")
       .$type<OrganizationCollaborationSettings>()
@@ -561,9 +544,7 @@ export const organizations = pgTable(
     // ============================================
     // INTEGRATIONS
     // ============================================
-    integrations: jsonb("integrations")
-      .$type<OrganizationIntegration>()
-      .default(sql`'{}'::jsonb`),
+    integrations: jsonb("integrations").$type<OrganizationIntegration>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // ACTIVITY & ENGAGEMENT
@@ -631,12 +612,8 @@ export const organizations = pgTable(
     // ============================================
     // METADATA & TAGS
     // ============================================
-    metadata: jsonb("metadata")
-      .$type<Record<string, unknown>>()
-      .default(sql`'{}'::jsonb`),
-    tags: jsonb("tags")
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
+    tags: jsonb("tags").$type<string[]>().default(sql`'[]'::jsonb`),
 
     internalNotes: text("internal_notes"),
     publicNotes: text("public_notes"),
@@ -712,9 +689,7 @@ export const organizations = pgTable(
 
     uniqueIndex(`${tablePrefix}organizations_custom_domain_unique_idx`)
       .on(table.customDomain)
-      .where(
-        sql`${table.customDomain} IS NOT NULL AND ${table.deletedAt} IS NULL`,
-      ),
+      .where(sql`${table.customDomain} IS NOT NULL AND ${table.deletedAt} IS NULL`),
 
     // ============================================
     // PERFORMANCE INDEXES
@@ -732,41 +707,25 @@ export const organizations = pgTable(
 
     index(`${tablePrefix}organizations_owner_idx`).on(table.ownerId),
     index(`${tablePrefix}organizations_created_by_idx`).on(table.createdBy),
-    index(`${tablePrefix}organizations_parent_org_idx`).on(
-      table.parentOrganizationId,
-    ),
+    index(`${tablePrefix}organizations_parent_org_idx`).on(table.parentOrganizationId),
     index(`${tablePrefix}organizations_is_parent_idx`).on(table.isParent),
 
-    index(`${tablePrefix}organizations_last_activity_idx`).on(
-      table.lastActivityAt,
-    ),
-    index(`${tablePrefix}organizations_activity_score_idx`).on(
-      table.activityScore,
-    ),
-    index(`${tablePrefix}organizations_engagement_score_idx`).on(
-      table.engagementScore,
-    ),
+    index(`${tablePrefix}organizations_last_activity_idx`).on(table.lastActivityAt),
+    index(`${tablePrefix}organizations_activity_score_idx`).on(table.activityScore),
+    index(`${tablePrefix}organizations_engagement_score_idx`).on(table.engagementScore),
     index(`${tablePrefix}organizations_growth_score_idx`).on(table.growthScore),
 
     index(`${tablePrefix}organizations_health_score_idx`).on(table.healthScore),
     index(`${tablePrefix}organizations_risk_level_idx`).on(table.riskLevel),
     index(`${tablePrefix}organizations_churn_risk_idx`).on(table.churnRisk),
-    index(`${tablePrefix}organizations_customer_tier_idx`).on(
-      table.customerTier,
-    ),
+    index(`${tablePrefix}organizations_customer_tier_idx`).on(table.customerTier),
 
     index(`${tablePrefix}organizations_deleted_at_idx`).on(table.deletedAt),
     index(`${tablePrefix}organizations_created_at_idx`).on(table.createdAt),
-    index(`${tablePrefix}organizations_scheduled_deletion_idx`).on(
-      table.scheduledDeletionAt,
-    ),
-    index(`${tablePrefix}organizations_data_anonymized_idx`).on(
-      table.dataAnonymizedAt,
-    ),
+    index(`${tablePrefix}organizations_scheduled_deletion_idx`).on(table.scheduledDeletionAt),
+    index(`${tablePrefix}organizations_data_anonymized_idx`).on(table.dataAnonymizedAt),
 
-    index(`${tablePrefix}organizations_custom_domain_idx`).on(
-      table.customDomain,
-    ),
+    index(`${tablePrefix}organizations_custom_domain_idx`).on(table.customDomain),
 
     // ============================================
     // COMPOSITE INDEXES FOR COMMON QUERIES
@@ -812,13 +771,19 @@ export const organizations = pgTable(
         `,
       ),
 
-    // Agencies with child organizations
+    // Agencies with child organizations.
+    // The predicate previously read ('agency', 'enterprise'), but
+    // `organization_type` has no `enterprise` label — that value belongs to
+    // `subscription_plan`. Postgres rejected the whole `bun run db:push`.
+    // Narrowed to `agency`, matching this index's name and comment. A partial
+    // index's predicate only governs which rows are indexed, never which rows a
+    // query returns, so narrowing it cannot change results.
     index(`${tablePrefix}organizations_agencies_with_children_idx`)
       .on(table.isParent, table.type, table.status, table.isActive)
       .where(
         sql`
           ${table.isParent} = true 
-          AND ${table.type} IN ('agency', 'enterprise')
+          AND ${table.type} IN ('agency')
           AND ${table.isActive} = true
           AND ${table.deletedAt} IS NULL
         `,
@@ -887,33 +852,30 @@ export const organizations = pgTable(
 // RELATIONS
 // ============================================
 
-export const organizationsRelations = relations(
-  organizations,
-  ({ one, many }) => ({
-    owner: one(users, {
-      fields: [organizations.ownerId],
-      references: [users.id],
-    }),
-    creator: one(users, {
-      fields: [organizations.createdBy],
-      references: [users.id],
-    }),
-    deletedByUser: one(users, {
-      fields: [organizations.deletedBy],
-      references: [users.id],
-    }),
-    parentOrganization: one(organizations, {
-      fields: [organizations.parentOrganizationId],
-      references: [organizations.id],
-      relationName: "organizationParent",
-    }),
-    childOrganizations: many(organizations, {
-      relationName: "organizationParent",
-    }),
-    members: many(organizationMembers),
-    roles: many(roles),
+export const organizationsRelations = relations(organizations, ({ one, many }) => ({
+  owner: one(users, {
+    fields: [organizations.ownerId],
+    references: [users.id],
   }),
-);
+  creator: one(users, {
+    fields: [organizations.createdBy],
+    references: [users.id],
+  }),
+  deletedByUser: one(users, {
+    fields: [organizations.deletedBy],
+    references: [users.id],
+  }),
+  parentOrganization: one(organizations, {
+    fields: [organizations.parentOrganizationId],
+    references: [organizations.id],
+    relationName: "organizationParent",
+  }),
+  childOrganizations: many(organizations, {
+    relationName: "organizationParent",
+  }),
+  members: many(organizationMembers),
+  roles: many(roles),
+}));
 
 // ============================================
 // TYPE EXPORTS
@@ -1020,10 +982,8 @@ export const organizationSelectors = {
     slug: organizations.slug,
     termsAcceptedAt: organizations.termsAcceptedAt,
     termsVersion: organizations.termsVersion,
-    dataProcessingAgreementAcceptedAt:
-      organizations.dataProcessingAgreementAcceptedAt,
-    dataProcessingAgreementVersion:
-      organizations.dataProcessingAgreementVersion,
+    dataProcessingAgreementAcceptedAt: organizations.dataProcessingAgreementAcceptedAt,
+    dataProcessingAgreementVersion: organizations.dataProcessingAgreementVersion,
     privacyPolicyAcceptedAt: organizations.privacyPolicyAcceptedAt,
     privacyPolicyVersion: organizations.privacyPolicyVersion,
     cookieConsentAcceptedAt: organizations.cookieConsentAcceptedAt,
@@ -1060,10 +1020,7 @@ export function isParentOrganization(org: Organization): boolean {
 /**
  * Check if organization has child organizations
  */
-export async function hasChildOrganizations(
-  orgId: string,
-  db: any,
-): Promise<boolean> {
+export async function hasChildOrganizations(orgId: string, db: any): Promise<boolean> {
   const result = await db
     .select({ count: sql<number>`count(*)` })
     .from(organizations)
@@ -1113,12 +1070,6 @@ export function getDisplayName(org: Organization): string {
 export function getFullAddress(org: Organization): string | null {
   const addr = org.address as OrganizationAddress;
   if (!addr) return null;
-  const parts = [
-    addr.street,
-    addr.city,
-    addr.state,
-    addr.postalCode,
-    addr.country,
-  ].filter(Boolean);
+  const parts = [addr.street, addr.city, addr.state, addr.postalCode, addr.country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : null;
 }

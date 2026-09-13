@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { generateTOTOPair, verifyTOTP, totpKeyUri } from "../services/auth/totp";
+import { generateTOTOPair, totpKeyUri, verifyTOTP } from "../services/auth/totp";
 
 describe("generateTOTOPair", () => {
   test("returns a base32 secret and a key URI", () => {

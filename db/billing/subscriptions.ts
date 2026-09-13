@@ -1,6 +1,9 @@
 // @/db/schemas/billing/subscriptions.ts
+
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -8,36 +11,34 @@ import {
   timestamp,
   uuid,
   varchar,
-  index,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
-import { users } from "../core/users";
-import { organizations } from "../organization/organizations";
-import { plans } from "./plans";
-import { tablePrefix } from "../shared/schema-utils";
-import {
-  subscriptionStatusPgEnum,
-  billingCyclePgEnum,
-  subscriptionPlanPgEnum,
-  subscriptionCancelReasonPgEnum,
-  paymentMethodPgEnum,
-  productTypePgEnum,
-} from "../shared/enums";
-import {
+import { ProductType } from "@/server/billing/types/plan-types";
+import type {
   BillingHistoryEvent,
   ChangeHistory,
   Discount,
+  NotificationSettings,
   OverageCharge,
   OverageStatus,
+  PaymentMethodDetails,
+  PlanSnapshot,
   SubscriptionAddon,
   SubscriptionLimits,
   SubscriptionMetadata,
   SubscriptionUsage,
-  PlanSnapshot,
-  PaymentMethodDetails,
-  NotificationSettings,
 } from "@/server/billing/types/subscription-types";
-import { ProductType } from "@/server/billing/types/plan-types";
+import { users } from "../core/users";
+import { organizations } from "../organization/organizations";
+import {
+  billingCyclePgEnum,
+  paymentMethodPgEnum,
+  productTypePgEnum,
+  subscriptionCancelReasonPgEnum,
+  subscriptionPlanPgEnum,
+  subscriptionStatusPgEnum,
+} from "../shared/enums";
+import { tablePrefix } from "../shared/schema-utils";
+import { plans } from "./plans";
 
 // ============================================
 // USAGE TRACKING TYPES
@@ -140,9 +141,7 @@ export const subscriptions = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id")
-      .primaryKey()
-      .default(sql`gen_random_uuid()`),
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
 
     // ============================================
     // OWNERSHIP
@@ -171,9 +170,7 @@ export const subscriptions = pgTable(
     // ============================================
     // BILLING CONFIGURATION
     // ============================================
-    billingCycle: billingCyclePgEnum("billing_cycle")
-      .notNull()
-      .default("monthly"),
+    billingCycle: billingCyclePgEnum("billing_cycle").notNull().default("monthly"),
 
     basePrice: integer("base_price").notNull(),
     additionalSeatsPrice: integer("additional_seats_price").default(0),
@@ -212,9 +209,7 @@ export const subscriptions = pgTable(
     }).notNull(),
 
     // Subscription lifecycle
-    startedAt: timestamp("started_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
 
@@ -254,9 +249,7 @@ export const subscriptions = pgTable(
     providerAuthorizationCode: varchar("provider_authorization_code", {
       length: 255,
     }),
-    providerMetadata: jsonb("provider_metadata")
-      .$type<Record<string, unknown>>()
-      .default({}),
+    providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().default({}),
 
     // ============================================
     // LEGACY PAYSTACK FIELDS (KEPT FOR BACKWARDS COMPATIBILITY)
@@ -291,9 +284,7 @@ export const subscriptions = pgTable(
     // PAYMENT METHOD
     // ============================================
     paymentMethodType: paymentMethodPgEnum("payment_method_type"),
-    paymentMethodDetails: jsonb("payment_method_details")
-      .$type<PaymentMethodDetails>()
-      .default({}),
+    paymentMethodDetails: jsonb("payment_method_details").$type<PaymentMethodDetails>().default({}),
 
     // ============================================
     // USAGE LIMITS & TRACKING
@@ -303,21 +294,14 @@ export const subscriptions = pgTable(
       .notNull()
       .default(LimitsDefault),
 
-    usage: jsonb("subscription_usage")
-      .$type<SubscriptionUsage>()
-      .notNull()
-      .default(UsageDefault),
+    usage: jsonb("subscription_usage").$type<SubscriptionUsage>().notNull().default(UsageDefault),
 
     // ============================================
     // OVERAGE TRACKING
     // ============================================
-    overageCharges: jsonb("overage_charges")
-      .$type<OverageCharge[]>()
-      .default(OverageDefault),
+    overageCharges: jsonb("overage_charges").$type<OverageCharge[]>().default(OverageDefault),
 
-    overageStatus: jsonb("overage_status")
-      .$type<OverageStatus>()
-      .default(OverageStatusDefault),
+    overageStatus: jsonb("overage_status").$type<OverageStatus>().default(OverageStatusDefault),
 
     // ============================================
     // ADDONS
@@ -347,10 +331,9 @@ export const subscriptions = pgTable(
     // Custom pricing
     hasCustomPricing: boolean("has_custom_pricing").notNull().default(false),
     customPricingNotes: text("custom_pricing_notes"),
-    customPricingApprovedBy: uuid("custom_pricing_approved_by").references(
-      () => users.id,
-      { onDelete: "set null" },
-    ),
+    customPricingApprovedBy: uuid("custom_pricing_approved_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
 
     // ============================================
     // NOTIFICATIONS & ALERTS
@@ -375,9 +358,7 @@ export const subscriptions = pgTable(
       .$type<BillingHistoryEvent[]>()
       .default(BillingHistoryDefault),
 
-    changeHistory: jsonb("change_history")
-      .$type<ChangeHistory[]>()
-      .default(ChangeHistoryDefault),
+    changeHistory: jsonb("change_history").$type<ChangeHistory[]>().default(ChangeHistoryDefault),
 
     // ============================================
     // METADATA
@@ -390,9 +371,7 @@ export const subscriptions = pgTable(
     // ============================================
     // TIMESTAMPS
     // ============================================
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
@@ -434,9 +413,7 @@ export const subscriptions = pgTable(
     // Provider
     index("subscriptions_provider_idx").on(table.provider),
     index("subscriptions_provider_customer_idx").on(table.providerCustomerId),
-    index("subscriptions_provider_subscription_idx").on(
-      table.providerSubscriptionId,
-    ),
+    index("subscriptions_provider_subscription_idx").on(table.providerSubscriptionId),
 
     // ============================================
     // COMPOSITE INDEXES
@@ -455,15 +432,11 @@ export const subscriptions = pgTable(
 
     index("subscriptions_expiring_trials_idx")
       .on(table.trialEndsAt, table.isTrialing, table.status)
-      .where(
-        sql`is_trialing = true AND status = 'active' AND deleted_at IS NULL`,
-      ),
+      .where(sql`is_trialing = true AND status = 'active' AND deleted_at IS NULL`),
 
     index("subscriptions_failing_payments_idx")
       .on(table.paymentFailureCount, table.status, table.nextPaymentAt)
-      .where(
-        sql`payment_failure_count > 0 AND status != 'canceled' AND deleted_at IS NULL`,
-      ),
+      .where(sql`payment_failure_count > 0 AND status != 'canceled' AND deleted_at IS NULL`),
 
     // ============================================
     // JSONB GIN INDEXES
@@ -472,21 +445,13 @@ export const subscriptions = pgTable(
       .using("gin", table.metadata)
       .where(sql`metadata IS NOT NULL`),
 
-    index("subscriptions_tags_gin_idx")
-      .using("gin", table.tags)
-      .where(sql`tags IS NOT NULL`),
+    index("subscriptions_tags_gin_idx").using("gin", table.tags).where(sql`tags IS NOT NULL`),
 
-    index("subscriptions_usage_gin_idx")
-      .using("gin", table.usage)
-      .where(sql`usage IS NOT NULL`),
+    index("subscriptions_usage_gin_idx").using("gin", table.usage).where(sql`usage IS NOT NULL`),
 
-    index("subscriptions_limits_gin_idx")
-      .using("gin", table.limits)
-      .where(sql`limits IS NOT NULL`),
+    index("subscriptions_limits_gin_idx").using("gin", table.limits).where(sql`limits IS NOT NULL`),
 
-    index("subscriptions_addons_gin_idx")
-      .using("gin", table.addons)
-      .where(sql`addons IS NOT NULL`),
+    index("subscriptions_addons_gin_idx").using("gin", table.addons).where(sql`addons IS NOT NULL`),
   ],
 );
 

@@ -133,35 +133,35 @@
 //     for fast leaderboard reads. Flat rank columns would require
 //     O(N) updates per new entry — unacceptable at scale.
 
-import {
-  pgTable,
-  uuid,
-  varchar,
-  text,
-  boolean,
-  integer,
-  bigint,
-  decimal,
-  jsonb,
-  timestamp,
-  date,
-  inet,
-  unique,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
-  giveawayPlatformEnum,
-  giveawayCampaignTypeEnum,
-  giveawayCampaignStatusEnum,
+  bigint,
+  boolean,
+  check,
+  date,
+  decimal,
+  index,
+  inet,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+import { users } from "../core";
+import {
   campaignEntryMethodTypeEnum,
   campaignEntryStatusEnum,
-  winnerTierEnum,
-  winnerStatusEnum,
   fraudRiskLevelEnum,
+  giveawayCampaignStatusEnum,
+  giveawayCampaignTypeEnum,
+  giveawayPlatformEnum,
+  winnerStatusEnum,
+  winnerTierEnum,
 } from "../shared/enums";
-import { users } from "../core";
 
 // =============================================================================
 // CAMPAIGNS
@@ -286,9 +286,7 @@ export const campaigns = pgTable(
     endDate: timestamp("end_date", { withTimezone: true }).notNull(),
 
     // IANA timezone — used to render countdowns and schedule auto-jobs.
-    timezone: varchar("timezone", { length: 50 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 50 }).default("Africa/Lagos").notNull(),
 
     // Optional scheduled publish (null = publish immediately on status change).
     scheduledStartAt: timestamp("scheduled_start_at", { withTimezone: true }),
@@ -325,17 +323,11 @@ export const campaigns = pgTable(
 
     // ─── Entry Settings (flat — queryable) ────────────────────────────────────
     requiresApproval: boolean("requires_approval").default(false).notNull(),
-    allowMultipleEntries: boolean("allow_multiple_entries")
-      .default(false)
-      .notNull(),
+    allowMultipleEntries: boolean("allow_multiple_entries").default(false).notNull(),
     maxEntriesPerUser: integer("max_entries_per_user").default(1).notNull(),
     entryLimit: integer("entry_limit").default(0).notNull(), // 0 = unlimited
-    requireEmailVerification: boolean("require_email_verification")
-      .default(false)
-      .notNull(),
-    requirePhoneVerification: boolean("require_phone_verification")
-      .default(false)
-      .notNull(),
+    requireEmailVerification: boolean("require_email_verification").default(false).notNull(),
+    requirePhoneVerification: boolean("require_phone_verification").default(false).notNull(),
     requiresAccount: boolean("requires_account").default(false).notNull(),
 
     // ─── Eligibility ──────────────────────────────────────────────────────────
@@ -383,18 +375,14 @@ export const campaigns = pgTable(
     officialRules: text("official_rules").notNull(),
     privacyPolicyUrl: text("privacy_policy_url").notNull(),
 
-    termsAcceptanceRequired: boolean("terms_acceptance_required")
-      .default(true)
-      .notNull(),
+    termsAcceptanceRequired: boolean("terms_acceptance_required").default(true).notNull(),
     officialRulesUrl: varchar("official_rules_url", { length: 500 }),
 
     // Nigeria Data Protection Regulation compliance
     ndprCompliant: boolean("ndpr_compliant").default(true).notNull(),
     gdprCompliant: boolean("gdpr_compliant").default(true).notNull(),
 
-    requiresLegalReview: boolean("requires_legal_review")
-      .default(false)
-      .notNull(),
+    requiresLegalReview: boolean("requires_legal_review").default(false).notNull(),
     legalReviewedAt: timestamp("legal_reviewed_at", { withTimezone: true }),
     legalReviewedBy: uuid("legal_reviewed_by").references(() => users.id, {
       onDelete: "set null",
@@ -408,9 +396,7 @@ export const campaigns = pgTable(
     drawDate: timestamp("draw_date", { withTimezone: true }),
 
     // Days a winner has to respond before forfeiture
-    responseDeadlineDays: integer("response_deadline_days")
-      .default(7)
-      .notNull(),
+    responseDeadlineDays: integer("response_deadline_days").default(7).notNull(),
 
     backupWinnerCount: integer("backup_winner_count").default(0).notNull(),
 
@@ -639,12 +625,8 @@ export const campaigns = pgTable(
       .notNull(),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 
     // Soft archive (distinct from cancellation)
     archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -659,10 +641,7 @@ export const campaigns = pgTable(
     unique("uq_campaigns_org_slug").on(table.organizationId, table.slug),
 
     // endDate must be after startDate
-    check(
-      "chk_camp_end_after_start",
-      sql`${table.endDate} > ${table.startDate}`,
-    ),
+    check("chk_camp_end_after_start", sql`${table.endDate} > ${table.startDate}`),
 
     // prizeValue must be positive (when set)
     check(
@@ -701,46 +680,25 @@ export const campaigns = pgTable(
     check("chk_camp_minimum_age_range", sql`${table.minimumAge} >= 13`),
 
     // responseDeadlineDays must be positive
-    check(
-      "chk_camp_response_deadline_positive",
-      sql`${table.responseDeadlineDays} > 0`,
-    ),
+    check("chk_camp_response_deadline_positive", sql`${table.responseDeadlineDays} > 0`),
 
     // backupWinnerCount must be non-negative
-    check(
-      "chk_camp_backup_winners_non_negative",
-      sql`${table.backupWinnerCount} >= 0`,
-    ),
+    check("chk_camp_backup_winners_non_negative", sql`${table.backupWinnerCount} >= 0`),
 
     // actualEntries must be non-negative
-    check(
-      "chk_camp_actual_entries_non_negative",
-      sql`${table.actualEntries} >= 0`,
-    ),
+    check("chk_camp_actual_entries_non_negative", sql`${table.actualEntries} >= 0`),
 
     // actualReferrals must be non-negative
-    check(
-      "chk_camp_actual_referrals_non_negative",
-      sql`${table.actualReferrals} >= 0`,
-    ),
+    check("chk_camp_actual_referrals_non_negative", sql`${table.actualReferrals} >= 0`),
 
     // performanceScore must be 0-100
-    check(
-      "chk_camp_performance_score_range",
-      sql`${table.performanceScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_camp_performance_score_range", sql`${table.performanceScore} BETWEEN 0 AND 100`),
 
     // engagementRateBp must be 0-10000 basis points
-    check(
-      "chk_camp_engagement_rate_range",
-      sql`${table.engagementRateBp} BETWEEN 0 AND 10000`,
-    ),
+    check("chk_camp_engagement_rate_range", sql`${table.engagementRateBp} BETWEEN 0 AND 10000`),
 
     // clickThroughRateBp must be 0-10000 basis points
-    check(
-      "chk_camp_ctr_range",
-      sql`${table.clickThroughRateBp} BETWEEN 0 AND 10000`,
-    ),
+    check("chk_camp_ctr_range", sql`${table.clickThroughRateBp} BETWEEN 0 AND 10000`),
 
     // maxEntriesPerUser must be positive
     check("chk_camp_max_entries_positive", sql`${table.maxEntriesPerUser} > 0`),
@@ -873,11 +831,7 @@ export const campaigns = pgTable(
     index("idx_camp_slug").on(table.organizationId, table.slug),
 
     // Org's campaigns of a type — admin filtering
-    index("idx_camp_type_created").on(
-      table.organizationId,
-      table.campaignType,
-      table.createdAt,
-    ),
+    index("idx_camp_type_created").on(table.organizationId, table.campaignType, table.createdAt),
 
     // Created date — chronological listing
     index("idx_camp_created").on(table.organizationId, table.createdAt),
@@ -889,10 +843,7 @@ export const campaigns = pgTable(
     index("idx_camp_assigned").on(table.assignedTo),
 
     // Performance sort
-    index("idx_camp_performance").on(
-      table.organizationId,
-      table.performanceScore,
-    ),
+    index("idx_camp_performance").on(table.organizationId, table.performanceScore),
 
     // Featured + public + active — public discovery query
     index("idx_camp_featured_public")
@@ -1018,9 +969,7 @@ export const campaignEntries = pgTable(
 
     // Type of content submitted: form, photo, video, text, link, social_post,
     // poll_response.
-    contentType: varchar("content_type", { length: 50 })
-      .notNull()
-      .default("form"),
+    contentType: varchar("content_type", { length: 50 }).notNull().default("form"),
 
     // ─── Participant (flat columns — keep queryable) ─────────────────────────
     email: text("email").notNull(),
@@ -1165,13 +1114,7 @@ export const campaignEntries = pgTable(
     autoModerationFlags: jsonb("auto_moderation_flags")
       .$type<
         Array<{
-          type:
-            | "profanity"
-            | "spam"
-            | "inappropriate"
-            | "duplicate"
-            | "suspicious"
-            | "quality";
+          type: "profanity" | "spam" | "inappropriate" | "duplicate" | "suspicious" | "quality";
           severity: "low" | "medium" | "high";
           confidence: number;
           details?: string;
@@ -1230,9 +1173,7 @@ export const campaignEntries = pgTable(
     // 0.00-1.00 composite fraud probability
     fraudScore: decimal("fraud_score", { precision: 3, scale: 2 }),
 
-    fraudRiskLevel: fraudRiskLevelEnum("fraud_risk_level")
-      .default("low")
-      .notNull(),
+    fraudRiskLevel: fraudRiskLevelEnum("fraud_risk_level").default("low").notNull(),
 
     // Array of specific fraud flags
     fraudFlags: text("fraud_flags").array(),
@@ -1247,10 +1188,7 @@ export const campaignEntries = pgTable(
 
     // List of similar entry IDs (from fuzzy matching). Soft hint, not a
     // source of truth — recomputed by the fraud engine.
-    similarEntries: jsonb("similar_entries")
-      .$type<Array<string>>()
-      .default([])
-      .notNull(),
+    similarEntries: jsonb("similar_entries").$type<Array<string>>().default([]).notNull(),
 
     // ─── Referral Tracking ────────────────────────────────────────────────────
     // Self-referential. FK added in migration 0002 (same-table self-FK).
@@ -1297,12 +1235,7 @@ export const campaignEntries = pgTable(
     notificationsSent: jsonb("notifications_sent")
       .$type<
         Array<{
-          type:
-            | "confirmation"
-            | "approval"
-            | "rejection"
-            | "winner"
-            | "reminder";
+          type: "confirmation" | "approval" | "rejection" | "winner" | "reminder";
           channel: "email" | "sms" | "push" | "in_app";
           sentAt: string;
           delivered: boolean;
@@ -1366,13 +1299,9 @@ export const campaignEntries = pgTable(
     // ─── Timestamps ───────────────────────────────────────────────────────────
     // Distinct from createdAt: imports and retries may have submission
     // times earlier than the row creation time.
-    submittedAt: timestamp("submitted_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -1385,10 +1314,7 @@ export const campaignEntries = pgTable(
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
     unique("uq_entries_entry_number").on(table.entryNumber),
-    unique("uq_entries_campaign_referral").on(
-      table.campaignId,
-      table.referralCode,
-    ),
+    unique("uq_entries_campaign_referral").on(table.campaignId, table.referralCode),
 
     // One entry per email per campaign.
     // JSONB path unique index (added in migration 0002):
@@ -1397,14 +1323,8 @@ export const campaignEntries = pgTable(
     // (No partial filter — entries are never deleted.)
 
     check("chk_entry_points_non_negative", sql`${table.pointsEarned} >= 0`),
-    check(
-      "chk_entry_referral_count_non_negative",
-      sql`${table.referralCount} >= 0`,
-    ),
-    check(
-      "chk_entry_moderation_score_range",
-      sql`${table.moderationScore} BETWEEN 0 AND 100`,
-    ),
+    check("chk_entry_referral_count_non_negative", sql`${table.referralCount} >= 0`),
+    check("chk_entry_moderation_score_range", sql`${table.moderationScore} BETWEEN 0 AND 100`),
     check(
       "chk_entry_recaptcha_range",
       sql`${table.recaptchaScore} IS NULL
@@ -1508,15 +1428,8 @@ export const campaignEntries = pgTable(
 
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_entry_entry_number").on(table.entryNumber),
-    index("idx_entry_campaign_submitted").on(
-      table.campaignId,
-      table.submittedAt,
-    ),
-    index("idx_entry_campaign_status").on(
-      table.campaignId,
-      table.status,
-      table.submittedAt,
-    ),
+    index("idx_entry_campaign_submitted").on(table.campaignId, table.submittedAt),
+    index("idx_entry_campaign_status").on(table.campaignId, table.status, table.submittedAt),
     index("idx_entry_email").on(table.email),
     index("idx_entry_source").on(table.campaignId, table.source),
     index("idx_entry_content_type").on(table.campaignId, table.contentType),
@@ -1694,9 +1607,7 @@ export const campaignEntryMethods = pgTable(
     // Number of retry attempts before the action is marked failed.
     verificationRetries: integer("verification_retries").default(3).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -1722,10 +1633,7 @@ export const campaignEntryMethods = pgTable(
     ),
 
     // verificationRetries must be non-negative
-    check(
-      "chk_cem_verification_retries_non_negative",
-      sql`${table.verificationRetries} >= 0`,
-    ),
+    check("chk_cem_verification_retries_non_negative", sql`${table.verificationRetries} >= 0`),
 
     // ── Indexes ───────────────────────────────────────────────────────────────
 
@@ -1762,52 +1670,46 @@ export const campaignsRelations = relations(campaigns, ({ many }) => ({
   //     AND dimension_2 = 'campaign'
 }));
 
-export const campaignEntriesRelations = relations(
-  campaignEntries,
-  ({ one, many }) => ({
-    // The campaign this entry belongs to
-    campaign: one(campaigns, {
-      fields: [campaignEntries.campaignId],
-      references: [campaigns.id],
-      relationName: "campaign_entries",
-    }),
-
-    // Moderation audit FK
-    reviewedByUser: one(users, {
-      fields: [campaignEntries.reviewedBy],
-      references: [users.id],
-      relationName: "entry_reviewed_by",
-    }),
-
-    // Self-referential referral chain
-    referrerEntry: one(campaignEntries, {
-      fields: [campaignEntries.referrerEntryId],
-      references: [campaignEntries.id],
-      relationName: "entry_referrals",
-    }),
-
-    // Entries referred by this entry
-    referredEntries: many(campaignEntries, {
-      relationName: "entry_referrals",
-    }),
-
-    // Self-referential duplicate lineage
-    duplicateOfEntry: one(campaignEntries, {
-      fields: [campaignEntries.duplicateOf],
-      references: [campaignEntries.id],
-      relationName: "entry_duplicates",
-    }),
+export const campaignEntriesRelations = relations(campaignEntries, ({ one, many }) => ({
+  // The campaign this entry belongs to
+  campaign: one(campaigns, {
+    fields: [campaignEntries.campaignId],
+    references: [campaigns.id],
+    relationName: "campaign_entries",
   }),
-);
 
-export const campaignEntryMethodsRelations = relations(
-  campaignEntryMethods,
-  ({ one }) => ({
-    // The campaign this entry method belongs to
-    campaign: one(campaigns, {
-      fields: [campaignEntryMethods.campaignId],
-      references: [campaigns.id],
-      relationName: "campaign_entryMethods",
-    }),
+  // Moderation audit FK
+  reviewedByUser: one(users, {
+    fields: [campaignEntries.reviewedBy],
+    references: [users.id],
+    relationName: "entry_reviewed_by",
   }),
-);
+
+  // Self-referential referral chain
+  referrerEntry: one(campaignEntries, {
+    fields: [campaignEntries.referrerEntryId],
+    references: [campaignEntries.id],
+    relationName: "entry_referrals",
+  }),
+
+  // Entries referred by this entry
+  referredEntries: many(campaignEntries, {
+    relationName: "entry_referrals",
+  }),
+
+  // Self-referential duplicate lineage
+  duplicateOfEntry: one(campaignEntries, {
+    fields: [campaignEntries.duplicateOf],
+    references: [campaignEntries.id],
+    relationName: "entry_duplicates",
+  }),
+}));
+
+export const campaignEntryMethodsRelations = relations(campaignEntryMethods, ({ one }) => ({
+  // The campaign this entry method belongs to
+  campaign: one(campaigns, {
+    fields: [campaignEntryMethods.campaignId],
+    references: [campaigns.id],
+    relationName: "campaign_entryMethods",
+  }),
+}));

@@ -1,5 +1,5 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { generateSecureToken, hashToken, isTokenExpired } from "../../lib/tokens";
 
 export interface TokenRow {
@@ -143,7 +143,7 @@ export async function consumeToken(
     userId: row.user_id,
     tokenType: row.token_type,
     purpose: row.purpose,
-    status: 'valid',
+    status: "valid",
     targetEmail: row.target_email,
     expiresAt: row.expires_at,
     usedAt: new Date(),

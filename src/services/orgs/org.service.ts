@@ -1,5 +1,5 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../../lib/errors";
 
 export interface OrgProfile {
@@ -23,7 +23,10 @@ export interface UpdateOrgInput {
   logoUrl?: string | undefined;
 }
 
-export async function listUserOrgs(db: NodePgDatabase<Record<string, any>>, userId: string): Promise<OrgProfile[]> {
+export async function listUserOrgs(
+  db: NodePgDatabase<Record<string, any>>,
+  userId: string,
+): Promise<OrgProfile[]> {
   const rows = await db.execute(
     sql`
       SELECT o.id, o.name, o.slug, o.display_name, o.description,
@@ -51,7 +54,10 @@ export async function listUserOrgs(db: NodePgDatabase<Record<string, any>>, user
   }));
 }
 
-export async function getOrg(db: NodePgDatabase<Record<string, any>>, orgId: string): Promise<OrgProfile> {
+export async function getOrg(
+  db: NodePgDatabase<Record<string, any>>,
+  orgId: string,
+): Promise<OrgProfile> {
   const rows = await db.execute(
     sql`
       SELECT id, name, slug, display_name, description, logo_url,

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { Ability } from "@casl/ability";
+import { AbilityBuilder, createMongoAbility } from "@casl/ability";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { errorHandler } from "../../server/middleware/error-handler";
 import { requireAbility } from "../../server/middleware/rbac";
-import { AbilityBuilder, createMongoAbility } from "@casl/ability";
-import type { Ability } from "@casl/ability";
 
 type Actions = "create" | "read" | "update" | "delete" | "manage";
 type Subjects = string;

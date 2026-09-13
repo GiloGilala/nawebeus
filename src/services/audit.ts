@@ -1,5 +1,5 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 export type AuditModule = "core" | "admin" | "system" | "compliance" | "security";
 export type AuditActorType = "user" | "admin" | "system" | "api_key" | "impersonation";

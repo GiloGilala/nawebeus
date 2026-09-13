@@ -76,38 +76,38 @@
 //     Sync logs are operational. Only products support soft delete
 //     (regulatory retention requirement).
 
-import {
-  pgTable,
-  uuid,
-  varchar,
-  text,
-  boolean,
-  integer,
-  bigint,
-  decimal,
-  numeric,
-  jsonb,
-  timestamp,
-  date,
-  inet,
-  unique,
-  uniqueIndex,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
+  boolean,
+  check,
+  date,
+  decimal,
+  index,
+  inet,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+import {
+  commercePlatformEnum,
+  discountStatusEnum,
+  discountTypeEnum,
+  orderFulfillmentStatusEnum,
+  orderPaymentStatusEnum,
+  orderStatusEnum,
+  paymentMethodEnum,
   productInventoryStatusEnum,
   productSyncStatusEnum,
-  commercePlatformEnum,
-  orderStatusEnum,
-  orderPaymentStatusEnum,
-  orderFulfillmentStatusEnum,
-  discountTypeEnum,
-  discountStatusEnum,
-  paymentMethodEnum,
-  syncTypeEnum,
   syncTriggerTypeEnum,
+  syncTypeEnum,
 } from "../shared/enums";
 
 // =============================================================================
@@ -265,12 +265,8 @@ export const products = pgTable(
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
     createdById: uuid("created_by_id"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -297,22 +293,13 @@ export const products = pgTable(
     ),
 
     // Inventory consistency
-    check(
-      "chk_prod_inventory_on_hand_non_negative",
-      sql`${table.inventoryOnHand} >= 0`,
-    ),
-    check(
-      "chk_prod_inventory_reserved_non_negative",
-      sql`${table.inventoryReserved} >= 0`,
-    ),
+    check("chk_prod_inventory_on_hand_non_negative", sql`${table.inventoryOnHand} >= 0`),
+    check("chk_prod_inventory_reserved_non_negative", sql`${table.inventoryReserved} >= 0`),
     check(
       "chk_prod_inventory_reserved_lte_on_hand",
       sql`${table.inventoryReserved} <= ${table.inventoryOnHand}`,
     ),
-    check(
-      "chk_prod_low_stock_threshold_positive",
-      sql`${table.lowStockThreshold} > 0`,
-    ),
+    check("chk_prod_low_stock_threshold_positive", sql`${table.lowStockThreshold} > 0`),
 
     // Inventory status must match inventory count
     check(
@@ -338,9 +325,7 @@ export const products = pgTable(
     ),
 
     // ── Indexes ───────────────────────────────────────────────────────────────
-    index("idx_prod_org")
-      .on(table.organizationId)
-      .where(sql`${table.isDeleted} = FALSE`),
+    index("idx_prod_org").on(table.organizationId).where(sql`${table.isDeleted} = FALSE`),
     index("idx_prod_sku").on(table.organizationId, table.sku),
     index("idx_prod_inventory_status")
       .on(table.inventoryStatus)
@@ -447,20 +432,14 @@ export const productDiscounts = pgTable(
     // ─── Timing ───────────────────────────────────────────────────────────────
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
 
     // ─── Status ───────────────────────────────────────────────────────────────
     status: discountStatusEnum("status").default("draft").notNull(),
 
     createdById: uuid("created_by_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // Case-insensitive unique coupon code per org
@@ -479,10 +458,7 @@ export const productDiscounts = pgTable(
       sql`${table.minOrderAmount} IS NULL
         OR ${table.minOrderAmount}::numeric >= 0`,
     ),
-    check(
-      "chk_disc_max_uses_positive",
-      sql`${table.maxUses} IS NULL OR ${table.maxUses} > 0`,
-    ),
+    check("chk_disc_max_uses_positive", sql`${table.maxUses} IS NULL OR ${table.maxUses} > 0`),
     check(
       "chk_disc_max_uses_per_customer_positive",
       sql`${table.maxUsesPerCustomer} IS NULL
@@ -502,17 +478,13 @@ export const productDiscounts = pgTable(
 
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_disc_org").on(table.organizationId),
-    index("idx_disc_product")
-      .on(table.productId)
-      .where(sql`${table.productId} IS NOT NULL`),
+    index("idx_disc_product").on(table.productId).where(sql`${table.productId} IS NOT NULL`),
     index("idx_disc_status")
       .on(table.organizationId, table.status)
       .where(sql`${table.status} = 'active'`),
     index("idx_disc_expires")
       .on(table.expiresAt)
-      .where(
-        sql`${table.status} = 'active' AND ${table.expiresAt} IS NOT NULL`,
-      ),
+      .where(sql`${table.status} = 'active' AND ${table.expiresAt} IS NOT NULL`),
   ],
 );
 
@@ -587,36 +559,20 @@ export const orders = pgTable(
 
     // ─── Pricing (all in Naira) ───────────────────────────────────────────────
     subtotal: decimal("subtotal", { precision: 12, scale: 2 }).notNull(),
-    discountTotal: decimal("discount_total", { precision: 12, scale: 2 })
-      .default("0")
-      .notNull(),
-    shippingCost: decimal("shipping_cost", { precision: 12, scale: 2 })
-      .default("0")
-      .notNull(),
-    taxTotal: decimal("tax_total", { precision: 12, scale: 2 })
-      .default("0")
-      .notNull(),
-    platformFee: decimal("platform_fee", { precision: 12, scale: 2 })
-      .default("0")
-      .notNull(),
+    discountTotal: decimal("discount_total", { precision: 12, scale: 2 }).default("0").notNull(),
+    shippingCost: decimal("shipping_cost", { precision: 12, scale: 2 }).default("0").notNull(),
+    taxTotal: decimal("tax_total", { precision: 12, scale: 2 }).default("0").notNull(),
+    platformFee: decimal("platform_fee", { precision: 12, scale: 2 }).default("0").notNull(),
     totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
-    refundedAmount: decimal("refunded_amount", { precision: 12, scale: 2 })
-      .default("0")
-      .notNull(),
+    refundedAmount: decimal("refunded_amount", { precision: 12, scale: 2 }).default("0").notNull(),
 
     currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
-    exchangeRate: decimal("exchange_rate", { precision: 10, scale: 6 })
-      .default("1.0")
-      .notNull(),
-    baseCurrency: varchar("base_currency", { length: 3 })
-      .default("NGN")
-      .notNull(),
+    exchangeRate: decimal("exchange_rate", { precision: 10, scale: 6 }).default("1.0").notNull(),
+    baseCurrency: varchar("base_currency", { length: 3 }).default("NGN").notNull(),
 
     // ─── Discounts Applied ────────────────────────────────────────────────────
     discountCodes: text("discount_codes").array(),
-    discountAmount: decimal("discount_amount", { precision: 12, scale: 2 })
-      .default("0")
-      .notNull(),
+    discountAmount: decimal("discount_amount", { precision: 12, scale: 2 }).default("0").notNull(),
 
     // ─── Addresses ────────────────────────────────────────────────────────────
     shippingAddress: jsonb("shipping_address"),
@@ -680,12 +636,8 @@ export const orders = pgTable(
     refundedAt: timestamp("refunded_at", { withTimezone: true }),
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("uq_orders_org_number").on(table.organizationId, table.orderNumber),
@@ -695,39 +647,18 @@ export const orders = pgTable(
       .where(sql`${table.invoiceNumber} IS NOT NULL`),
 
     check("chk_ord_version_positive", sql`true`), // placeholder; not used
-    check(
-      "chk_ord_subtotal_non_negative",
-      sql`${table.subtotal}::numeric >= 0`,
-    ),
-    check(
-      "chk_ord_total_non_negative",
-      sql`${table.totalAmount}::numeric >= 0`,
-    ),
-    check(
-      "chk_ord_discount_total_non_negative",
-      sql`${table.discountTotal}::numeric >= 0`,
-    ),
-    check(
-      "chk_ord_shipping_non_negative",
-      sql`${table.shippingCost}::numeric >= 0`,
-    ),
+    check("chk_ord_subtotal_non_negative", sql`${table.subtotal}::numeric >= 0`),
+    check("chk_ord_total_non_negative", sql`${table.totalAmount}::numeric >= 0`),
+    check("chk_ord_discount_total_non_negative", sql`${table.discountTotal}::numeric >= 0`),
+    check("chk_ord_shipping_non_negative", sql`${table.shippingCost}::numeric >= 0`),
     check("chk_ord_tax_non_negative", sql`${table.taxTotal}::numeric >= 0`),
-    check(
-      "chk_ord_platform_fee_non_negative",
-      sql`${table.platformFee}::numeric >= 0`,
-    ),
-    check(
-      "chk_ord_refunded_amount_non_negative",
-      sql`${table.refundedAmount}::numeric >= 0`,
-    ),
+    check("chk_ord_platform_fee_non_negative", sql`${table.platformFee}::numeric >= 0`),
+    check("chk_ord_refunded_amount_non_negative", sql`${table.refundedAmount}::numeric >= 0`),
     check(
       "chk_ord_refunded_lte_total",
       sql`${table.refundedAmount}::numeric <= ${table.totalAmount}::numeric`,
     ),
-    check(
-      "chk_ord_exchange_rate_positive",
-      sql`${table.exchangeRate}::numeric > 0`,
-    ),
+    check("chk_ord_exchange_rate_positive", sql`${table.exchangeRate}::numeric > 0`),
 
     // Lifecycle ordering
     check(
@@ -759,25 +690,12 @@ export const orders = pgTable(
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_ord_org").on(table.organizationId, table.createdAt),
     index("idx_ord_status").on(table.organizationId, table.status),
-    index("idx_ord_payment_status").on(
-      table.organizationId,
-      table.paymentStatus,
-    ),
-    index("idx_ord_fulfillment").on(
-      table.organizationId,
-      table.fulfillmentStatus,
-    ),
-    index("idx_ord_payment_method").on(
-      table.organizationId,
-      table.paymentMethod,
-    ),
+    index("idx_ord_payment_status").on(table.organizationId, table.paymentStatus),
+    index("idx_ord_fulfillment").on(table.organizationId, table.fulfillmentStatus),
+    index("idx_ord_payment_method").on(table.organizationId, table.paymentMethod),
     index("idx_ord_platform").on(table.organizationId, table.platform),
-    index("idx_ord_customer")
-      .on(table.customerId)
-      .where(sql`${table.customerId} IS NOT NULL`),
-    index("idx_ord_content")
-      .on(table.contentId)
-      .where(sql`${table.contentId} IS NOT NULL`),
+    index("idx_ord_customer").on(table.customerId).where(sql`${table.customerId} IS NOT NULL`),
+    index("idx_ord_content").on(table.contentId).where(sql`${table.contentId} IS NOT NULL`),
     index("idx_ord_influencer")
       .on(table.influencerId)
       .where(sql`${table.influencerId} IS NOT NULL`),
@@ -842,9 +760,7 @@ export const carts = pgTable(
 
     // ─── Pricing (all in Naira) ───────────────────────────────────────────────
     subtotal: decimal("subtotal", { precision: 12, scale: 2 }).notNull(),
-    discountTotal: decimal("discount_total", { precision: 12, scale: 2 })
-      .default("0")
-      .notNull(),
+    discountTotal: decimal("discount_total", { precision: 12, scale: 2 }).default("0").notNull(),
     totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
     currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
 
@@ -883,25 +799,13 @@ export const carts = pgTable(
     }>(),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    lastActivityAt: timestamp("last_activity_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "chk_cart_subtotal_non_negative",
-      sql`${table.subtotal}::numeric >= 0`,
-    ),
-    check(
-      "chk_cart_total_non_negative",
-      sql`${table.totalAmount}::numeric >= 0`,
-    ),
+    check("chk_cart_subtotal_non_negative", sql`${table.subtotal}::numeric >= 0`),
+    check("chk_cart_total_non_negative", sql`${table.totalAmount}::numeric >= 0`),
     check(
       "chk_cart_abandoned_consistency",
       sql`(${table.isAbandoned} = FALSE AND ${table.abandonedAt} IS NULL)
@@ -924,9 +828,7 @@ export const carts = pgTable(
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_cart_org").on(table.organizationId),
     index("idx_cart_session").on(table.sessionId),
-    index("idx_cart_customer")
-      .on(table.customerId)
-      .where(sql`${table.customerId} IS NOT NULL`),
+    index("idx_cart_customer").on(table.customerId).where(sql`${table.customerId} IS NOT NULL`),
     index("idx_cart_abandoned")
       .on(table.organizationId, table.abandonedAt)
       .where(sql`${table.isAbandoned} = TRUE AND ${table.isRecovered} = FALSE`),
@@ -989,9 +891,7 @@ export const productSyncLogs = pgTable(
     errorDetails: jsonb("error_details"),
 
     // ─── Timing ───────────────────────────────────────────────────────────────
-    startedAt: timestamp("started_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
 
     // Generated: extract(epoch from (completedAt - startedAt)) * 1000
@@ -1007,9 +907,7 @@ export const productSyncLogs = pgTable(
     triggerType: syncTriggerTypeEnum("trigger_type"),
 
     // No updatedAt — completedAt marks completion
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("chk_psl_total_non_negative", sql`${table.totalProducts} >= 0`),
@@ -1026,11 +924,7 @@ export const productSyncLogs = pgTable(
     // ── Indexes ───────────────────────────────────────────────────────────────
     index("idx_psl_org").on(table.organizationId, table.createdAt),
     index("idx_psl_sync_id").on(table.syncId),
-    index("idx_psl_platform").on(
-      table.organizationId,
-      table.platform,
-      table.createdAt,
-    ),
+    index("idx_psl_platform").on(table.organizationId, table.platform, table.createdAt),
     index("idx_psl_status").on(table.status, table.createdAt),
     index("idx_psl_latest")
       .on(table.organizationId, table.platform, table.startedAt)
@@ -1048,16 +942,13 @@ export const productsRelations = relations(products, ({ many }) => ({
   }),
 }));
 
-export const productDiscountsRelations = relations(
-  productDiscounts,
-  ({ one }) => ({
-    product: one(products, {
-      fields: [productDiscounts.productId],
-      references: [products.id],
-      relationName: "product_discounts",
-    }),
+export const productDiscountsRelations = relations(productDiscounts, ({ one }) => ({
+  product: one(products, {
+    fields: [productDiscounts.productId],
+    references: [products.id],
+    relationName: "product_discounts",
   }),
-);
+}));
 
 export const ordersRelations = relations(orders, (_) => ({
   // All cross-module references resolved at application layer

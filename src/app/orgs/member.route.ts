@@ -1,15 +1,15 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { authMiddleware } from "../../server/middleware/auth";
-import { requireAbility } from "../../server/middleware/rbac";
-import { requireOrgMatch } from "../../server/middleware/org-match";
-import {
-  listMembers,
-  getMember,
-  updateMember,
-  removeMember,
-} from "../../services/orgs/member.service";
 import { success } from "../../lib/response";
+import { authMiddleware } from "../../server/middleware/auth";
+import { requireOrgMatch } from "../../server/middleware/org-match";
+import { requireAbility } from "../../server/middleware/rbac";
+import {
+  getMember,
+  listMembers,
+  removeMember,
+  updateMember,
+} from "../../services/orgs/member.service";
 
 const updateMemberSchema = z.object({
   roleId: z.string().uuid().optional(),
@@ -20,30 +20,20 @@ const updateMemberSchema = z.object({
 
 const router = new Hono();
 
-router.get(
-  "/orgs/:orgId/members",
-  authMiddleware,
-  requireOrgMatch(),
-  async (c) => {
-    const db = c.var.db;
-    const orgId = c.req.param("orgId");
-    const members = await listMembers(db, orgId);
-    return c.json(success({ members }));
-  },
-);
+router.get("/orgs/:orgId/members", authMiddleware, requireOrgMatch(), async (c) => {
+  const db = c.var.db;
+  const orgId = c.req.param("orgId");
+  const members = await listMembers(db, orgId);
+  return c.json(success({ members }));
+});
 
-router.get(
-  "/orgs/:orgId/members/:memberId",
-  authMiddleware,
-  requireOrgMatch(),
-  async (c) => {
-    const db = c.var.db;
-    const orgId = c.req.param("orgId");
-    const memberId = c.req.param("memberId");
-    const member = await getMember(db, orgId, memberId);
-    return c.json(success({ member }));
-  },
-);
+router.get("/orgs/:orgId/members/:memberId", authMiddleware, requireOrgMatch(), async (c) => {
+  const db = c.var.db;
+  const orgId = c.req.param("orgId");
+  const memberId = c.req.param("memberId");
+  const member = await getMember(db, orgId, memberId);
+  return c.json(success({ member }));
+});
 
 router.patch(
   "/orgs/:orgId/members/:memberId",

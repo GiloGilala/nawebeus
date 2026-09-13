@@ -1,4 +1,6 @@
 // @/db/schemas/auth/roles.ts
+
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -10,51 +12,46 @@ import {
   uniqueIndex,
   uuid,
   varchar,
-} from 'drizzle-orm/pg-core'
-import { relations, sql } from 'drizzle-orm'
-import { organizations } from '../organization/organizations'
-import { users } from './users'
-import { tablePrefix, timestamps } from '../shared/schema-utils'
-import {
-  roleTypePgEnum,
-  roleScopePgEnum,
-  roleStatusPgEnum,
-} from '../shared/enums'
-import { organizationMembers } from '../organization/organization-members'
-import { rolePermissions } from './permission-roles'
+} from "drizzle-orm/pg-core";
+import { organizationMembers } from "../organization/organization-members";
+import { organizations } from "../organization/organizations";
+import { roleScopePgEnum, roleStatusPgEnum, roleTypePgEnum } from "../shared/enums";
+import { tablePrefix, timestamps } from "../shared/schema-utils";
+import { rolePermissions } from "./permission-roles";
+import { users } from "./users";
 
 // ============================================
 // TYPES FOR JSON FIELDS
 // ============================================
 
 export interface RoleStats {
-  totalMembers: number
-  activeMembers: number
-  monthlyActivity: Record<string, number>
-  mostUsedPermissions: string[]
+  totalMembers: number;
+  activeMembers: number;
+  monthlyActivity: Record<string, number>;
+  mostUsedPermissions: string[];
   productUsage: {
-    social: number
-    fashion: number
-    hybrid: number
-  }
+    social: number;
+    fashion: number;
+    hybrid: number;
+  };
 }
 
 export interface RoleMetadata {
-  tags: string[]
-  category: string
-  productType: 'social' | 'fashion' | 'hybrid'
-  targetAudience: string[]
-  useCases: string[]
-  customFields: Record<string, unknown>
+  tags: string[];
+  category: string;
+  productType: "social" | "fashion" | "hybrid";
+  targetAudience: string[];
+  useCases: string[];
+  customFields: Record<string, unknown>;
 }
 
 export interface RoleChangeEntry {
-  timestamp: string
-  changedBy: string
-  field: string
-  oldValue: unknown
-  newValue: unknown
-  reason?: string
+  timestamp: string;
+  changedBy: string;
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+  reason?: string;
 }
 
 // ============================================
@@ -67,18 +64,18 @@ export const statsDefault = (): RoleStats => ({
   monthlyActivity: {},
   mostUsedPermissions: [],
   productUsage: { social: 0, fashion: 0, hybrid: 0 },
-})
+});
 
 export const metadataDefault = (): RoleMetadata => ({
   tags: [],
-  category: 'custom',
-  productType: 'social',
+  category: "custom",
+  productType: "social",
   targetAudience: [],
   useCases: [],
   customFields: {},
-})
+});
 
-export const changeHistoryDefault = (): RoleChangeEntry[] => []
+export const changeHistoryDefault = (): RoleChangeEntry[] => [];
 
 // ============================================
 // ROLES TABLE
@@ -90,124 +87,108 @@ export const roles = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().defaultRandom(),
 
     // ============================================
     // ROLE IDENTITY
     // ============================================
-    name: varchar('name', { length: 100 }).notNull(),
-    slug: varchar('slug', { length: 100 }).notNull(),
-    displayName: varchar('display_name', { length: 100 }).notNull(),
-    description: text('description'),
-    code: varchar('code', { length: 50 }).notNull(),
+    name: varchar("name", { length: 100 }).notNull(),
+    slug: varchar("slug", { length: 100 }).notNull(),
+    displayName: varchar("display_name", { length: 100 }).notNull(),
+    description: text("description"),
+    code: varchar("code", { length: 50 }).notNull(),
 
-    isProtected: boolean('is_protected').default(false).notNull(),
+    isProtected: boolean("is_protected").default(false).notNull(),
 
     // ============================================
     // ROLE CLASSIFICATION
     // ============================================
-    type: roleTypePgEnum('type').notNull().default('custom'),
-    scope: roleScopePgEnum('scope').notNull().default('organization'),
-    organizationId: uuid('organization_id').references(() => organizations.id, {
-      onDelete: 'cascade',
+    type: roleTypePgEnum("type").notNull().default("custom"),
+    scope: roleScopePgEnum("scope").notNull().default("organization"),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
     }),
-    isSystemRole: boolean('is_system_role').notNull().default(false),
+    isSystemRole: boolean("is_system_role").notNull().default(false),
 
     // Hierarchy
-    level: integer('level').notNull().default(0),
-    priority: integer('priority').notNull().default(50),
+    level: integer("level").notNull().default(0),
+    priority: integer("priority").notNull().default(50),
 
     // ============================================
     // PERMISSIONS (DERIVED CACHE) to be removed
     // ============================================
-    permissions: jsonb('permissions')
-      .notNull()
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
+    permissions: jsonb("permissions").notNull().$type<string[]>().default(sql`'[]'::jsonb`),
 
     // ============================================
     // RESTRICTIONS & LIMITS
     // ============================================
-    restrictions: jsonb('restrictions')
-      .notNull()
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
+    restrictions: jsonb("restrictions").notNull().$type<string[]>().default(sql`'[]'::jsonb`),
 
     // ============================================
     // STATUS & AVAILABILITY
     // ============================================
-    status: roleStatusPgEnum('status').notNull().default('active'),
-    isActive: boolean('is_active').notNull().default(true),
-    isDefault: boolean('is_default').notNull().default(false),
-    isHidden: boolean('is_hidden').notNull().default(false),
+    status: roleStatusPgEnum("status").notNull().default("active"),
+    isActive: boolean("is_active").notNull().default(true),
+    isDefault: boolean("is_default").notNull().default(false),
+    isHidden: boolean("is_hidden").notNull().default(false),
 
-    requiresMFA: boolean('requires_mfa').default(false).notNull(),
+    requiresMFA: boolean("requires_mfa").default(false).notNull(),
 
     // Assignment controls
-    canBeAssignedBy: jsonb('can_be_assigned_by')
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
-    requiresApproval: boolean('requires_approval').notNull().default(false),
+    canBeAssignedBy: jsonb("can_be_assigned_by").$type<string[]>().default(sql`'[]'::jsonb`),
+    requiresApproval: boolean("requires_approval").notNull().default(false),
 
     // Availability
-    availableForPlanTiers: jsonb('available_for_plan_tiers')
+    availableForPlanTiers: jsonb("available_for_plan_tiers")
       .$type<string[]>()
       .default(sql`'[]'::jsonb`),
-    minPlanTier: varchar('min_plan_tier', { length: 50 }),
+    minPlanTier: varchar("min_plan_tier", { length: 50 }),
 
     // ============================================
     // USAGE & STATISTICS
     // ============================================
-    stats: jsonb('stats')
-      .notNull()
-      .$type<RoleStats>()
-      .default(sql`'{}'::jsonb`),
+    stats: jsonb("stats").notNull().$type<RoleStats>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // UI & PRESENTATION
     // ============================================
-    color: varchar('color', { length: 20 }),
-    icon: varchar('icon', { length: 50 }),
-    badgeText: varchar('badge_text', { length: 50 }),
+    color: varchar("color", { length: 20 }),
+    icon: varchar("icon", { length: 50 }),
+    badgeText: varchar("badge_text", { length: 50 }),
 
     // ============================================
     // AUDIT & METADATA
     // ============================================
-    createdBy: uuid('created_by').references(() => users.id, {
-      onDelete: 'set null',
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
     }),
-    lastModifiedBy: uuid('last_modified_by').references(() => users.id, {
-      onDelete: 'set null',
+    lastModifiedBy: uuid("last_modified_by").references(() => users.id, {
+      onDelete: "set null",
     }),
 
-    changeHistory: jsonb('change_history')
-      .$type<RoleChangeEntry[]>()
-      .default(sql`'[]'::jsonb`),
+    changeHistory: jsonb("change_history").$type<RoleChangeEntry[]>().default(sql`'[]'::jsonb`),
 
-    metadata: jsonb('metadata')
-      .notNull()
-      .$type<RoleMetadata>()
-      .default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata").notNull().$type<RoleMetadata>().default(sql`'{}'::jsonb`),
 
-    notes: text('notes'),
+    notes: text("notes"),
 
     // ============================================
     // TIMESTAMPS & ARCHIVAL
     // ============================================
-    deletedAt: timestamp('deleted_at', { withTimezone: true, mode: 'date' }),
-    deletedBy: uuid('deleted_by').references(() => users.id, {
-      onDelete: 'set null',
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),
+    deletedBy: uuid("deleted_by").references(() => users.id, {
+      onDelete: "set null",
     }),
     ...timestamps,
 
-    archivedAt: timestamp('archived_at', {
+    archivedAt: timestamp("archived_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    archivedBy: uuid('archived_by').references(() => users.id, {
-      onDelete: 'set null',
+    archivedBy: uuid("archived_by").references(() => users.id, {
+      onDelete: "set null",
     }),
-    archivedReason: text('archived_reason'),
+    archivedReason: text("archived_reason"),
   },
   (table) => [
     // ============================================
@@ -360,7 +341,7 @@ export const roles = pgTable(
     // JSONB GIN INDEXES
     // ============================================
     index(`${tablePrefix}roles_permissions_gin_idx`)
-      .using('gin', table.permissions)
+      .using("gin", table.permissions)
       .where(
         sql`
           ${table.deletedAt} IS NULL 
@@ -369,7 +350,7 @@ export const roles = pgTable(
       ),
 
     index(`${tablePrefix}roles_restrictions_gin_idx`)
-      .using('gin', table.restrictions)
+      .using("gin", table.restrictions)
       .where(
         sql`
           ${table.deletedAt} IS NULL 
@@ -378,7 +359,7 @@ export const roles = pgTable(
       ),
 
     index(`${tablePrefix}roles_metadata_gin_idx`)
-      .using('gin', table.metadata)
+      .using("gin", table.metadata)
       .where(
         sql`
           ${table.deletedAt} IS NULL 
@@ -387,7 +368,7 @@ export const roles = pgTable(
       ),
 
     index(`${tablePrefix}roles_stats_gin_idx`)
-      .using('gin', table.stats)
+      .using("gin", table.stats)
       .where(
         sql`
           ${table.deletedAt} IS NULL 
@@ -396,7 +377,7 @@ export const roles = pgTable(
       ),
 
     index(`${tablePrefix}roles_change_history_gin_idx`)
-      .using('gin', table.changeHistory)
+      .using("gin", table.changeHistory)
       .where(
         sql`
           ${table.deletedAt} IS NULL 
@@ -404,7 +385,7 @@ export const roles = pgTable(
         `,
       ),
   ],
-)
+);
 
 // ============================================
 // RELATIONS (FIXED: Properly using roles table)
@@ -436,15 +417,15 @@ export const rolesRelations = relations(roles, ({ one, many }) => ({
   members: many(organizationMembers),
   // NEW: Add rolePermissions relation
   rolePermissions: many(rolePermissions), // Import from './role-permissions'
-}))
+}));
 
 // ============================================
 // TYPE EXPORTS
 // ============================================
 
-export type Role = typeof roles.$inferSelect
-export type NewRole = typeof roles.$inferInsert
-export type RoleTable = typeof roles
+export type Role = typeof roles.$inferSelect;
+export type NewRole = typeof roles.$inferInsert;
+export type RoleTable = typeof roles;
 
 // ============================================
 // HELPER SELECTORS
@@ -567,4 +548,4 @@ export const roleSelectors = {
     createdAt: roles.createdAt,
     updatedAt: roles.updatedAt,
   } as const,
-}
+};

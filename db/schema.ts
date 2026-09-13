@@ -19,80 +19,74 @@
 // SHARED MODULES
 // =============================================================================
 
-// ─── Enums ────────────────────────────────────────────────────────────────────
-export * from "./shared/enums";
-
-// ─── Audit ────────────────────────────────────────────────────────────────────
-export { auditLog } from "./shared/audit";
-
-// ─── Analytics ────────────────────────────────────────────────────────────────
-export {
-  analyticsEvents,
-  analyticsMetrics,
-  analyticsAggregates,
-  analyticsDashboards,
-  analyticsReports,
-  analyticsEventsRelations,
-  analyticsMetricsRelations,
-  analyticsAggregatesRelations,
-  analyticsDashboardsRelations,
-  analyticsReportsRelations,
-} from "./shared/analytics";
-
 // ─── Alerts ───────────────────────────────────────────────────────────────────
 export {
-  alertRules,
   alertEvents,
-  alertRulesRelations,
   alertEventsRelations,
+  alertRules,
+  alertRulesRelations,
 } from "./shared/alerts";
-
-// ─── Templates ────────────────────────────────────────────────────────────────
-export { templates, templatesRelations } from "./shared/templates";
-
-// ─── Media Assets ─────────────────────────────────────────────────────────────
-export { mediaAssets, mediaAssetsRelations } from "./shared/media";
-
+// ─── Analytics ────────────────────────────────────────────────────────────────
+export {
+  analyticsAggregates,
+  analyticsAggregatesRelations,
+  analyticsDashboards,
+  analyticsDashboardsRelations,
+  analyticsEvents,
+  analyticsEventsRelations,
+  analyticsMetrics,
+  analyticsMetricsRelations,
+  analyticsReports,
+  analyticsReportsRelations,
+} from "./shared/analytics";
 // ─── Approval ─────────────────────────────────────────────────────────────────
 export {
-  approvalRequests,
   approvalHistory,
-  approvalRequestsRelations,
   approvalHistoryRelations,
+  approvalRequests,
+  approvalRequestsRelations,
 } from "./shared/approval";
-
+// ─── Audit ────────────────────────────────────────────────────────────────────
+export { auditLog } from "./shared/audit";
 // ─── Contacts ─────────────────────────────────────────────────────────────────
 export {
-  contacts,
   contactInteractions,
-  contactsRelations,
   contactInteractionsRelations,
+  contacts,
+  contactsRelations,
 } from "./shared/contacts";
+// ─── Enums ────────────────────────────────────────────────────────────────────
+export * from "./shared/enums";
+// ─── Media Assets ─────────────────────────────────────────────────────────────
+export { mediaAssets, mediaAssetsRelations } from "./shared/media";
+// ─── Templates ────────────────────────────────────────────────────────────────
+export { templates, templatesRelations } from "./shared/templates";
 
 // =============================================================================
 // CORE MODULE
 // =============================================================================
 
 export {
-  users,
-  sessions,
   apiKeys,
-  tokens,
   oauthAccounts,
-  roles,
-  permissions,
-  permissionGroups,
-  userRoles,
-  rolePermissions,
-  usersRelations,
-  sessionsRelations,
-  tokensRelations,
   oauthAccountsRelations,
-  rolesRelations,
-  permissionsRelations,
+  permissionGroups,
   permissionGroupsRelations,
-  userRolesRelations,
+  permissions,
+  permissionsRelations,
+  rateLimits,
+  rolePermissions,
   rolePermissionsRelations,
+  roles,
+  rolesRelations,
+  sessions,
+  sessionsRelations,
+  tokens,
+  tokensRelations,
+  userRoles,
+  userRolesRelations,
+  users,
+  usersRelations,
 } from "./core/index";
 
 // =============================================================================
@@ -100,15 +94,14 @@ export {
 // =============================================================================
 
 export {
+  organizationMembers,
+  organizationMembersRelations,
+  permissionHistory,
+  permissionHistoryRelations,
+  roleHistory,
+  roleHistoryRelations,
+} from "./organization/organization-members";
+export {
   organizations,
   organizationsRelations,
 } from "./organization/organizations";
-
-export {
-  organizationMembers,
-  roleHistory,
-  permissionHistory,
-  organizationMembersRelations,
-  roleHistoryRelations,
-  permissionHistoryRelations,
-} from "./organization/organization-members";

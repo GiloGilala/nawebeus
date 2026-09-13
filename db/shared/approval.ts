@@ -1,18 +1,18 @@
-import {
-  pgTable,
-  varchar,
-  text,
-  integer,
-  jsonb,
-  timestamp,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
-  approvalRequestStatusEnum,
-  approvalActionEnum,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/pg-core";
+import {
   approvableEntityTypeEnum,
+  approvalActionEnum,
+  approvalRequestStatusEnum,
 } from "../shared/enums";
 
 // =============================================================================
@@ -231,21 +231,14 @@ export const approvalRequests = pgTable(
     // Optimistic locking counter — see JSDoc above.
     version: integer("version").default(1).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
 
     // currentStep must be between 1 and 100
-    check(
-      "chk_apr_current_step_range",
-      sql`${table.currentStep} BETWEEN 1 AND 100`,
-    ),
+    check("chk_apr_current_step_range", sql`${table.currentStep} BETWEEN 1 AND 100`),
 
     // entityVersion must be positive
     check("chk_apr_entity_version", sql`${table.entityVersion} >= 1`),
@@ -310,11 +303,7 @@ export const approvalRequests = pgTable(
       .where(sql`${table.status} = 'pending'`),
 
     // Org-level approval queue — all pending requests for the org
-    index("idx_apr_org_status").on(
-      table.organizationId,
-      table.status,
-      table.createdAt,
-    ),
+    index("idx_apr_org_status").on(table.organizationId, table.status, table.createdAt),
 
     // Dashboard query: pending requests by org + current approver + status
     index("idx_apr_org_approver_status").on(
@@ -327,27 +316,15 @@ export const approvalRequests = pgTable(
 
     // "Show me all approval requests for post XYZ"
     // Used by entity detail pages to show approval timeline
-    index("idx_apr_entity").on(
-      table.entityType,
-      table.entityId,
-      table.createdAt,
-    ),
+    index("idx_apr_entity").on(table.entityType, table.entityId, table.createdAt),
 
     // ── Requester queue ───────────────────────────────────────────────────────
 
     // "Show me all requests I submitted"
-    index("idx_apr_requester").on(
-      table.requesterId,
-      table.status,
-      table.createdAt,
-    ),
+    index("idx_apr_requester").on(table.requesterId, table.status, table.createdAt),
 
     // Requester timeline — newest first
-    index("idx_apr_requester_created").on(
-      table.organizationId,
-      table.requesterId,
-      table.createdAt,
-    ),
+    index("idx_apr_requester_created").on(table.organizationId, table.requesterId, table.createdAt),
 
     // ── Escalation worker ─────────────────────────────────────────────────────
 
@@ -362,10 +339,7 @@ export const approvalRequests = pgTable(
     // ── Analytics ────────────────────────────────────────────────────────────
 
     // Approval cycle time reporting — completed requests by entity type
-    index("idx_apr_completed_entity_type").on(
-      table.entityType,
-      table.completedAt,
-    ),
+    index("idx_apr_completed_entity_type").on(table.entityType, table.completedAt),
   ],
 );
 
@@ -481,9 +455,7 @@ export const approvalHistory = pgTable(
     metadata: jsonb("metadata"),
 
     // Append-only — no updatedAt, ever
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -509,17 +481,10 @@ export const approvalHistory = pgTable(
     // ── Primary lookups ───────────────────────────────────────────────────────
 
     // Full history for a request (approval timeline display)
-    index("idx_aph_request_created").on(
-      table.approvalRequestId,
-      table.createdAt,
-    ),
+    index("idx_aph_request_created").on(table.approvalRequestId, table.createdAt),
 
     // Actor history — "show me all approvals this user made this month"
-    index("idx_aph_actor_action").on(
-      table.actorId,
-      table.action,
-      table.createdAt,
-    ),
+    index("idx_aph_actor_action").on(table.actorId, table.action, table.createdAt),
 
     // Action type analytics — approval/rejection rates, cycle times
     index("idx_aph_action_created").on(table.action, table.createdAt),
@@ -543,31 +508,25 @@ export const approvalHistory = pgTable(
  *   3. Application code resolves these at query time via the entityType
  */
 
-export const approvalRequestsRelations = relations(
-  approvalRequests,
-  ({ many }) => ({
-    // Full immutable event log for this request
-    history: many(approvalHistory, {
-      relationName: "approvalRequest_history",
-    }),
-
-    // The entity this request is for is resolved at application layer
-    // (entityType + entityId → posts.id / press_releases.id / etc.)
-    // No Drizzle relation declared — polymorphic pattern
+export const approvalRequestsRelations = relations(approvalRequests, ({ many }) => ({
+  // Full immutable event log for this request
+  history: many(approvalHistory, {
+    relationName: "approvalRequest_history",
   }),
-);
 
-export const approvalHistoryRelations = relations(
-  approvalHistory,
-  ({ one }) => ({
-    // The approval request this event belongs to
-    approvalRequest: one(approvalRequests, {
-      fields: [approvalHistory.approvalRequestId],
-      references: [approvalRequests.id],
-      relationName: "approvalRequest_history",
-    }),
+  // The entity this request is for is resolved at application layer
+  // (entityType + entityId → posts.id / press_releases.id / etc.)
+  // No Drizzle relation declared — polymorphic pattern
+}));
 
-    // actorId → users.id resolved at application layer
-    // No Drizzle relation — actorId may be 'system' literal
+export const approvalHistoryRelations = relations(approvalHistory, ({ one }) => ({
+  // The approval request this event belongs to
+  approvalRequest: one(approvalRequests, {
+    fields: [approvalHistory.approvalRequestId],
+    references: [approvalRequests.id],
+    relationName: "approvalRequest_history",
   }),
-);
+
+  // actorId → users.id resolved at application layer
+  // No Drizzle relation — actorId may be 'system' literal
+}));

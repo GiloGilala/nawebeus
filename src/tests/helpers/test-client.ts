@@ -1,5 +1,5 @@
-import { createAppWithDb } from "../../server";
 import type { Db } from "../../lib/db";
+import { createAppWithDb } from "../../server";
 
 /**
  * Lazy no-op database. Satisfies the Db interface but throws if actually queried.

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { getOrgContext, runWithOrgContext } from "../../lib/org-context";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { getOrgContext, runWithOrgContext } from "../../lib/org-context";
 import { errorHandler } from "../../server/middleware/error-handler";
 
 describe("org-context lib", () => {

@@ -1,6 +1,6 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { createTestApp } from "../helpers/test-client";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { loadConfig } from "../../lib/config";
+import { createTestApp } from "../helpers/test-client";
 
 const testEnv = {
   DATABASE_URL: "postgresql://localhost:5432/test",
@@ -14,7 +14,7 @@ describe("Session management routes — no DB (auth required)", () => {
     loadConfig();
   });
   afterAll(() => {
-    for (const k of Object.keys(testEnv)) delete process.env[k];
+    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
   });
 
   test("GET /api/auth/sessions without auth returns 401", async () => {
@@ -25,13 +25,17 @@ describe("Session management routes — no DB (auth required)", () => {
 
   test("DELETE /api/auth/sessions/:id without auth returns 401", async () => {
     const app = createTestApp();
-    const res = await app.request("/api/auth/sessions/abc", { method: "DELETE" });
+    const res = await app.request("/api/auth/sessions/abc", {
+      method: "DELETE",
+    });
     expect(res.status).toBe(401);
   });
 
   test("DELETE /api/auth/sessions/revoke-others without auth returns 401", async () => {
     const app = createTestApp();
-    const res = await app.request("/api/auth/sessions/revoke-others", { method: "DELETE" });
+    const res = await app.request("/api/auth/sessions/revoke-others", {
+      method: "DELETE",
+    });
     expect(res.status).toBe(401);
   });
 });

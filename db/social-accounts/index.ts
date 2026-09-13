@@ -76,25 +76,25 @@
 //     All writers MUST use optimistic locking via the `version` column
 //     to prevent silent overwrites.
 
+import { desc, relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
   boolean,
-  integer,
+  check,
   decimal,
+  index,
+  integer,
   jsonb,
+  pgTable,
+  text,
   timestamp,
   unique,
-  index,
-  check,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql, desc } from "drizzle-orm";
 import {
+  apiQuotaStatusEnum,
   platformEnum,
   socialAccountStatusEnum,
   socialAccountTypeEnum,
-  apiQuotaStatusEnum,
   tokenRefreshTriggerEnum,
 } from "../shared/enums";
 
@@ -192,9 +192,7 @@ export const socialAccounts = pgTable(
     // ─── Connection ───────────────────────────────────────────────────────────
     // Not FK — user who connected may leave the org
     connectedBy: varchar("connected_by", { length: 32 }).notNull(),
-    connectedAt: timestamp("connected_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
     primaryManagerId: varchar("primary_manager_id", { length: 32 }),
     teamIds: text("team_ids").array(),
 
@@ -207,14 +205,10 @@ export const socialAccounts = pgTable(
     lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
     lastErrorMessage: text("last_error_message"),
     lastErrorCode: varchar("last_error_code", { length: 50 }),
-    consecutiveErrorCount: integer("consecutive_error_count")
-      .default(0)
-      .notNull(),
+    consecutiveErrorCount: integer("consecutive_error_count").default(0).notNull(),
 
     // ─── Circuit Breaker ──────────────────────────────────────────────────────
-    circuitBreakerOpen: boolean("circuit_breaker_open")
-      .default(false)
-      .notNull(),
+    circuitBreakerOpen: boolean("circuit_breaker_open").default(false).notNull(),
     circuitBreakerOpenedAt: timestamp("circuit_breaker_opened_at", {
       withTimezone: true,
     }),
@@ -225,9 +219,7 @@ export const socialAccounts = pgTable(
     //   write: { limit: 100,  used: 42,  resetsAt: '...' }
     // }
     quotaTracking: jsonb("quota_tracking").default({}).notNull(),
-    quotaStatus: varchar("quota_status", { length: 20 })
-      .default("healthy")
-      .notNull(),
+    quotaStatus: varchar("quota_status", { length: 20 }).default("healthy").notNull(),
 
     // ─── Disconnection ────────────────────────────────────────────────────────
     disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
@@ -249,12 +241,8 @@ export const socialAccounts = pgTable(
     version: integer("version").default(1).notNull(),
 
     // ─── Timestamps ───────────────────────────────────────────────────────────
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -285,10 +273,7 @@ export const socialAccounts = pgTable(
     ),
 
     // consecutiveErrorCount must be non-negative
-    check(
-      "chk_sa_consecutive_error_count",
-      sql`${table.consecutiveErrorCount} >= 0`,
-    ),
+    check("chk_sa_consecutive_error_count", sql`${table.consecutiveErrorCount} >= 0`),
 
     // syncFrequency must be at least 60 seconds
     check("chk_sa_sync_frequency_min", sql`${table.syncFrequency} >= 60`),
@@ -384,10 +369,7 @@ export const socialAccounts = pgTable(
       ),
 
     // Recently connected — onboarding dashboard
-    index("idx_sa_recent_connected").on(
-      table.organizationId,
-      desc(table.connectedAt),
-    ),
+    index("idx_sa_recent_connected").on(table.organizationId, desc(table.connectedAt)),
 
     // Quota health monitoring
     index("idx_sa_quota_status")
@@ -450,18 +432,13 @@ export const oauthStates = pgTable(
     // When the callback handler consumed this state — NULL = unused
     usedAt: timestamp("used_at", { withTimezone: true }),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
 
     // expiresAt must be after createdAt
-    check(
-      "chk_os_expires_after_created",
-      sql`${table.expiresAt} > ${table.createdAt}`,
-    ),
+    check("chk_os_expires_after_created", sql`${table.expiresAt} > ${table.createdAt}`),
 
     // usedAt must be at or before expiresAt
     check(
@@ -553,18 +530,13 @@ export const socialAccountHealthLog = pgTable(
     endpoint: varchar("endpoint", { length: 255 }),
 
     // Append-only — no updatedAt
-    checkedAt: timestamp("checked_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
 
     // apiLatency must be non-negative (if set)
-    check(
-      "chk_sahl_api_latency",
-      sql`${table.apiLatency} IS NULL OR ${table.apiLatency} >= 0`,
-    ),
+    check("chk_sahl_api_latency", sql`${table.apiLatency} IS NULL OR ${table.apiLatency} >= 0`),
 
     // httpStatusCode must be a valid HTTP status (100-599)
     check(
@@ -679,17 +651,13 @@ export const tokenRefreshLog = pgTable(
     refreshDuration: integer("refresh_duration"),
 
     // Whether a new refresh token was also issued (token rotation)
-    newRefreshTokenIssued: boolean("new_refresh_token_issued")
-      .default(false)
-      .notNull(),
+    newRefreshTokenIssued: boolean("new_refresh_token_issued").default(false).notNull(),
 
     // How many times this refresh was retried before this attempt
     retryCount: integer("retry_count").default(0).notNull(),
 
     // Append-only — no updatedAt
-    refreshedAt: timestamp("refreshed_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -740,9 +708,7 @@ export const tokenRefreshLog = pgTable(
     index("idx_trl_account").on(table.socialAccountId, desc(table.refreshedAt)),
 
     // Failure investigation — recent failed refreshes
-    index("idx_trl_failures")
-      .on(desc(table.refreshedAt))
-      .where(sql`${table.success} = FALSE`),
+    index("idx_trl_failures").on(desc(table.refreshedAt)).where(sql`${table.success} = FALSE`),
 
     // Trigger analysis — on_demand vs proactive refreshes
     index("idx_trl_trigger").on(table.triggeredBy, desc(table.refreshedAt)),
@@ -756,49 +722,40 @@ export const tokenRefreshLog = pgTable(
 // RELATIONS
 // =============================================================================
 
-export const socialAccountsRelations = relations(
-  socialAccounts,
-  ({ many }) => ({
-    // Operational health history (append-only, short retention)
-    healthLogs: many(socialAccountHealthLog, {
-      relationName: "socialAccount_healthLogs",
-    }),
-
-    // Token refresh history (append-only, medium retention)
-    tokenRefreshLogs: many(tokenRefreshLog, {
-      relationName: "socialAccount_tokenRefreshLogs",
-    }),
-
-    // Time-series metrics are in analytics_aggregates:
-    //   dimension_1 = social_account.id
-    //   dimension_2 = 'social_account'
-    //   Joined at application layer, not via Drizzle relations.
+export const socialAccountsRelations = relations(socialAccounts, ({ many }) => ({
+  // Operational health history (append-only, short retention)
+  healthLogs: many(socialAccountHealthLog, {
+    relationName: "socialAccount_healthLogs",
   }),
-);
+
+  // Token refresh history (append-only, medium retention)
+  tokenRefreshLogs: many(tokenRefreshLog, {
+    relationName: "socialAccount_tokenRefreshLogs",
+  }),
+
+  // Time-series metrics are in analytics_aggregates:
+  //   dimension_1 = social_account.id
+  //   dimension_2 = 'social_account'
+  //   Joined at application layer, not via Drizzle relations.
+}));
 
 export const oauthStatesRelations = relations(oauthStates, (_) => ({
   // organizationId and userId reference core module — no FK
   // platform matches social_accounts.platform but is not a FK
 }));
 
-export const socialAccountHealthLogRelations = relations(
-  socialAccountHealthLog,
-  ({ one }) => ({
-    socialAccount: one(socialAccounts, {
-      fields: [socialAccountHealthLog.socialAccountId],
-      references: [socialAccounts.id],
-      relationName: "socialAccount_healthLogs",
-    }),
+export const socialAccountHealthLogRelations = relations(socialAccountHealthLog, ({ one }) => ({
+  socialAccount: one(socialAccounts, {
+    fields: [socialAccountHealthLog.socialAccountId],
+    references: [socialAccounts.id],
+    relationName: "socialAccount_healthLogs",
   }),
-);
+}));
 
-export const tokenRefreshLogRelations = relations(
-  tokenRefreshLog,
-  ({ one }) => ({
-    socialAccount: one(socialAccounts, {
-      fields: [tokenRefreshLog.socialAccountId],
-      references: [socialAccounts.id],
-      relationName: "socialAccount_tokenRefreshLogs",
-    }),
+export const tokenRefreshLogRelations = relations(tokenRefreshLog, ({ one }) => ({
+  socialAccount: one(socialAccounts, {
+    fields: [tokenRefreshLog.socialAccountId],
+    references: [socialAccounts.id],
+    relationName: "socialAccount_tokenRefreshLogs",
   }),
-);
+}));

@@ -1,22 +1,18 @@
+import { desc, relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  varchar,
-  text,
   boolean,
-  integer,
-  decimal,
-  jsonb,
-  timestamp,
-  index,
-  unique,
   check,
+  decimal,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql, desc } from "drizzle-orm";
-import {
-  templateTypeEnum,
-  platformEnum,
-  approvalRequestStatusEnum,
-} from "../shared/enums";
+import { approvalRequestStatusEnum, platformEnum, templateTypeEnum } from "../shared/enums";
 
 // =============================================================================
 // TEMPLATES
@@ -269,14 +265,10 @@ export const templates = pgTable(
     language: varchar("language", { length: 5 }).default("en-NG").notNull(),
 
     // true = appropriate to use when customer writes in Nigerian Pidgin English
-    isPidginAppropriate: boolean("is_pidgin_appropriate")
-      .default(false)
-      .notNull(),
+    isPidginAppropriate: boolean("is_pidgin_appropriate").default(false).notNull(),
 
     // ─── Visibility ──────────────────────────────────────────────────────────
-    isOrganizationWide: boolean("is_organization_wide")
-      .default(false)
-      .notNull(),
+    isOrganizationWide: boolean("is_organization_wide").default(false).notNull(),
 
     isPublic: boolean("is_public").default(false).notNull(),
 
@@ -317,12 +309,8 @@ export const templates = pgTable(
     // Not FK — template outlives creator if they leave the org
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -443,20 +431,13 @@ export const templates = pgTable(
     // ── Primary query patterns ────────────────────────────────────────────────
 
     // Template picker — org-scoped, type-filtered, active only
-    index("idx_tmpl_org_type_active").on(
-      table.organizationId,
-      table.templateType,
-      table.isActive,
-    ),
+    index("idx_tmpl_org_type_active").on(table.organizationId, table.templateType, table.isActive),
 
     // Platform filter — find templates usable on a specific platform
     index("idx_tmpl_platform").on(table.organizationId, table.platform),
 
     // Recently updated — common in template management screens
-    index("idx_tmpl_org_updated").on(
-      table.organizationId,
-      desc(table.updatedAt),
-    ),
+    index("idx_tmpl_org_updated").on(table.organizationId, desc(table.updatedAt)),
 
     // Creator's templates — "My Templates" view
     index("idx_tmpl_creator_created").on(
@@ -513,18 +494,10 @@ export const templates = pgTable(
     // ── Usage ranking ─────────────────────────────────────────────────────────
 
     // "Most used" sort in template picker
-    index("idx_tmpl_usage_count").on(
-      table.organizationId,
-      table.templateType,
-      table.usageCount,
-    ),
+    index("idx_tmpl_usage_count").on(table.organizationId, table.templateType, table.usageCount),
 
     // "Recently used" sort in template picker
-    index("idx_tmpl_last_used").on(
-      table.organizationId,
-      table.templateType,
-      table.lastUsedAt,
-    ),
+    index("idx_tmpl_last_used").on(table.organizationId, table.templateType, table.lastUsedAt),
 
     // ── Approval ─────────────────────────────────────────────────────────────
 

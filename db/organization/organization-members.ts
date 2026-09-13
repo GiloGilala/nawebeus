@@ -1,4 +1,6 @@
 // @/db/schema/auth/organization-members.ts
+
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -11,15 +13,11 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
-import { organizations } from "./organizations";
-import { users } from "../core/users";
 import { roles } from "../core/roles";
+import { users } from "../core/users";
+import { engagementLevelPgEnum, memberStatusPgEnum } from "../shared/enums";
 import { tablePrefix, timestamps } from "../shared/schema-utils";
-import {
-  memberStatusPgEnum,
-  engagementLevelPgEnum,
-} from "../shared/enums";
+import { organizations } from "./organizations";
 
 // ============================================
 // TYPES FOR JSON FIELDS
@@ -250,8 +248,7 @@ export const onboardingDataDefault = (): OnboardingData => ({
   setupStep: 1,
 });
 
-export const licenseInfoDefault = (): LicenseInfo => ({
-});
+export const licenseInfoDefault = (): LicenseInfo => ({});
 
 export const metadataDefault = (): MemberMetadata => ({
   customFields: {},
@@ -365,9 +362,7 @@ export const organizationMembers = pgTable(
     bio: text("bio"),
     avatarUrl: varchar("avatar_url"),
 
-    workSchedule: jsonb("work_schedule")
-      .$type<WorkSchedule>()
-      .default(sql`'{}'::jsonb`),
+    workSchedule: jsonb("work_schedule").$type<WorkSchedule>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // PERMISSION OVERRIDES
@@ -390,13 +385,10 @@ export const organizationMembers = pgTable(
     lastActivityType: varchar("last_activity_type", { length: 100 }),
 
     // Cached analytics - not source of truth
-    activityStats: jsonb("activity_stats")
-      .$type<ActivityStats>()
-      .default(sql`'{}'::jsonb`),
+    activityStats: jsonb("activity_stats").$type<ActivityStats>().default(sql`'{}'::jsonb`),
 
     productivityScore: integer("productivity_score").default(0),
-    engagementLevel:
-      engagementLevelPgEnum("engagement_level").default("active"),
+    engagementLevel: engagementLevelPgEnum("engagement_level").default("active"),
 
     // ============================================
     // NOTIFICATIONS & PREFERENCES
@@ -408,9 +400,7 @@ export const organizationMembers = pgTable(
     // ============================================
     // ONBOARDING
     // ============================================
-    onboardingData: jsonb("onboarding_data")
-      .$type<OnboardingData>()
-      .default(sql`'{}'::jsonb`),
+    onboardingData: jsonb("onboarding_data").$type<OnboardingData>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // BILLING & LICENSING
@@ -418,33 +408,24 @@ export const organizationMembers = pgTable(
     isBillable: boolean("is_billable").notNull().default(true),
     seatType: varchar("seat_type", { length: 50 }).default("full"),
 
-    licenseInfo: jsonb("license_info")
-      .$type<LicenseInfo>()
-      .default(sql`'{}'::jsonb`),
+    licenseInfo: jsonb("license_info").$type<LicenseInfo>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // COLLABORATION
     // ============================================
-    reportsTo: uuid("reports_to").references(
-      (): any => organizationMembers.id,
-      { onDelete: "set null" },
-    ),
+    reportsTo: uuid("reports_to").references((): any => organizationMembers.id, {
+      onDelete: "set null",
+    }),
 
     // ============================================
     // SECURITY & COMPLIANCE
     // ============================================
-    allowedIPs: jsonb("allowed_ips")
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
-    blockedIPs: jsonb("blocked_ips")
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
+    allowedIPs: jsonb("allowed_ips").$type<string[]>().default(sql`'[]'::jsonb`),
+    blockedIPs: jsonb("blocked_ips").$type<string[]>().default(sql`'[]'::jsonb`),
 
     requiresMFA: boolean("requires_mfa").notNull().default(false),
 
-    accessSchedule: jsonb("access_schedule")
-      .$type<AccessSchedule>()
-      .default(sql`'{}'::jsonb`),
+    accessSchedule: jsonb("access_schedule").$type<AccessSchedule>().default(sql`'{}'::jsonb`),
 
     maxConcurrentSessions: integer("max_concurrent_sessions").default(3),
     currentActiveSessions: integer("current_active_sessions").default(0),
@@ -452,13 +433,9 @@ export const organizationMembers = pgTable(
     // ============================================
     // METADATA
     // ============================================
-    metadata: jsonb("metadata")
-      .$type<MemberMetadata>()
-      .default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata").$type<MemberMetadata>().default(sql`'{}'::jsonb`),
 
-    tags: jsonb("tags")
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
+    tags: jsonb("tags").$type<string[]>().default(sql`'[]'::jsonb`),
     notes: text("notes"),
 
     // ============================================
@@ -494,9 +471,7 @@ export const organizationMembers = pgTable(
     index("organization_members_invited_at_idx").on(table.invitedAt),
 
     index("organization_members_last_active_idx").on(table.lastActiveAt),
-    index("organization_members_engagement_level_idx").on(
-      table.engagementLevel,
-    ),
+    index("organization_members_engagement_level_idx").on(table.engagementLevel),
 
     index("organization_members_is_billable_idx").on(table.isBillable),
     index("organization_members_seat_type_idx").on(table.seatType),
@@ -504,9 +479,7 @@ export const organizationMembers = pgTable(
     index("organization_members_reports_to_idx").on(table.reportsTo),
 
     index("organization_members_suspended_at_idx").on(table.suspendedAt),
-    index("organization_members_suspension_ends_idx").on(
-      table.suspensionEndsAt,
-    ),
+    index("organization_members_suspension_ends_idx").on(table.suspensionEndsAt),
 
     index("organization_members_deleted_at_idx").on(table.deletedAt),
     index("organization_members_created_at_idx").on(table.createdAt),
@@ -515,59 +488,51 @@ export const organizationMembers = pgTable(
     // COMPOSITE INDEXES FOR COMMON QUERIES
     // ============================================
     // Active members in an organization
-    index("organization_members_org_active_idx").on(
-      table.organizationId,
-      table.status,
-      table.isActive,
-    ).where(sql`
+    index("organization_members_org_active_idx")
+      .on(table.organizationId, table.status, table.isActive)
+      .where(sql`
         ${table.status} = 'active' 
         AND ${table.isActive} = true 
         AND ${table.deletedAt} IS NULL
       `),
 
     // Members by role in an organization
-    index("organization_members_org_role_idx").on(
-      table.organizationId,
-      table.roleId,
-      table.isActive,
-    ).where(sql`
+    index("organization_members_org_role_idx")
+      .on(table.organizationId, table.roleId, table.isActive)
+      .where(sql`
         ${table.isActive} = true 
         AND ${table.deletedAt} IS NULL
       `),
 
     // Members with ending suspensions
-    index("organization_members_suspension_ending_idx").on(
-      table.suspensionEndsAt,
-      table.status,
-    ),
+    index("organization_members_suspension_ending_idx").on(table.suspensionEndsAt, table.status),
 
     // Billable members for billing calculations
-    index("organization_members_billable_idx").on(
-      table.organizationId,
-      table.isBillable,
-      table.seatType,
-    ).where(sql`
+    index("organization_members_billable_idx")
+      .on(table.organizationId, table.isBillable, table.seatType)
+      .where(sql`
         ${table.isBillable} = true 
         AND ${table.isActive} = true 
         AND ${table.deletedAt} IS NULL
       `),
 
-    // Inactive/low engagement members for outreach
-    index("organization_members_inactive_idx").on(
-      table.lastActiveAt,
-      table.engagementLevel,
-    ).where(sql`
-        ${table.engagementLevel} IN ('inactive', 'low')
+    // Inactive/low engagement members for outreach.
+    // `engagement_level` runs none → low → medium → high → full → active, so the
+    // disengaged end is `none`. This predicate previously read `'inactive'`,
+    // which is not a label of the enum — Postgres rejected the whole
+    // `bun run db:push` with "invalid input value for enum engagement_level".
+    index("organization_members_inactive_idx")
+      .on(table.lastActiveAt, table.engagementLevel)
+      .where(sql`
+        ${table.engagementLevel} IN ('none', 'low')
         AND ${table.isActive} = true
         AND ${table.deletedAt} IS NULL
       `),
 
     // Members with incomplete onboarding
-    index("organization_members_onboarding_incomplete_idx").on(
-      table.organizationId,
-      table.onboardingData,
-      table.acceptedAt,
-    ).where(sql`
+    index("organization_members_onboarding_incomplete_idx")
+      .on(table.organizationId, table.onboardingData, table.acceptedAt)
+      .where(sql`
         ${table.onboardingData} IS NOT NULL 
         AND ${table.status} = 'active'
         AND ${table.acceptedAt} IS NOT NULL
@@ -603,53 +568,50 @@ export const organizationMembers = pgTable(
 // RELATIONSHIPS
 // ============================================
 
-export const organizationMembersRelations = relations(
-  organizationMembers,
-  ({ one, many }) => ({
-    organization: one(organizations, {
-      fields: [organizationMembers.organizationId],
-      references: [organizations.id],
-    }),
-    user: one(users, {
-      fields: [organizationMembers.userId],
-      references: [users.id],
-    }),
-    role: one(roles, {
-      fields: [organizationMembers.roleId],
-      references: [roles.id],
-    }),
-    invitedByUser: one(users, {
-      fields: [organizationMembers.invitedBy],
-      references: [users.id],
-    }),
-    activatedByUser: one(users, {
-      fields: [organizationMembers.activatedBy],
-      references: [users.id],
-    }),
-    suspendedByUser: one(users, {
-      fields: [organizationMembers.suspendedBy],
-      references: [users.id],
-    }),
-    deactivatedByUser: one(users, {
-      fields: [organizationMembers.deactivatedBy],
-      references: [users.id],
-    }),
-    deletedByUser: one(users, {
-      fields: [organizationMembers.deletedBy],
-      references: [users.id],
-    }),
-    manager: one(organizationMembers, {
-      fields: [organizationMembers.reportsTo],
-      references: [organizationMembers.id],
-      relationName: "managedEmployees",
-    }),
-    directReports: many(organizationMembers, {
-      relationName: "managedEmployees",
-    }),
-    roleHistory: many(roleHistory),
-    permissionHistory: many(permissionHistory),
+export const organizationMembersRelations = relations(organizationMembers, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [organizationMembers.organizationId],
+    references: [organizations.id],
   }),
-);
+  user: one(users, {
+    fields: [organizationMembers.userId],
+    references: [users.id],
+  }),
+  role: one(roles, {
+    fields: [organizationMembers.roleId],
+    references: [roles.id],
+  }),
+  invitedByUser: one(users, {
+    fields: [organizationMembers.invitedBy],
+    references: [users.id],
+  }),
+  activatedByUser: one(users, {
+    fields: [organizationMembers.activatedBy],
+    references: [users.id],
+  }),
+  suspendedByUser: one(users, {
+    fields: [organizationMembers.suspendedBy],
+    references: [users.id],
+  }),
+  deactivatedByUser: one(users, {
+    fields: [organizationMembers.deactivatedBy],
+    references: [users.id],
+  }),
+  deletedByUser: one(users, {
+    fields: [organizationMembers.deletedBy],
+    references: [users.id],
+  }),
+  manager: one(organizationMembers, {
+    fields: [organizationMembers.reportsTo],
+    references: [organizationMembers.id],
+    relationName: "managedEmployees",
+  }),
+  directReports: many(organizationMembers, {
+    relationName: "managedEmployees",
+  }),
+  roleHistory: many(roleHistory),
+  permissionHistory: many(permissionHistory),
+}));
 
 // ============================================
 // RELATIONS FOR HISTORY TABLES
@@ -666,19 +628,16 @@ export const roleHistoryRelations = relations(roleHistory, ({ one }) => ({
   }),
 }));
 
-export const permissionHistoryRelations = relations(
-  permissionHistory,
-  ({ one }) => ({
-    member: one(organizationMembers, {
-      fields: [permissionHistory.memberId],
-      references: [organizationMembers.id],
-    }),
-    changedByUser: one(users, {
-      fields: [permissionHistory.changedBy],
-      references: [users.id],
-    }),
+export const permissionHistoryRelations = relations(permissionHistory, ({ one }) => ({
+  member: one(organizationMembers, {
+    fields: [permissionHistory.memberId],
+    references: [organizationMembers.id],
   }),
-);
+  changedByUser: one(users, {
+    fields: [permissionHistory.changedBy],
+    references: [users.id],
+  }),
+}));
 
 // ============================================
 // TYPE EXPORTS
@@ -795,11 +754,7 @@ export const memberSelectors = {
  * Check if a member is active
  */
 export function isMemberActive(member: OrganizationMember): boolean {
-  return (
-    member.status === "active" &&
-    member.isActive === true &&
-    member.deletedAt === null
-  );
+  return member.status === "active" && member.isActive === true && member.deletedAt === null;
 }
 
 /**
@@ -828,10 +783,7 @@ export function getMemberDisplayName(member: OrganizationMember): string {
 /**
  * Check if a member has a specific permission
  */
-export function hasPermission(
-  member: OrganizationMember,
-  permission: string,
-): boolean {
+export function hasPermission(member: OrganizationMember, permission: string): boolean {
   const overrides = member.permissionOverrides as PermissionOverrides;
   if (!overrides) return false;
 
@@ -848,10 +800,7 @@ export function hasPermission(
 /**
  * Check if a member has access to a specific social account
  */
-export function hasSocialAccountAccess(
-  member: OrganizationMember,
-  accountId: string,
-): boolean {
+export function hasSocialAccountAccess(member: OrganizationMember, accountId: string): boolean {
   const restrictions = member.accessRestrictions as AccessRestrictions;
   if (!restrictions?.allowedSocialAccountIds) return true;
   return restrictions.allowedSocialAccountIds.includes(accountId);
@@ -860,10 +809,7 @@ export function hasSocialAccountAccess(
 /**
  * Get the direct reports count
  */
-export function getDirectReportsCount(
-  member: OrganizationMember,
-  db: any,
-): Promise<number> {
+export function getDirectReportsCount(member: OrganizationMember, db: any): Promise<number> {
   return db
     .select({ count: sql<number>`count(*)` })
     .from(organizationMembers)

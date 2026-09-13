@@ -1,13 +1,17 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { authMiddleware } from "../../server/middleware/auth";
-import { getUser, updateUser } from "../../services/users/user.service";
-import { deleteAccount, reactivateAccount, getAccountDeletionStatus } from "../../services/users/account-deletion.service";
-import { changePassword } from "../../services/auth/auth.service";
-import { validatePassword } from "../../lib/password";
 import { ValidationError } from "../../lib/errors";
+import { validatePassword } from "../../lib/password";
 import { success } from "../../lib/response";
-import { requestEmailChange, confirmEmailChange } from "../../services/auth/email-change";
+import { authMiddleware } from "../../server/middleware/auth";
+import { changePassword } from "../../services/auth/auth.service";
+import { confirmEmailChange, requestEmailChange } from "../../services/auth/email-change";
+import {
+  deleteAccount,
+  getAccountDeletionStatus,
+  reactivateAccount,
+} from "../../services/users/account-deletion.service";
+import { getUser, updateUser } from "../../services/users/user.service";
 
 const updateMeSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -79,7 +83,10 @@ router.post("/me/change-password", authMiddleware, async (c) => {
   // Enforce password complexity
   const complexity = validatePassword(parsed.newPassword, { email: "" });
   if (!complexity.valid) {
-    throw new ValidationError("New password does not meet complexity requirements", complexity.errors.map((msg) => ({ field: "newPassword", message: msg })));
+    throw new ValidationError(
+      "New password does not meet complexity requirements",
+      complexity.errors.map((msg) => ({ field: "newPassword", message: msg })),
+    );
   }
 
   await changePassword(db, userId, parsed.currentPassword, parsed.newPassword);
@@ -98,7 +105,11 @@ router.delete("/me", authMiddleware, async (c) => {
   }
   const parsed = deleteAccountSchema.parse(body);
 
-  const result = await deleteAccount(db, userId, parsed.reason ? { reason: parsed.reason } : undefined);
+  const result = await deleteAccount(
+    db,
+    userId,
+    parsed.reason ? { reason: parsed.reason } : undefined,
+  );
   return c.json(success({ scheduledDeletionAt: result.scheduledDeletionAt }));
 });
 
@@ -121,7 +132,9 @@ router.post("/me/email-change", authMiddleware, async (c) => {
     throw new ValidationError("Invalid JSON body");
   }
   const parsed = emailChangeRequestSchema.parse(body);
-  const result = await requestEmailChange(db, userId, { newEmail: parsed.newEmail });
+  const result = await requestEmailChange(db, userId, {
+    newEmail: parsed.newEmail,
+  });
   return c.json(success(result));
 });
 

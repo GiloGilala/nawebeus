@@ -4,10 +4,12 @@
  * All TypeScript types are in @/server/auth/types/api-key-types.ts
  */
 
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   check,
   index,
+  inet,
   integer,
   jsonb,
   pgTable,
@@ -16,22 +18,19 @@ import {
   uniqueIndex,
   uuid,
   varchar,
-  inet,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
-import { relations } from "drizzle-orm";
+import { organizations } from "../organization/organizations";
 import {
+  apiKeyEnvironmentPgEnum,
+  apiKeyPermissionLevelPgEnum,
+  apiKeySecurityLevelPgEnum,
   apiKeyStatusPgEnum,
   apiKeyTypePgEnum,
-  apiKeyPermissionLevelPgEnum,
-  apiKeyEnvironmentPgEnum,
-  apiKeySecurityLevelPgEnum,
   keyRotationStrategyPgEnum,
   revocationTypePgEnum,
 } from "../shared/enums";
-import { users } from "./users";
-import { organizations } from "../organization/organizations";
 import { tablePrefix, timestamps } from "../shared/schema-utils";
+import { users } from "./users";
 
 /**
  * API Keys Table Definition
@@ -78,9 +77,7 @@ export const apiKeys = pgTable(
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
     keyType: apiKeyTypePgEnum("key_type").notNull(),
-    environment: apiKeyEnvironmentPgEnum("environment")
-      .notNull()
-      .default("production"),
+    environment: apiKeyEnvironmentPgEnum("environment").notNull().default("production"),
     status: apiKeyStatusPgEnum("status").notNull().default("active"),
 
     // ============================================
@@ -96,12 +93,8 @@ export const apiKeys = pgTable(
     // ============================================
     // ACCESS CONTROL
     // ============================================
-    permissionLevel: apiKeyPermissionLevelPgEnum("permission_level")
-      .notNull()
-      .default("read_only"),
-    securityLevel: apiKeySecurityLevelPgEnum("security_level")
-      .notNull()
-      .default("standard"),
+    permissionLevel: apiKeyPermissionLevelPgEnum("permission_level").notNull().default("read_only"),
+    securityLevel: apiKeySecurityLevelPgEnum("security_level").notNull().default("standard"),
     scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
     restrictions: jsonb("restrictions").$type<string[]>().notNull().default([]),
     permissions: jsonb("permissions")
@@ -124,9 +117,7 @@ export const apiKeys = pgTable(
     // ============================================
     // PLATFORM & NETWORK RESTRICTIONS
     // ============================================
-    allowedPlatforms: jsonb("allowed_platforms")
-      .$type<string[]>()
-      .default(["web"]),
+    allowedPlatforms: jsonb("allowed_platforms").$type<string[]>().default(["web"]),
     deniedPlatforms: jsonb("denied_platforms").$type<string[]>().default([]),
     allowedOrigins: jsonb("allowed_origins").$type<string[]>().default([]),
     allowedIps: jsonb("allowed_ips").$type<string[]>().default([]),
@@ -194,9 +185,7 @@ export const apiKeys = pgTable(
     // ============================================
     // LIFECYCLE
     // ============================================
-    issuedAt: timestamp("issued_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     notBefore: timestamp("not_before", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
@@ -216,8 +205,7 @@ export const apiKeys = pgTable(
     // ============================================
     // ROTATION
     // ============================================
-    rotationStrategy:
-      keyRotationStrategyPgEnum("rotation_strategy").default("none"),
+    rotationStrategy: keyRotationStrategyPgEnum("rotation_strategy").default("none"),
     rotatedFromId: uuid("rotated_from_id").references((): any => apiKeys.id),
     rotationCount: integer("rotation_count").notNull().default(0),
     nextRotationAt: timestamp("next_rotation_at", { withTimezone: true }),
@@ -315,19 +303,13 @@ export const apiKeys = pgTable(
     // ============================================
     // UNIQUE INDEXES
     // ============================================
-    uniqueIndex(`${tablePrefix}api_keys_public_key_unique_idx`).on(
-      table.publicKey,
-    ),
+    uniqueIndex(`${tablePrefix}api_keys_public_key_unique_idx`).on(table.publicKey),
     uniqueIndex(`${tablePrefix}api_keys_secret_hash_unique_idx`)
       .on(table.secretHash)
-      .where(
-        sql`${table.secretHash} IS NOT NULL AND ${table.deletedAt} IS NULL`,
-      ),
+      .where(sql`${table.secretHash} IS NOT NULL AND ${table.deletedAt} IS NULL`),
     uniqueIndex(`${tablePrefix}api_keys_external_id_unique_idx`)
       .on(table.externalId)
-      .where(
-        sql`${table.externalId} IS NOT NULL AND ${table.deletedAt} IS NULL`,
-      ),
+      .where(sql`${table.externalId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
     // Organization + name uniqueness
     uniqueIndex(`${tablePrefix}api_keys_org_name_unique_idx`)
       .on(table.organizationId, table.name)
@@ -343,20 +325,14 @@ export const apiKeys = pgTable(
     index(`${tablePrefix}api_keys_type_idx`).on(table.keyType),
     index(`${tablePrefix}api_keys_status_idx`).on(table.status),
     index(`${tablePrefix}api_keys_env_idx`).on(table.environment),
-    index(`${tablePrefix}api_keys_permission_level_idx`).on(
-      table.permissionLevel,
-    ),
+    index(`${tablePrefix}api_keys_permission_level_idx`).on(table.permissionLevel),
     index(`${tablePrefix}api_keys_security_level_idx`).on(table.securityLevel),
     index(`${tablePrefix}api_keys_expires_at_idx`).on(table.expiresAt),
     index(`${tablePrefix}api_keys_issued_at_idx`).on(table.issuedAt),
     index(`${tablePrefix}api_keys_last_used_idx`).on(table.lastUsedAt),
-    index(`${tablePrefix}api_keys_rotation_strategy_idx`).on(
-      table.rotationStrategy,
-    ),
+    index(`${tablePrefix}api_keys_rotation_strategy_idx`).on(table.rotationStrategy),
     index(`${tablePrefix}api_keys_next_rotation_idx`).on(table.nextRotationAt),
-    index(`${tablePrefix}api_keys_revocation_type_idx`).on(
-      table.revocationType,
-    ),
+    index(`${tablePrefix}api_keys_revocation_type_idx`).on(table.revocationType),
     index(`${tablePrefix}api_keys_last_used_ip_idx`).on(table.lastUsedIp), // NEW
     index(`${tablePrefix}api_keys_created_ip_idx`).on(table.createdIp), // NEW
 
@@ -368,16 +344,12 @@ export const apiKeys = pgTable(
       table.publicKey,
       table.expiresAt,
     ),
-    index(`${tablePrefix}api_keys_needs_rotation_idx`).on(
-      table.organizationId,
-      table.publicKey,
-    ),
+    index(`${tablePrefix}api_keys_needs_rotation_idx`).on(table.organizationId, table.publicKey),
     index(`${tablePrefix}api_keys_inactive_idx`).on(table.lastUsedAt),
     index(`${tablePrefix}api_keys_expired_idx`).on(table.expiresAt),
-    index(`${tablePrefix}api_keys_high_security_idx`).on(
-      table.organizationId,
-      table.securityLevel,
-    ).where(sql`
+    index(`${tablePrefix}api_keys_high_security_idx`)
+      .on(table.organizationId, table.securityLevel)
+      .where(sql`
         ${table.securityLevel} IN ('high', 'critical')
         AND ${table.status} = 'active'
         AND ${table.deletedAt} IS NULL
@@ -720,8 +692,7 @@ export function needsRotation(key: {
 
   // Check inactivity
   if (key.maxInactivityDays && key.lastUsedAt) {
-    const inactiveDays =
-      (Date.now() - new Date(key.lastUsedAt).getTime()) / (1000 * 60 * 60 * 24);
+    const inactiveDays = (Date.now() - new Date(key.lastUsedAt).getTime()) / (1000 * 60 * 60 * 24);
     if (inactiveDays > key.maxInactivityDays) {
       return true;
     }
@@ -773,10 +744,7 @@ export function getSuccessRate(key: {
 /**
  * Check if key was created from a specific IP
  */
-export function wasCreatedFromIp(
-  key: { createdIp: string | null },
-  ip: string,
-): boolean {
+export function wasCreatedFromIp(key: { createdIp: string | null }, ip: string): boolean {
   if (!key.createdIp) return false;
   return key.createdIp === ip;
 }

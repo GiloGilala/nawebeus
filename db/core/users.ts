@@ -1,62 +1,63 @@
 // @/db/schemas/users.ts
+
+import { relations, sql } from "drizzle-orm";
 import {
-  pgTable,
-  uuid,
-  varchar,
   boolean,
-  timestamp,
+  index,
+  inet,
   integer,
   jsonb,
-  uniqueIndex,
-  index,
+  pgTable,
   text,
-  inet,
-} from 'drizzle-orm/pg-core'
-import { relations, sql } from 'drizzle-orm'
-import { tablePrefix, timestamps } from '../shared/schema-utils'
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+import type { TrustedDevice } from "@/server/auth/types/auth-types";
+import { organizationMembers } from "../organization/organization-members";
+import { organizations } from "../organization/organizations";
 import {
-  userStatusPgEnum,
-  subscriptionPlanPgEnum,
-  profileVisibilityPgEnum,
   pgUserThemeEnum,
+  profileVisibilityPgEnum,
   roleValueTypePgEnum,
-} from '../shared/enums'
-import { organizations } from '../organization/organizations'
-import { TrustedDevice } from '@/server/auth/types/auth-types'
-import { roles } from './roles'
-import { organizationMembers } from '../organization/organization-members'
+  subscriptionPlanPgEnum,
+  userStatusPgEnum,
+} from "../shared/enums";
+import { tablePrefix, timestamps } from "../shared/schema-utils";
+import { roles } from "./roles";
 
 // ============================================
 // TYPES FOR JSON FIELDS
 // ============================================
 
 export interface UserOnboardingData {
-  completedSteps: string[]
-  skippedSteps: string[]
-  completedAt?: string
-  toursSeen: string[]
+  completedSteps: string[];
+  skippedSteps: string[];
+  completedAt?: string;
+  toursSeen: string[];
 }
 
 export interface UserSecurityQuestions {
-  question1?: { question: string; answer: string }
-  question2?: { question: string; answer: string }
-  question3?: { question: string; answer: string }
+  question1?: { question: string; answer: string };
+  question2?: { question: string; answer: string };
+  question3?: { question: string; answer: string };
 }
 
 export interface UserCookieConsent {
-  necessary: boolean
-  functional: boolean
-  analytics: boolean
-  marketing: boolean
-  updatedAt: string
+  necessary: boolean;
+  functional: boolean;
+  analytics: boolean;
+  marketing: boolean;
+  updatedAt: string;
 }
 
 export interface UserMetadata {
-  source?: string
-  referrer?: string
-  campaign?: string
-  medium?: string
-  customFields?: Record<string, unknown>
+  source?: string;
+  referrer?: string;
+  campaign?: string;
+  medium?: string;
+  customFields?: Record<string, unknown>;
 }
 
 // ============================================
@@ -69,78 +70,69 @@ export const users = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().defaultRandom(),
 
     // ============================================
     // MULTI-TENANCY
     // ============================================
-    organizationId: uuid('organization_id').references(
-      (): any => organizations.id,
-      { onDelete: 'set null' },
-    ),
+    organizationId: uuid("organization_id").references((): any => organizations.id, {
+      onDelete: "set null",
+    }),
 
     // ============================================
     // AUTHENTICATION & IDENTITY
     // ============================================
-    email: varchar('email', { length: 255 }).notNull().unique(),
-    phone: varchar('phone', { length: 255 }).unique(),
-    emailVerified: boolean('email_verified').notNull().default(false),
-    password: varchar('password', { length: 255 }).notNull(),
-    passwordHistory: jsonb('password_history')
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
-    username: varchar('username', { length: 50 }).notNull(),
-    phoneVerified: boolean('phone_verified').notNull().default(false),
+    email: varchar("email", { length: 255 }).notNull().unique(),
+    phone: varchar("phone", { length: 255 }).unique(),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    password: varchar("password", { length: 255 }).notNull(),
+    passwordHistory: jsonb("password_history").$type<string[]>().default(sql`'[]'::jsonb`),
+    username: varchar("username", { length: 50 }).notNull(),
+    phoneVerified: boolean("phone_verified").notNull().default(false),
 
     // Two-factor authentication
-    twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
-    twoFactorSecret: varchar('two_factor_secret', { length: 255 }),
-    twoFactorBackupCodes: jsonb('two_factor_backup_codes')
+    twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+    twoFactorSecret: varchar("two_factor_secret", { length: 255 }),
+    twoFactorBackupCodes: jsonb("two_factor_backup_codes")
       .$type<string[]>()
       .default(sql`'[]'::jsonb`),
 
     // Security tracking
-    loginCount: integer('login_count').notNull().default(0),
-    failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
-    lockedUntil: timestamp('locked_until', {
+    loginCount: integer("login_count").notNull().default(0),
+    failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
+    lockedUntil: timestamp("locked_until", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    lastLoginIp: inet('last_login_ip'), // NEW
-    lastLoginCountry: varchar('last_login_country', { length: 100 }), // NEW
-    lastLoginUserAgent: varchar('last_login_user_agent', { length: 500 }), // NEW
+    lastLoginIp: inet("last_login_ip"), // NEW
+    lastLoginCountry: varchar("last_login_country", { length: 100 }), // NEW
+    lastLoginUserAgent: varchar("last_login_user_agent", { length: 500 }), // NEW
 
     // Device management
-    trustedDevices: jsonb('trusted_devices')
-      .$type<TrustedDevice[]>()
-      .default(sql`'[]'::jsonb`),
+    trustedDevices: jsonb("trusted_devices").$type<TrustedDevice[]>().default(sql`'[]'::jsonb`),
 
     // ============================================
     // PROFILE & PERSONALIZATION
     // ============================================
-    firstName: varchar('first_name', { length: 100 }).notNull(),
-    lastName: varchar('last_name', { length: 100 }).notNull(),
-    displayName: varchar('display_name', { length: 200 }),
-    profileImage: text('profile_image'),
+    firstName: varchar("first_name", { length: 100 }).notNull(),
+    lastName: varchar("last_name", { length: 100 }).notNull(),
+    displayName: varchar("display_name", { length: 200 }),
+    profileImage: text("profile_image"),
 
     // Preferences
-    timezone: varchar('timezone', { length: 50 }).default('UTC').notNull(),
-    locale: varchar('locale', { length: 10 }).default('en-NG').notNull(),
-    settingsId: uuid('settings_id'),
+    timezone: varchar("timezone", { length: 50 }).default("UTC").notNull(),
+    locale: varchar("locale", { length: 10 }).default("en-NG").notNull(),
+    settingsId: uuid("settings_id"),
 
     // ============================================
     // STATUS & PERMISSIONS
     // ============================================
-    status: userStatusPgEnum().notNull().default('pending_verification'),
+    status: userStatusPgEnum().notNull().default("pending_verification"),
 
     // Onboarding
-    onboardingCompleted: boolean('onboarding_completed')
-      .notNull()
-      .default(false),
-    onboardingStep: integer('onboarding_step').notNull().default(0),
-    onboardingData: jsonb('onboarding_data')
-      .$type<UserOnboardingData>()
-      .default(sql`'{}'::jsonb`),
+    onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
+    onboardingStep: integer("onboarding_step").notNull().default(0),
+    onboardingData: jsonb("onboarding_data").$type<UserOnboardingData>().default(sql`'{}'::jsonb`),
 
     // ----------------------------------------------------------------
     // ROLE & PERMISSION SIGNALS — READ BEFORE TOUCHING
@@ -175,132 +167,116 @@ export const users = pgTable(
     // their role doesn't have should get a new/adjusted role, not a
     // one-off grant. See @/db/schemas/auth/permissions.ts
     // ----------------------------------------------------------------
-    roleId: uuid('role_id').references((): any => roles.id, {
-      onDelete: 'set null',
+    roleId: uuid("role_id").references((): any => roles.id, {
+      onDelete: "set null",
     }),
 
-    role: roleValueTypePgEnum().default('user').notNull(),
-    permissions: jsonb('permissions')
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
-    restrictions: jsonb('restrictions')
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
+    role: roleValueTypePgEnum().default("user").notNull(),
+    permissions: jsonb("permissions").$type<string[]>().default(sql`'[]'::jsonb`),
+    restrictions: jsonb("restrictions").$type<string[]>().default(sql`'[]'::jsonb`),
 
-    subscriptionPlan: subscriptionPlanPgEnum().default('free').notNull(),
-    subscriptionStatus: varchar('subscription_status', { length: 50 }),
-    subscriptionExpiresAt: timestamp('subscription_expires_at', {
+    subscriptionPlan: subscriptionPlanPgEnum().default("free").notNull(),
+    subscriptionStatus: varchar("subscription_status", { length: 50 }),
+    subscriptionExpiresAt: timestamp("subscription_expires_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
 
     // Privacy settings
-    profileVisibility: profileVisibilityPgEnum().default('public').notNull(),
-    allowDirectMessages: boolean('allow_direct_messages')
-      .default(true)
-      .notNull(),
+    profileVisibility: profileVisibilityPgEnum().default("public").notNull(),
+    allowDirectMessages: boolean("allow_direct_messages").default(true).notNull(),
 
     // ============================================
     // ACTIVITY TRACKING
     // ============================================
-    lastLoginAt: timestamp('last_login_at', {
+    lastLoginAt: timestamp("last_login_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    lastActiveAt: timestamp('last_active_at', {
+    lastActiveAt: timestamp("last_active_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    lastPasswordChangeAt: timestamp('last_password_change_at', {
+    lastPasswordChangeAt: timestamp("last_password_change_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    lastEmailChangeAt: timestamp('last_email_change_at', {
+    lastEmailChangeAt: timestamp("last_email_change_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
 
     // ============================================
     // SECURITY & COMPLIANCE
     // ============================================
-    termsAcceptedAt: timestamp('terms_accepted_at', {
+    termsAcceptedAt: timestamp("terms_accepted_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    privacyAcceptedAt: timestamp('privacy_accepted_at', {
+    privacyAcceptedAt: timestamp("privacy_accepted_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    marketingConsentAt: timestamp('marketing_consent_at', {
+    marketingConsentAt: timestamp("marketing_consent_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
 
-    newsletterSubscribed: boolean('newsletter_subscribed').default(false),
+    newsletterSubscribed: boolean("newsletter_subscribed").default(false),
 
     // Analytics
-    referralSource: varchar('referral_source', { length: 255 }),
-    referralCode: varchar('referral_code', { length: 50 }).unique(),
-    referredBy: uuid('referred_by').references((): any => users.id, {
-      onDelete: 'set null',
+    referralSource: varchar("referral_source", { length: 255 }),
+    referralCode: varchar("referral_code", { length: 50 }).unique(),
+    referredBy: uuid("referred_by").references((): any => users.id, {
+      onDelete: "set null",
     }),
 
     // Stored in smallest currency unit (kobo/cents)
-    totalEarnings: integer('total_earnings').notNull().default(0),
+    totalEarnings: integer("total_earnings").notNull().default(0),
 
     // Security metadata
-    securityQuestions: jsonb('security_questions')
+    securityQuestions: jsonb("security_questions")
       .$type<UserSecurityQuestions>()
       .default(sql`'{}'::jsonb`),
-    ipHistory: jsonb('ip_history')
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
-    userAgentHistory: jsonb('user_agent_history')
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
-    accountLockedUntil: timestamp('account_locked_until', {
+    ipHistory: jsonb("ip_history").$type<string[]>().default(sql`'[]'::jsonb`),
+    userAgentHistory: jsonb("user_agent_history").$type<string[]>().default(sql`'[]'::jsonb`),
+    accountLockedUntil: timestamp("account_locked_until", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
 
     // ============================================
     // LEGAL & COMPLIANCE
     // ============================================
-    dataProcessingConsent: boolean('data_processing_consent').default(false),
-    marketingConsent: boolean('marketing_consent').default(false),
-    consentUpdatedAt: timestamp('consent_updated_at', {
+    dataProcessingConsent: boolean("data_processing_consent").default(false),
+    marketingConsent: boolean("marketing_consent").default(false),
+    consentUpdatedAt: timestamp("consent_updated_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    cookieConsent: jsonb('cookie_consent')
-      .$type<UserCookieConsent>()
-      .default(sql`'{}'::jsonb`),
-    gdprConsentAt: timestamp('gdpr_consent_at', {
+    cookieConsent: jsonb("cookie_consent").$type<UserCookieConsent>().default(sql`'{}'::jsonb`),
+    gdprConsentAt: timestamp("gdpr_consent_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    themePreference: pgUserThemeEnum().notNull().default('system'),
+    themePreference: pgUserThemeEnum().notNull().default("system"),
 
     // ============================================
     // CUSTOM DATA & METADATA
     // ============================================
-    pushTokens: jsonb('push_tokens')
-      .$type<string[]>()
-      .default(sql`'[]'::jsonb`),
+    pushTokens: jsonb("push_tokens").$type<string[]>().default(sql`'[]'::jsonb`),
 
-    metadata: jsonb('metadata')
-      .$type<UserMetadata>()
-      .default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata").$type<UserMetadata>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // SOFT DELETE & TIMESTAMPS
     // ============================================
-    deletedAt: timestamp('deleted_at', { withTimezone: true, mode: 'date' }),
-    deletedBy: uuid('deleted_by').references((): any => users.id, {
-      onDelete: 'set null',
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),
+    deletedBy: uuid("deleted_by").references((): any => users.id, {
+      onDelete: "set null",
     }),
-    deletionReason: varchar('deletion_reason', { length: 500 }),
-    updatedBy: varchar('updated_by', { length: 255 }),
+    deletionReason: varchar("deletion_reason", { length: 500 }),
+    updatedBy: varchar("updated_by", { length: 255 }),
 
     // Timestamps
     ...timestamps,
@@ -321,9 +297,7 @@ export const users = pgTable(
 
     uniqueIndex(`${tablePrefix}users_referral_code_unique_idx`)
       .on(table.referralCode)
-      .where(
-        sql`${table.referralCode} IS NOT NULL AND ${table.deletedAt} IS NULL`,
-      ),
+      .where(sql`${table.referralCode} IS NOT NULL AND ${table.deletedAt} IS NULL`),
 
     // Performance indexes
     index(`${tablePrefix}users_status_idx`).on(table.status),
@@ -336,15 +310,9 @@ export const users = pgTable(
     index(`${tablePrefix}users_last_login_ip_idx`).on(table.lastLoginIp), // NEW
 
     // Subscription indexes
-    index(`${tablePrefix}users_subscription_plan_idx`).on(
-      table.subscriptionPlan,
-    ),
-    index(`${tablePrefix}users_subscription_status_idx`).on(
-      table.subscriptionStatus,
-    ),
-    index(`${tablePrefix}users_subscription_expires_idx`).on(
-      table.subscriptionExpiresAt,
-    ),
+    index(`${tablePrefix}users_subscription_plan_idx`).on(table.subscriptionPlan),
+    index(`${tablePrefix}users_subscription_status_idx`).on(table.subscriptionStatus),
+    index(`${tablePrefix}users_subscription_expires_idx`).on(table.subscriptionExpiresAt),
 
     // Composite indexes for common queries
     index(`${tablePrefix}users_status_active_idx`)
@@ -367,22 +335,22 @@ export const users = pgTable(
 
     // JSONB GIN indexes
     index(`${tablePrefix}users_metadata_gin_idx`)
-      .using('gin', table.metadata)
+      .using("gin", table.metadata)
       .where(sql`${table.deletedAt} IS NULL`),
 
     index(`${tablePrefix}users_permissions_gin_idx`)
-      .using('gin', table.permissions)
+      .using("gin", table.permissions)
       .where(sql`${table.deletedAt} IS NULL`),
 
     index(`${tablePrefix}users_trusted_devices_gin_idx`)
-      .using('gin', table.trustedDevices)
+      .using("gin", table.trustedDevices)
       .where(sql`${table.deletedAt} IS NULL`),
 
     index(`${tablePrefix}users_restrictions_gin_idx`)
-      .using('gin', table.restrictions)
+      .using("gin", table.restrictions)
       .where(sql`${table.deletedAt} IS NULL`),
   ],
-)
+);
 
 // ============================================
 // RELATIONSHIPS (FIXED)
@@ -406,18 +374,18 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     references: [users.id],
   }),
   referrals: many(users, {
-    relationName: 'referredBy',
+    relationName: "referredBy",
   }),
   memberships: many(organizationMembers),
-}))
+}));
 
 // ============================================
 // TYPE EXPORTS
 // ============================================
 
-export type User = typeof users.$inferSelect
-export type NewUser = typeof users.$inferInsert
-export type UserTable = typeof users
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type UserTable = typeof users;
 
 // ============================================
 // USER SELECTORS
@@ -558,4 +526,4 @@ export const userSelectors = {
     createdAt: users.createdAt,
     updatedAt: users.updatedAt,
   } as const,
-}
+};

@@ -10,27 +10,27 @@
 // - phone change tokens: for phone change.
 // - invitation tokens: for invitation poeple to join the platform- users.
 
+import { relations, sql } from "drizzle-orm";
 import {
+  boolean,
+  index,
+  integer,
+  jsonb,
   pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
   uuid,
   varchar,
-  boolean,
-  timestamp,
-  jsonb,
-  integer,
-  text,
-  uniqueIndex,
-  index,
-} from 'drizzle-orm/pg-core'
-import { relations, sql } from 'drizzle-orm'
-import { users } from './users'
+} from "drizzle-orm/pg-core";
 import {
   platformPgEnum,
-  tokenTypePgEnum,
-  tokenStatusPgEnum,
   revokeReasonPgEnum,
-} from '../shared/enums'
-import { tablePrefix, timestamps } from '../shared/schema-utils'
+  tokenStatusPgEnum,
+  tokenTypePgEnum,
+} from "../shared/enums";
+import { tablePrefix, timestamps } from "../shared/schema-utils";
+import { users } from "./users";
 
 export const tokens = pgTable(
   `${tablePrefix}tokens`,
@@ -38,83 +38,81 @@ export const tokens = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().defaultRandom(),
 
     // ============================================
     // USER OWNERSHIP
     // ============================================
-    userId: uuid('user_id')
+    userId: uuid("user_id")
       .notNull()
       .references(() => users.id, {
-        onDelete: 'cascade',
-        onUpdate: 'cascade',
+        onDelete: "cascade",
+        onUpdate: "cascade",
       }),
 
     // ============================================
     // TOKEN IDENTIFICATION & TYPE
     // ============================================
-    tokenType: tokenTypePgEnum('token_type').notNull(),
+    tokenType: tokenTypePgEnum("token_type").notNull(),
 
     // For OTP/magic links
-    selector: varchar('selector', { length: 32 }).unique(),
-    hashedValidator: text('hashed_validator'),
+    selector: varchar("selector", { length: 32 }).unique(),
+    hashedValidator: text("hashed_validator"),
 
-    status: tokenStatusPgEnum('status').notNull().default('active'),
+    status: tokenStatusPgEnum("status").notNull().default("active"),
 
     // ============================================
     // PURPOSE & TARGET
     // ============================================
-    purpose: varchar('purpose', { length: 100 }).notNull(),
-    targetEmail: varchar('target_email', { length: 255 }),
-    targetPhone: varchar('target_phone', { length: 50 }),
-    redirectUri: varchar('redirect_uri', { length: 2048 }),
+    purpose: varchar("purpose", { length: 100 }).notNull(),
+    targetEmail: varchar("target_email", { length: 255 }),
+    targetPhone: varchar("target_phone", { length: 50 }),
+    redirectUri: varchar("redirect_uri", { length: 2048 }),
 
     // ============================================
     // VALIDITY & EXPIRATION
     // ============================================
-    issuedAt: timestamp('issued_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
 
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    notBefore: timestamp('not_before', { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    notBefore: timestamp("not_before", { withTimezone: true }),
 
     // ============================================
     // USAGE TRACKING
     // ============================================
-    usedAt: timestamp('used_at', { withTimezone: true }),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-    maxUses: integer('max_uses'),
-    useCount: integer('use_count').notNull().default(0),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    maxUses: integer("max_uses"),
+    useCount: integer("use_count").notNull().default(0),
 
     // ============================================
     // PLATFORM & DEVICE CONTEXT
     // ============================================
-    platform: platformPgEnum('platform'),
-    userAgent: text('user_agent'),
-    deviceId: varchar('device_id', { length: 255 }),
-    fingerprint: varchar('fingerprint', { length: 64 }),
+    platform: platformPgEnum("platform"),
+    userAgent: text("user_agent"),
+    deviceId: varchar("device_id", { length: 255 }),
+    fingerprint: varchar("fingerprint", { length: 64 }),
 
     // ============================================
     // NETWORK CONTEXT
     // ============================================
-    ipAddress: text('ip_address'),
+    ipAddress: text("ip_address"),
 
     // ============================================
     // SECURITY & REVOCATION
     // ============================================
-    deletedBy: varchar('deleted_by', { length: 255 }),
-    isRevoked: boolean('is_revoked').notNull().default(false),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    revokedBy: uuid('revoked_by').references(() => users.id),
-    revokeReason: revokeReasonPgEnum('revoke_reason'),
-    isActive: boolean('is_active').notNull().default(true),
+    deletedBy: varchar("deleted_by", { length: 255 }),
+    isRevoked: boolean("is_revoked").notNull().default(false),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id),
+    revokeReason: revokeReasonPgEnum("revoke_reason"),
+    isActive: boolean("is_active").notNull().default(true),
 
     // ============================================
     // AUTHORIZATION
     // ============================================
-    scopes: jsonb('scopes').$type<string[]>().default([]),
-    note: text('note'),
+    scopes: jsonb("scopes").$type<string[]>().default([]),
+    note: text("note"),
     // ============================================
     // TIMESTAMPS
     // ============================================
@@ -152,30 +150,24 @@ export const tokens = pgTable(
       table.expiresAt,
     ),
 
-    index(`${tablePrefix}tokens_purpose_type_idx`).on(
-      table.purpose,
-      table.tokenType,
-      table.expiresAt,
-    ).where(sql`
+    index(`${tablePrefix}tokens_purpose_type_idx`)
+      .on(table.purpose, table.tokenType, table.expiresAt)
+      .where(sql`
       ${table.isRevoked} = false
       AND ${table.status} = 'active'
     `),
 
-    index(`${tablePrefix}tokens_cleanup_idx`).on(
-      table.expiresAt,
-      table.isRevoked,
-    ),
+    index(`${tablePrefix}tokens_cleanup_idx`).on(table.expiresAt, table.isRevoked),
 
-    index(`${tablePrefix}tokens_otp_validation_idx`).on(
-      table.selector,
-      table.expiresAt,
-    ).where(sql`
+    index(`${tablePrefix}tokens_otp_validation_idx`)
+      .on(table.selector, table.expiresAt)
+      .where(sql`
       ${table.tokenType} IN ('otp', 'magic_link')
       AND ${table.isRevoked} = false
       AND ${table.status} = 'active'
     `),
   ],
-)
+);
 
 // ============================================
 // RELATIONSHIPS
@@ -185,16 +177,16 @@ export const tokensRelations = relations(tokens, ({ one }) => ({
   user: one(users, {
     fields: [tokens.userId],
     references: [users.id],
-    relationName: 'user_tokens',
+    relationName: "user_tokens",
   }),
 
   // User who revoked this token (if any)
   revokedByUser: one(users, {
     fields: [tokens.revokedBy],
     references: [users.id],
-    relationName: 'revoked_tokens',
+    relationName: "revoked_tokens",
   }),
-}))
+}));
 
 // ============================================
 // HELPER SELECTORS
@@ -275,4 +267,4 @@ export const tokenSelectors = {
     createdAt: tokens.createdAt,
     updatedAt: tokens.updatedAt,
   } as const,
-} as const
+} as const;

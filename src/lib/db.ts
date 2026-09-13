@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/node-postgres";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { getConfig } from "./config";
 
@@ -13,7 +13,9 @@ let _pool: pg.Pool | undefined;
 
 export function createDb(databaseUrl?: string): Db {
   const config = getConfig();
-  const pool = new Pool({ connectionString: databaseUrl ?? config.DATABASE_URL });
+  const pool = new Pool({
+    connectionString: databaseUrl ?? config.DATABASE_URL,
+  });
   _pool = pool;
   _db = drizzle(pool);
   return _db;

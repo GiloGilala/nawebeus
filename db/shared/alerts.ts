@@ -1,26 +1,26 @@
-import {
-  pgTable,
-  varchar,
-  text,
-  boolean,
-  integer,
-  decimal,
-  numeric,
-  jsonb,
-  timestamp,
-  time,
-  unique,
-  index,
-  check,
-} from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import {
-  alertRuleSourceEnum,
+  boolean,
+  check,
+  decimal,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  text,
+  time,
+  timestamp,
+  unique,
+  varchar,
+} from "drizzle-orm/pg-core";
+import {
+  alertAudienceEnum,
   alertConditionTypeEnum,
   alertEventSeverityEnum,
-  alertRecipientModeEnum,
-  alertAudienceEnum,
   alertFrequencyEnum,
+  alertRecipientModeEnum,
+  alertRuleSourceEnum,
 } from "../shared/enums";
 
 // =============================================================================
@@ -230,9 +230,7 @@ export const alertRules = pgTable(
     // (e.g. "notify the entrant their entry was approved"). See enum
     // comments above for the full explanation.
     audience: alertAudienceEnum("audience").default("internal").notNull(),
-    recipientMode: alertRecipientModeEnum("recipient_mode")
-      .default("fixed")
-      .notNull(),
+    recipientMode: alertRecipientModeEnum("recipient_mode").default("fixed").notNull(),
 
     // Scalar threshold shortcut for simple rules — avoids JSONB extraction
     // in the trigger evaluator for the common case of a single numeric threshold.
@@ -249,9 +247,7 @@ export const alertRules = pgTable(
     // Minimum severity level at which this rule fires
     // 'info' = fires on all triggers, 'crisis' = only on most severe
     // Also controls the severity written to alert_events when this rule fires
-    defaultSeverity: alertEventSeverityEnum("default_severity")
-      .default("warning")
-      .notNull(),
+    defaultSeverity: alertEventSeverityEnum("default_severity").default("warning").notNull(),
 
     // ─── Delivery ────────────────────────────────────────────────────────────
     frequency: alertFrequencyEnum("frequency").default("realtime").notNull(),
@@ -270,9 +266,7 @@ export const alertRules = pgTable(
     quietHoursStart: time("quiet_hours_start"),
     quietHoursEnd: time("quiet_hours_end"),
     // IANA timezone — defaults to WAT (Africa/Lagos)
-    timezone: varchar("timezone", { length: 100 })
-      .default("Africa/Lagos")
-      .notNull(),
+    timezone: varchar("timezone", { length: 100 }).default("Africa/Lagos").notNull(),
 
     // ─── Rate Limiting ───────────────────────────────────────────────────────
     // Minimum minutes between consecutive firings of this rule
@@ -308,12 +302,8 @@ export const alertRules = pgTable(
     // Not FK — rule must outlive creator if they leave the org
     createdById: varchar("created_by_id", { length: 32 }).notNull(),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -397,11 +387,7 @@ export const alertRules = pgTable(
     // ── Primary rule lookups ─────────────────────────────────────────────────
 
     // Primary rule lookup — all enabled rules for a module
-    index("idx_ar_org_module_active").on(
-      table.organizationId,
-      table.sourceModule,
-      table.isActive,
-    ),
+    index("idx_ar_org_module_active").on(table.organizationId, table.sourceModule, table.isActive),
 
     // Evaluator hot path — active rules for a source + condition type
     index("idx_ar_active_condition").on(
@@ -423,10 +409,7 @@ export const alertRules = pgTable(
       ),
 
     // Cooldown check — most recently triggered rules
-    index("idx_ar_last_triggered").on(
-      table.organizationId,
-      table.lastTriggeredAt,
-    ),
+    index("idx_ar_last_triggered").on(table.organizationId, table.lastTriggeredAt),
 
     // Daily alert cap enforcement — rules with maxAlertsPerDay set
     index("idx_ar_capped")
@@ -603,10 +586,10 @@ export const alertEvents = pgTable(
     // Per-channel delivery tracking (email/slack/webhook)
     notificationStatus: jsonb("notification_status")
       .$type<{
-        email?: { sent: boolean; error?: string; sentAt?: string }
-        slack?: { sent: boolean; error?: string; sentAt?: string }
-        webhook?: { sent: boolean; error?: string; sentAt?: string }
-        inApp?: { sent: boolean; error?: string; sentAt?: string }
+        email?: { sent: boolean; error?: string; sentAt?: string };
+        slack?: { sent: boolean; error?: string; sentAt?: string };
+        webhook?: { sent: boolean; error?: string; sentAt?: string };
+        inApp?: { sent: boolean; error?: string; sentAt?: string };
       }>()
       .default({}),
 
@@ -625,9 +608,7 @@ export const alertEvents = pgTable(
     escalationNotes: text("escalation_notes"),
 
     // Append-only after insert — only isRead + isAcknowledged are mutable
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // ── Constraints ──────────────────────────────────────────────────────────
@@ -752,18 +733,10 @@ export const alertEvents = pgTable(
 
     // Source entity lookup — show alerts on entity detail pages
     // e.g. "show me all alerts triggered by post XYZ"
-    index("idx_ae_source").on(
-      table.sourceType,
-      table.sourceId,
-      table.createdAt,
-    ),
+    index("idx_ae_source").on(table.sourceType, table.sourceId, table.createdAt),
 
     // Severity filter — crisis alerts always shown at top of feed
-    index("idx_ae_severity_created").on(
-      table.organizationId,
-      table.severity,
-      table.createdAt,
-    ),
+    index("idx_ae_severity_created").on(table.organizationId, table.severity, table.createdAt),
 
     // Crisis-only partial index — highest priority query, needs to be fast
     index("idx_ae_crisis")

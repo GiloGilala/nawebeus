@@ -1,5 +1,5 @@
 import { loadConfig } from "./lib/config";
-import { createDb, closeDb } from "./lib/db";
+import { closeDb, createDb } from "./lib/db";
 import { createAppWithDb } from "./server";
 
 loadConfig();

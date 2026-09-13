@@ -1,4 +1,6 @@
 // @/db/schema/auth/user-roles.ts
+
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -9,31 +11,30 @@ import {
   uniqueIndex,
   uuid,
   varchar,
-} from 'drizzle-orm/pg-core'
-import { relations, sql } from 'drizzle-orm'
-import { users } from './users'
-import { roles } from './roles'
-import { tablePrefix, timestamps, softDelete } from '../shared/schema-utils'
-import { userRoleStatusPgEnum, userRoleSourcePgEnum } from '../shared/enums'
+} from "drizzle-orm/pg-core";
+import { userRoleSourcePgEnum, userRoleStatusPgEnum } from "../shared/enums";
+import { softDelete, tablePrefix, timestamps } from "../shared/schema-utils";
+import { roles } from "./roles";
+import { users } from "./users";
 
 // ============================================
 // TYPES FOR JSON FIELDS
 // ============================================
 
 export interface AssignmentHistoryEntry {
-  timestamp: string
-  action: 'assigned' | 'changed' | 'revoked' | 'reactivated'
-  performedBy: string
-  previousStatus?: string
-  notes?: string
+  timestamp: string;
+  action: "assigned" | "changed" | "revoked" | "reactivated";
+  performedBy: string;
+  previousStatus?: string;
+  notes?: string;
 }
 
 export interface UserRoleMetadata {
-  source?: string
-  department?: string
-  team?: string
-  project?: string
-  customFields?: Record<string, unknown>
+  source?: string;
+  department?: string;
+  team?: string;
+  project?: string;
+  customFields?: Record<string, unknown>;
 }
 
 // ============================================
@@ -46,108 +47,104 @@ export const userRoles = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid('id')
-      .primaryKey()
-      .default(sql`gen_random_uuid()`),
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
 
     // ============================================
     // RELATIONSHIPS
     // ============================================
-    userId: uuid('user_id')
+    userId: uuid("user_id")
       .notNull()
       .references(() => users.id, {
-        onDelete: 'cascade',
-        onUpdate: 'cascade',
+        onDelete: "cascade",
+        onUpdate: "cascade",
       }),
 
-    roleId: uuid('role_id')
+    roleId: uuid("role_id")
       .notNull()
       .references(() => roles.id, {
-        onDelete: 'cascade',
-        onUpdate: 'cascade',
+        onDelete: "cascade",
+        onUpdate: "cascade",
       }),
 
-    assignedBy: uuid('assigned_by').references(() => users.id, {
-      onDelete: 'set null',
+    assignedBy: uuid("assigned_by").references(() => users.id, {
+      onDelete: "set null",
     }),
 
     // ============================================
     // ASSIGNMENT SOURCE
     // ============================================
-    source: userRoleSourcePgEnum('source').notNull().default('manual'),
+    source: userRoleSourcePgEnum("source").notNull().default("manual"),
 
     // Assignment context
-    contextId: uuid('context_id'),
-    contextType: varchar('context_type', { length: 50 }),
+    contextId: uuid("context_id"),
+    contextType: varchar("context_type", { length: 50 }),
 
     // ============================================
     // VALIDITY PERIOD
     // ============================================
-    validFrom: timestamp('valid_from', {
+    validFrom: timestamp("valid_from", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     })
       .default(sql`now()`)
       .notNull(),
-    validUntil: timestamp('valid_until', {
+    validUntil: timestamp("valid_until", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
 
     // ============================================
     // STATUS & STATE
     // ============================================
-    status: userRoleStatusPgEnum('status').notNull().default('active'),
-    isPrimary: boolean('is_primary').notNull().default(false),
-    isInherited: boolean('is_inherited').notNull().default(false),
-    inheritedFrom: uuid('inherited_from'),
+    status: userRoleStatusPgEnum("status").notNull().default("active"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    isInherited: boolean("is_inherited").notNull().default(false),
+    inheritedFrom: uuid("inherited_from"),
 
     // ============================================
     // APPROVAL WORKFLOW
     // ============================================
-    requiresApproval: boolean('requires_approval').notNull().default(false),
-    requiresMFA: boolean('requires_mfa').notNull().default(false),
-    approvedAt: timestamp('approved_at', {
+    requiresApproval: boolean("requires_approval").notNull().default(false),
+    requiresMFA: boolean("requires_mfa").notNull().default(false),
+    approvedAt: timestamp("approved_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    approvedBy: uuid('approved_by').references(() => users.id, {
-      onDelete: 'set null',
+    approvedBy: uuid("approved_by").references(() => users.id, {
+      onDelete: "set null",
     }),
-    approvalNotes: text('approval_notes'),
+    approvalNotes: text("approval_notes"),
 
     // ============================================
     // RESTRICTIONS OVERRIDES
     // ============================================
-    restrictionsOverride: jsonb('restrictions_override')
+    restrictionsOverride: jsonb("restrictions_override")
       .$type<string[]>()
       .default(sql`'[]'::jsonb`),
 
     // ============================================
     // AUDIT & METADATA
     // ============================================
-    assignmentHistory: jsonb('assignment_history')
+    assignmentHistory: jsonb("assignment_history")
       .$type<AssignmentHistoryEntry[]>()
       .default(sql`'[]'::jsonb`),
 
-    reason: text('reason'),
-    notes: text('notes'),
+    reason: text("reason"),
+    notes: text("notes"),
 
-    metadata: jsonb('metadata')
-      .$type<UserRoleMetadata>()
-      .default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata").$type<UserRoleMetadata>().default(sql`'{}'::jsonb`),
 
     // ============================================
     // REVOCATION
     // ============================================
-    revokedAt: timestamp('revoked_at', {
+    revokedAt: timestamp("revoked_at", {
       withTimezone: true,
-      mode: 'date',
+      mode: "date",
     }),
-    revokedBy: uuid('revoked_by').references(() => users.id, {
-      onDelete: 'set null',
+    revokedBy: uuid("revoked_by").references(() => users.id, {
+      onDelete: "set null",
     }),
-    revokeReason: text('revoke_reason'),
+    revokeReason: text("revoke_reason"),
 
     // ============================================
     // TIMESTAMPS
@@ -189,10 +186,7 @@ export const userRoles = pgTable(
     index(`${tablePrefix}user_roles_approved_by_idx`).on(table.approvedBy),
     index(`${tablePrefix}user_roles_revoked_by_idx`).on(table.revokedBy),
 
-    index(`${tablePrefix}user_roles_context_idx`).on(
-      table.contextId,
-      table.contextType,
-    ),
+    index(`${tablePrefix}user_roles_context_idx`).on(table.contextId, table.contextType),
     index(`${tablePrefix}user_roles_status_idx`).on(table.status),
     index(`${tablePrefix}user_roles_source_idx`).on(table.source),
 
@@ -203,9 +197,7 @@ export const userRoles = pgTable(
     // ============================================
     // COMPOSITE INDEXES
     // ============================================
-    index(`${tablePrefix}user_roles_active_idx`)
-      .on(table.userId, table.roleId, table.status)
-      ,
+    index(`${tablePrefix}user_roles_active_idx`).on(table.userId, table.roleId, table.status),
 
     index(`${tablePrefix}user_roles_primary_active_idx`)
       .on(table.userId, table.isPrimary, table.status)
@@ -269,7 +261,7 @@ export const userRoles = pgTable(
     // JSONB GIN INDEXES
     // ============================================
     index(`${tablePrefix}user_roles_restrictions_override_gin_idx`)
-      .using('gin', table.restrictionsOverride)
+      .using("gin", table.restrictionsOverride)
       .where(
         sql`
           ${table.deletedAt} IS NULL
@@ -277,7 +269,7 @@ export const userRoles = pgTable(
       ),
 
     index(`${tablePrefix}user_roles_metadata_gin_idx`)
-      .using('gin', table.metadata)
+      .using("gin", table.metadata)
       .where(
         sql`
           ${table.deletedAt} IS NULL
@@ -285,14 +277,14 @@ export const userRoles = pgTable(
       ),
 
     index(`${tablePrefix}user_roles_history_gin_idx`)
-      .using('gin', table.assignmentHistory)
+      .using("gin", table.assignmentHistory)
       .where(
         sql`
           ${table.deletedAt} IS NULL
         `,
       ),
   ],
-)
+);
 
 // ============================================
 // RELATIONSHIPS
@@ -319,4 +311,4 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
     fields: [userRoles.revokedBy],
     references: [users.id],
   }),
-}))
+}));

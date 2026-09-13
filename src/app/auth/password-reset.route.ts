@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { forgotPassword, resetPassword } from "../../services/auth/password-reset";
+import { AuthError, ValidationError } from "../../lib/errors";
 import { validatePassword } from "../../lib/password";
-import { ValidationError, AuthError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { forgotPassword, resetPassword } from "../../services/auth/password-reset";
 
 const router = new Hono();
 

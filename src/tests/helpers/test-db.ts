@@ -1,5 +1,5 @@
-import { createTestDb } from "../../lib/db";
 import type { Db } from "../../lib/db";
+import { createTestDb } from "../../lib/db";
 
 export { createTestDb };
 

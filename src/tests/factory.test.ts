@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { withTestDb } from "./helpers/test-db";
-import { createTestUser, createTestOrg, createTestMember } from "./helpers/test-factory";
 import { sql } from "drizzle-orm";
+import { withTestDb } from "./helpers/test-db";
+import { createTestMember, createTestOrg, createTestUser } from "./helpers/test-factory";
 
 const hasDb = () => !!process.env.DATABASE_URL;
 
@@ -22,7 +22,8 @@ describe.skipIf(!hasDb())("test factory", () => {
 
   test("createTestOrg produces a valid organization", async () => {
     await withTestDb(async (ctx) => {
-      const org = await createTestOrg(ctx.db);
+      const user = await createTestUser(ctx.db);
+      const org = await createTestOrg(ctx.db, { ownerId: user.id });
       expect(org.id).toBeDefined();
       expect(org.id.length).toBeGreaterThan(0);
       expect(org.slug).toBeDefined();
@@ -37,7 +38,7 @@ describe.skipIf(!hasDb())("test factory", () => {
   test("createTestMember produces a valid membership", async () => {
     await withTestDb(async (ctx) => {
       const user = await createTestUser(ctx.db);
-      const org = await createTestOrg(ctx.db);
+      const org = await createTestOrg(ctx.db, { ownerId: user.id });
 
       // Create a role first
       const roleRows = await ctx.db.execute<{ id: string }>(
@@ -69,9 +70,10 @@ describe.skipIf(!hasDb())("test factory", () => {
       });
       expect(user.email).toBe("override@test.com");
 
-      const rows = await ctx.db.execute<{ first_name: string; last_name: string }>(
-        sql`SELECT first_name, last_name FROM users WHERE id = ${user.id} LIMIT 1`,
-      );
+      const rows = await ctx.db.execute<{
+        first_name: string;
+        last_name: string;
+      }>(sql`SELECT first_name, last_name FROM users WHERE id = ${user.id} LIMIT 1`);
       expect((rows as any).rows[0].first_name).toBe("Override");
       expect((rows as any).rows[0].last_name).toBe("User");
     });
@@ -80,9 +82,7 @@ describe.skipIf(!hasDb())("test factory", () => {
   test("creates are rolled back after test", async () => {
     const countBefore = async () => {
       const rows = await withTestDb(async (ctx) => {
-        const r = await ctx.db.execute<{ count: string }>(
-          sql`SELECT COUNT(*) as count FROM users`,
-        );
+        const r = await ctx.db.execute<{ count: string }>(sql`SELECT COUNT(*) as count FROM users`);
         return Number((r as any).rows?.[0]?.count ?? 0);
       });
       return rows;
