@@ -57,17 +57,19 @@ export async function signIn(
   }
 
   // --- Look up user ---
+  // `failed_login_attempts` is deliberately NOT selected: the failure path below increments it
+  // atomically in the database. Reading it here would invite using that value, which is exactly
+  // the lost-update bug this replaced (NWB-P0-008).
   const rows = await db.execute<{
     id: string;
     password: string;
     organization_id: string;
-    failed_login_attempts: number;
     account_locked_until: string | null;
     two_factor_enabled: boolean;
     two_factor_secret: string | null;
     status: string;
   }>(
-    sql`SELECT id, password, organization_id, failed_login_attempts, account_locked_until,
+    sql`SELECT id, password, organization_id, account_locked_until,
               two_factor_enabled, two_factor_secret, status
         FROM users WHERE email = ${email} AND deleted_at IS NULL LIMIT 1`,
   );
@@ -90,22 +92,45 @@ export async function signIn(
   // --- Verify password ---
   const valid = await verifyPassword(password, user.password);
   if (!valid) {
-    const attempts = (user.failed_login_attempts ?? 0) + 1;
-    const shouldLock = attempts >= MAX_FAILED_ATTEMPTS;
-    const lockedUntil = shouldLock
-      ? new Date(Date.now() + LOCKOUT_DURATION_MS)
-      : user.account_locked_until;
-
-    await db.execute(
-      sql`UPDATE users SET failed_login_attempts = ${attempts},
-          account_locked_until = ${lockedUntil ? lockedUntil.toISOString() : null}
-          WHERE id = ${user.id}`,
+    // Increment atomically and let the database decide whether the threshold was crossed.
+    //
+    // The previous shape read `failed_login_attempts` in the SELECT above, awaited bcrypt, then
+    // wrote `read + 1`. Every concurrent attempt read the same starting value and wrote the same
+    // result, so N parallel wrong passwords counted as ONE failure and the lockout never
+    // engaged — the control did nothing against parallelised credential stuffing (NWB-P0-008).
+    //
+    // `RETURNING` is the post-increment truth for *this* statement under any interleaving, so
+    // the threshold test below cannot be based on a stale read.
+    //
+    // Deliberately not `SELECT … FOR UPDATE`: that would hold a row lock across an intentional
+    // bcrypt delay, which turns the lockout into a denial of service against a legitimate user.
+    const updated = await db.execute<{
+      failed_login_attempts: number;
+      account_locked_until: string | Date | null;
+    }>(
+      sql`UPDATE users
+             SET failed_login_attempts = failed_login_attempts + 1,
+                 account_locked_until = CASE
+                   WHEN failed_login_attempts + 1 >= ${MAX_FAILED_ATTEMPTS}::int
+                     THEN now() + (${LOCKOUT_DURATION_MS}::int * interval '1 millisecond')
+                     ELSE account_locked_until
+                   END
+           WHERE id = ${user.id}
+         RETURNING failed_login_attempts, account_locked_until`,
     );
+    const row = (updated as any).rows?.[0] as
+      | { failed_login_attempts: number; account_locked_until: string | Date | null }
+      | undefined;
 
-    if (shouldLock) {
+    // No row means the user disappeared between the SELECT and here. Refuse rather than guess.
+    if (!row) throw new AuthError("Invalid email or password");
+
+    const lockedUntil = row.account_locked_until ? new Date(row.account_locked_until) : null;
+
+    if (row.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
       throw new AccountLockedError(
         "Account locked after too many failed attempts. Try again in 15 minutes.",
-        lockedUntil!,
+        lockedUntil ?? new Date(Date.now() + LOCKOUT_DURATION_MS),
       );
     }
 

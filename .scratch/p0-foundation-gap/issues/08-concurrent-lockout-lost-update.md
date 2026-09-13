@@ -1,6 +1,10 @@
 # NWB-P0-008 — Concurrent sign-in lockout is a lost update
 
-**Status:** open — found 2026-09-13 while fixing the DB-gated suite
+**Status:** done — fixed 2026-09-13
+**Verification:** the new concurrency test was made to fail against the old code first
+(counter stuck at 1, no lock, 3/3 fail) and pass against the new (3/3), so it is real coverage
+rather than a test that agrees with whatever is there. Full suite 162 pass / 0 fail with a live
+database (was 159).
 **Deps:** none. **Size:** S. **Blocks:** nothing mechanically, but it weakens a security control.
 
 ## The bug
@@ -59,14 +63,40 @@ it holds a row lock across an intentional bcrypt delay — a self-inflicted cont
 an easy way to turn a lockout into a denial of service against a legitimate user. Prefer the
 atomic `UPDATE … RETURNING`.
 
+## What was done
+
+`src/services/auth/auth.service.ts` now increments atomically and reads the decision back from
+`RETURNING` (the shape proposed above), with two deliberate additions:
+
+- **`failed_login_attempts` was dropped from the opening `SELECT`.** It is no longer needed, and
+  leaving it in the result invites someone to use it — which is how the bug was written in the
+  first place. The column is now only ever read from a `RETURNING` clause.
+- **`account_locked_until` is computed in SQL as
+  `now() + (${LOCKOUT_DURATION_MS}::int * interval '1 millisecond')`**, so the lockout duration
+  still has one source of truth and the database's clock is authoritative. The `::int` casts are
+  load-bearing: without them Postgres cannot infer the parameter types and the statement fails.
+
+Coverage landed in a new file, `src/tests/auth/signin-lockout-concurrency.test.ts`, rather than by
+rewriting `signin-enhanced.test.ts` to `Promise.all`. The sequential test stays as-is (it is a
+valid test of the sequential path), and the concurrency case is separate and self-describing —
+which is what makes it obvious why it exists if it ever fails again:
+
+1. five concurrent wrong passwords leave `failed_login_attempts = 5` and set `locked_until`
+2. a locked account refuses the *correct* password
+3. a successful sign-in resets the counter and clears the lock without racing
+
+`withTestDb` uses a single pooled connection, so the five `Promise.all` attempts interleave at the
+bcrypt await exactly as an attacker's would — pg queues the statements but the application awaits
+between them, which is the whole window.
+
 ## Definition of done
 
-- Five **concurrent** wrong-password requests leave `failed_login_attempts = 5` and set
+- [x] Five **concurrent** wrong-password requests leave `failed_login_attempts = 5` and set
   `locked_until`.
-- The `signin-enhanced` lockout test is restored to `Promise.all` (or gains a second concurrent
+- [x] The `signin-enhanced` lockout test is restored to `Promise.all` (or gains a second concurrent
   case alongside the sequential one) so the regression cannot come back silently.
-- A concurrent test proves a *successful* sign-in still resets the counter without racing.
-- `bun run typecheck` clean; full suite green with a live database.
+- [x] A concurrent test proves a *successful* sign-in still resets the counter without racing.
+- [x] `bun run typecheck` clean; full suite green with a live database.
 
 ## Notes
 
