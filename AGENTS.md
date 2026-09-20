@@ -42,7 +42,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (176 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (184 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.

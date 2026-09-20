@@ -20,10 +20,21 @@ and 002 (DSAR data export, AC8 of FR-AUTH-007), plus 005 (migration baseline —
 `workflows` permission — see the ticket), and 018 (CASL scope cleanup, F-06 —
 the inert org condition removed, the real enforcement chain documented, and a
 route-invariant scan that fails any `:orgId` route missing `requireOrgMatch`).
-**Outstanding:** bookkeeping/verification/email base/branch protection (019–022).
-023 (organization deletion) is **done**.
+**Outstanding:** bookkeeping (019, 020) and branch protection (022, a GitHub
+settings task needing repo-owner access). 021 (email link consistency) and 023
+(organization deletion) are **done** — 021 was the last outstanding *code* ticket.
 
-> **2026-09-20 (latest): organization deletion ships (NWB-P0-023), and it found a defect in
+> **2026-09-20 (latest): emailed link bases are server-decided (NWB-P0-021), closing a live
+> account-takeover path.** The ticket read as hygiene — a wrong signup link, a client `Origin`
+> used as the resend base. The audit found the same header base on *unauthenticated*
+> `POST /api/auth/forgot-password`: sending `Origin: https://evil.example.com` returned 200 and
+> emailed the victim a **valid reset token** on the attacker's domain. Reproduced against the
+> real code before touching it, now pinned as a regression test (and verified red against the
+> pre-fix service). Fix is one derived `APP_BASE_URL_RESOLVED` in `config.ts`; the `origin`
+> parameter was deleted from the service signatures so no call site can pass one, which also
+> surfaced two Server Functions that had been emitting relative — unclickable — links.
+>
+> **2026-09-20: organization deletion ships (NWB-P0-023), and it found a defect in
 > its own design.** Soft-deleting an organization suspends every membership *including the
 > owner's*, so `assertActivePrincipal` would have locked the owner out of the only route that
 > undoes it — the 30-day grace PRD 8.2.1 promises would have been unreachable without a manual
@@ -112,6 +123,7 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-015 | Enforce user status at sign-in (F-05) | — | M | `issues/15-user-status-enforcement.md` — **done** |
 | NWB-P0-016 | Invitation accept flow (F-08; incl. invite role ladder + residual F-20) | D14 interim | M | `issues/16-invitation-accept.md` — **done** |
 | NWB-P0-018 | CASL scope cleanup — make the scoping decision explicit (F-06) | D11 (wording) | S/M | `issues/18-casl-scope-cleanup.md` — **done** |
+| NWB-P0-021 | Email link consistency (F-09, F-09b) | — | S/M | `issues/21-email-link-consistency.md` — **done** |
 | NWB-P0-023 | Organization deletion (PRD 8.2.1 P0; D-14) | — | M | `issues/23-organization-deletion.md` — **done** |
 | NWB-P0-024 | Account deletion referenced a missing column (F-24) | — | S | `issues/24-scheduled-deletion-column.md` — **done** |
 | NWB-P0-025 | `purgeExpiredAccounts` cannot delete an org owner (F-25) | NWB-P0-023 | S/M | `issues/25-org-owner-purge-fk.md` — **done** |
@@ -119,9 +131,9 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 | NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **done** |
 
-> Tickets 19–22 are listed here but their files do not exist yet — the index
+> Tickets 19, 20 and 22 are listed here but their files do not exist yet — the index
 > was written ahead of the tickets. Files present: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11,
-> 12, 13, 14, 15, 16, 17, 18, 23, 24, 25, 26, 27, 28. The Phase 1
+> 12, 13, 14, 15, 16, 17, 18, 21, 23, 24, 25, 26, 27, 28. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 

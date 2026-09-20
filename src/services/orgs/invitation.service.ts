@@ -219,8 +219,8 @@ export async function inviteMember(
   // The link is the only way to accept — existing-account invitees need it
   // too (previously only account-less invitees were emailed, which stranded
   // everyone else the moment NWB-P0-016 gave them something to accept).
-  // Primary allowed origin doubles as the link base until NWB-P0-021 introduces APP_BASE_URL.
-  const inviteLink = `${config.CORS_ORIGIN[0]}/invite?token=${rawToken}`;
+  // One server-decided base for every emailed link (NWB-P0-021).
+  const inviteLink = `${config.APP_BASE_URL_RESOLVED}/invite?token=${rawToken}`;
   await emailService.send({
     to: input.email,
     subject: `You've been invited to join ${orgName} on Nawebeus`,

@@ -262,8 +262,9 @@ export const forgotPasswordServerFn = createServerFn({ method: "POST" })
   .validator(forgotSchema)
   .handler(async ({ data }) => {
     const db = getServerDb();
-    // Origin is not needed for the Server Function path; Hono route passes `c.req.header("origin")`
-    await forgotPassword(db, data.email, "");
+    // Link bases are server-decided for every entry point (NWB-P0-021), so
+    // neither this path nor the Hono route passes an origin any more.
+    await forgotPassword(db, data.email);
     return {
       message: "If an account with that email exists, a password reset link has been sent.",
     };
@@ -287,7 +288,7 @@ export const resendVerificationServerFn = createServerFn({ method: "POST" })
   .validator(resendVerificationSchema)
   .handler(async ({ data }) => {
     const db = getServerDb();
-    await sendVerificationEmail(db, data.email, "");
+    await sendVerificationEmail(db, data.email);
     return { message: "If an account with that email exists, a verification link has been sent." };
   });
 

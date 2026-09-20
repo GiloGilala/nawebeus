@@ -220,12 +220,22 @@
 - **Acceptance:** no `in-progress` ticket without an accurate one-line outstanding note (tracker convention).
 - **Risk:** none.
 
-#### NWB-P0-021 — Email link consistency (F-09, F-09b)
+#### NWB-P0-021 — Email link consistency (F-09, F-09b) — **DONE**
 - **Objective:** every emailed link uses one server-decided base URL; no client header in security emails.
 - **Steps:** add `APP_BASE_URL` to `config.ts` (default = `CORS_ORIGIN` for dev); replace `signup.ts:211` base with `APP_BASE_URL + "/api/auth/verify-email"`; replace `verification.route.ts`'s `c.req.header("origin")` with `APP_BASE_URL`; invite emails (Phase 1 P0-016) use `APP_BASE_URL + "/invite?token="` (web-app route); audit other `emailService.send` call sites for link bases (password-reset, email-change, MFA-notice).
 - **Tests:** unit: emitted HTML contains `APP_BASE_URL`-based links; negative: with no client Origin header, links still absolute.
 - **Acceptance:** zero client-controlled values in any emailed URL.
 - **Risk:** none. **Rollback:** revert.
+- **Outcome (2026-09-20):** done — `.scratch/p0-foundation-gap/issues/21-email-link-consistency.md`.
+  `APP_BASE_URL` added (optional; derived `APP_BASE_URL_RESOLVED` defaults to `CORS_ORIGIN[0]`,
+  strips trailing slashes, rejects a non-URL value at startup). The `origin` parameter was removed
+  from `forgotPassword`/`sendVerificationEmail` entirely, so the two routes and the two Server
+  Functions can no longer pass one; the three `CORS_ORIGIN[0]` services moved to the resolved base;
+  signup now links to `/api/auth/verify-email`. Beyond the stated scope, the audit found the
+  *unauthenticated* forgot-password route was the worst instance — a forged `Origin` delivered a
+  **valid reset token** to an attacker-chosen domain (reproduced, now a regression test) — and that
+  the Server Functions emitted relative links. `src/tests/email-links.test.ts`: 12 tests, verified
+  red against the pre-fix service.
 
 #### NWB-P0-022 — Branch protection + CI as a real gate
 - **Objective:** merge to `main` requires green CI.

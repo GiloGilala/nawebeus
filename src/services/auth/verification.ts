@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { getConfig } from "../../lib/config";
 import { AuthError, ConflictError, NotFoundError } from "../../lib/errors";
 import { writeAuditLog } from "../audit";
 import { emailService } from "../email";
@@ -17,7 +18,6 @@ export interface SendVerificationResult {
 export async function sendVerificationEmail(
   db: NodePgDatabase<Record<string, any>>,
   email: string,
-  origin: string,
 ): Promise<SendVerificationResult> {
   const user = await getUserByEmail(db, email);
   if (!user) {
@@ -50,7 +50,8 @@ export async function sendVerificationEmail(
     expiresInMinutes: VERIFICATION_TTL_MINUTES,
   });
 
-  const link = `${origin}/api/auth/verify-email?token=${rawToken}`;
+  // Server-decided base (F-09b) — was the request's Origin header.
+  const link = `${getConfig().APP_BASE_URL_RESOLVED}/api/auth/verify-email?token=${rawToken}`;
 
   await emailService.send({
     to: email,

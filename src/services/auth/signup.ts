@@ -231,8 +231,11 @@ export async function signup(
     },
   );
 
-  // Primary allowed origin doubles as the link base until NWB-P0-021 introduces APP_BASE_URL.
-  const verificationLink = `${config.CORS_ORIGIN[0]}/verify-email?token=${rawToken}`;
+  // One server-decided base for every emailed link (NWB-P0-021). The path is
+  // the API route that actually exists — `/api/auth/verify-email`, matching
+  // `sendVerificationEmail`. The bare `/verify-email` this used to emit was a
+  // 404 for every signup (F-09).
+  const verificationLink = `${config.APP_BASE_URL_RESOLVED}/api/auth/verify-email?token=${rawToken}`;
 
   await emailService.send({
     to: email,
