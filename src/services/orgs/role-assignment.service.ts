@@ -28,9 +28,12 @@ export interface AssignRoleInput {
  *    ("Manager scope: roles below Manager only");
  *  - the last active Owner/Admin cannot be demoted (BR-AUTH-030).
  *
- * This is the **only** code path that writes `organization_members.role_id`
- * after signup: `updateMember` (PATCH /members/:id) and `updateUserAsAdmin`
- * (PATCH /users/admin/:id) delegate here, so the guards cannot be bypassed
+ * All post-signup writes of `organization_members.role_id` are guarded: every
+ * role *change* goes through this function (`updateMember` PATCH /members/:id
+ * and `updateUserAsAdmin` PATCH /users/admin/:id delegate here), and the two
+ * invitation paths — `inviteMember` (grant at invite) and `acceptInvitation`
+ * (activation) — enforce the same ladder via `resolveAssignableRole` +
+ * `assertRoleGrantAllowed` (NWB-P0-016), so the guards cannot be bypassed
  * through a sibling endpoint. Every change is audited and appended to
  * `member_role_history`.
  */

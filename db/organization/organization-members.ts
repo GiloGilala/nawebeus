@@ -312,6 +312,13 @@ export const organizationMembers = pgTable(
       mode: "date",
     }),
 
+    // The address the invitation was sent to. Added in NWB-P0-016: until then a
+    // pending invite for an account-less email stored user_id=NULL and nothing
+    // else — the addressee existed only in the sent email, so dedup on
+    // (org, email) was impossible and an accept flow could not know whose
+    // invitation this was. Written for every invite, account or not.
+    invitedEmail: varchar("invited_email", { length: 255 }),
+
     // Invitation token (raw value shown in the /invite?token= link) and its
     // SHA-256 hash. Written by inviteMember since before these columns
     // existed in the schema (F-20): every invite 500'd with 42703 until
@@ -489,6 +496,7 @@ export const organizationMembers = pgTable(
     index("organization_members_status_idx").on(table.status),
     index("organization_members_is_active_idx").on(table.isActive),
     index("organization_members_invited_by_idx").on(table.invitedBy),
+    index("organization_members_invited_email_idx").on(table.invitedEmail),
     index("organization_members_invited_at_idx").on(table.invitedAt),
 
     index("organization_members_last_active_idx").on(table.lastActiveAt),

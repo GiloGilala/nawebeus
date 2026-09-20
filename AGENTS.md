@@ -94,7 +94,7 @@ src/index.ts              ← Bun.serve entry point
 src/server/index.ts       ← Hono app factory (CORS, error handler, route mounting)
   api/                    ← Hono route handlers, mounted at /api (thin: validate + delegate)
     auth/   signin, signup, signout, refresh, sessions, mfa, verification,
-            password-reset, session-cookies helper
+            password-reset, invitations (public validate + accept), session-cookies helper
     users/  /me, /admin
     orgs/   /orgs, /members, /roles
     api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
@@ -180,7 +180,18 @@ directory you care about) for the complete set.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.
 - **`runWithOrgContext()` must be awaited inside middleware** — Hono's `compose()` checks `context.finalized` as soon as a handler's promise settles. Calling `next()` without awaiting it resolves the chain before the route handler writes its response, and Hono throws "Context is not finalized" → a blanket 500 on every protected route.
-- **Role hierarchy is DEC-039** — one platform role (`super_admin`, level 100) plus six per-organization system roles: `owner` 90, `admin` 80, `manager` 60, `creator` 40, `analyst` 20, `viewer` 10 (all `organization_id IS NULL`; `org_admin`/`member` no longer exist — the seed retires them). Rank comparisons use `roles.level`; only `owner`/`admin` have code-specific semantics. The rules — Owner is transferred never granted, Owner never demoted/removed, no self-change, actor must strictly outrank both the target and the granted role, at least one active Owner/Admin remains (BR-AUTH-030) — live in `src/services/orgs/role-policy.ts`, and **every** path that writes `organization_members.role_id` or removes/suspends a member goes through it (`assign-role`, `PATCH /members/:id`, `PATCH /users/:id`, both DELETEs). Add a new write path without it and you have re-opened F-07.
+- **Role hierarchy is DEC-039** — one platform role (`super_admin`, level 100) plus six per-organization system roles: `owner` 90, `admin` 80, `manager` 60, `creator` 40, `analyst` 20, `viewer` 10 (all `organization_id IS NULL`; `org_admin`/`member` no longer exist — the seed retires them). Rank comparisons use `roles.level`; only `owner`/`admin` have code-specific semantics. The rules — Owner is transferred never granted, Owner never demoted/removed, no self-change, actor must strictly outrank both the target and the granted role, at least one active Owner/Admin remains (BR-AUTH-030) — live in `src/services/orgs/role-policy.ts`, and **every** path that grants, writes, or clears `organization_members.role_id` or removes/suspends a member goes through it (`assign-role`, `PATCH /members/:id`, `PATCH /users/:id`, both DELETEs, and the invitation pair — `inviteMember` at grant time via `resolveAssignableRole` + `assertRoleGrantAllowed`, `acceptInvitation` activating what the invite was allowed to grant). Add a new write path without it and you have re-opened F-07.
+- **Invitation accept exists and is the only way members join** (F-08 / NWB-P0-016) —
+  `inviteMember` writes `organization_members` rows (`status='invited'`; `invited_email`
+  is the addressee of record, and dedup runs on (org, invited_email)) and emails a 7-day
+  single-use token; `GET /api/auth/invitations/:token` previews (org name, invited email,
+  account-setup flag) and `POST /api/auth/invitations/:token/accept` activates:
+  register-into-org via the shared `createUserRecord` (`src/services/auth/user-record.ts`
+  — never re-duplicate signup's user insert) or link an existing account. The token
+  claim is an atomic `UPDATE … WHERE accepted_at IS NULL`; the raw token is nulled, the
+  hash stays for the double-accept 409. D14's interim single-org answer is enforced: an
+  account with an active membership elsewhere gets a clear 409, never a silent re-home —
+  the multi-org branch is deliberately unbuilt until D14's final call.
 - **CASL for authorization** — `loadAbility()` queries the DB for the user's role permissions, builds a CASL ability scoped with `{ organizationId: orgId }`, and attaches it to the context. Routes use `requireAbility(action, subject)`.
 - **API response envelope** — success: `{ data: T, meta? }`; error: `{ error: { code, message, details? } }`.
 - **Every 500 is opaque by default** — `errorHandler` maps any non-`AppError` to a generic `INTERNAL_ERROR`, so the real cause never reaches the client. Run with `NWB_DEBUG_ERRORS=1` to have it log the underlying exception and stack first.
