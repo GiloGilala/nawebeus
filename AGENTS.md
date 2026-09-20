@@ -22,10 +22,12 @@ Only add a package once you have confirmed Bun can't cover the need — and say 
 ```bash
 bun install
 cp .env.example .env
-# Edit .env to point DATABASE_URL at a local PostgreSQL instance, then:
+# Edit .env to point DATABASE_URL *and* DB_* at a local PostgreSQL 14+ instance, then:
 bun run db:push        # push schema to DB
 bun run seed            # seed permissions, roles, bootstrap org + admin
 ```
+
+No PostgreSQL server (and no Docker)? `docs/agents/local-database.md` has a zero-dependency recipe (`embedded-postgres` from a scratch directory outside the repo) that reproduces CI's full suite in ~13 s.
 
 ### Daily
 
@@ -38,7 +40,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite.
+- `bun test` — runs all tests. Tests requiring a database (88 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
@@ -58,7 +60,7 @@ bun run build           # typecheck + bundle to dist/
 - Bun is pinned to `1.4.0` (the lockfile's version); do not float it.
 - `bun run lint` runs `biome check .` — formatting, linting, and import order in one pass. It exits non-zero on **errors only**; warnings do not fail the build. `lint:fix` applies safe fixes, `format` formats without linting.
 - The `db:push` step needs only `DATABASE_URL` — `drizzle.config.ts` resolves the connection from it and refuses to run when a `DB_*` variable disagrees with it (NWB-P0-009).
-- Local reproduction of the `test` job: create a fresh database, then run `db:push -- --force`, `seed`, and `bun test` with `DATABASE_URL` set. A fresh database is preferred, because push is not a migration history (see the Database section above).
+- Local reproduction of the `test` job: create a fresh database, then run `db:push -- --force`, `seed`, and `bun test` with `DATABASE_URL` set. A fresh database is preferred, because push is not a migration history (see the Database section above). Step-by-step, including a no-install PostgreSQL 14: `docs/agents/local-database.md`.
 - Deliberately absent (no tooling yet, and each would be permanently red): coverage thresholds, `bun audit`/Snyk/Trivy, Playwright, Codecov, `db:migrate`, deploy. Formatting and linting are now covered by Biome; ESLint and Prettier are not used and should not be added.
 
 
