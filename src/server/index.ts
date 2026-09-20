@@ -1,12 +1,22 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { apiKeyRootRouter } from "../app/api-keys";
-import { authRouter } from "../app/auth";
-import { orgRootRouter } from "../app/orgs";
-import { userRouter } from "../app/users";
 import { DEFAULT_CORS_ORIGIN } from "../lib/config";
 import { success } from "../lib/response";
 import { errorHandler } from "./middleware/error-handler";
+
+// Canonical Hono API — mounted at `/api/*` for mobile, webhooks and
+// third-party integrations. The web app's entry point is TanStack Start
+// Server Functions in `src/app/server-functions/*` which call `src/services/*`
+// directly in-process (ADR-002, Principle 3: Direct Calls). Both entry points
+// share the single `services/` layer and run in one Bun process (ADR-007).
+//
+// `src/app/*` previously held these Hono routes; they remain as deprecated
+// re-exports for backward compatibility and will be removed once all imports
+// are updated.
+import { apiKeyRootRouter } from "./api/api-keys";
+import { authRouter } from "./api/auth";
+import { orgRootRouter } from "./api/orgs";
+import { userRouter } from "./api/users";
 
 export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {
   const app = new Hono();

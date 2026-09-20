@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
+    "dev:start": "echo 'TanStack Start: run `bunx --bun vinxi dev` (requires vinxi)'",
+    "dev:hono": "bun run --hot src/index.ts",
     "build": "tsc --noEmit && bun build src/index.ts --outdir dist --target bun",
+    "build:start": "echo 'TanStack Start build: vinxi build'",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
