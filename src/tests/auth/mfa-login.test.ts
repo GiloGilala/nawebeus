@@ -200,7 +200,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
       );
       expect(verifyRes.status).toBe(200);
       const verified = ((await verifyRes.json()) as any).data;
-      expect(verified.user).toEqual({ id: f.userId, orgId: f.orgId });
+      expect(verified.user).toEqual({ id: f.userId, orgId: f.orgId, emailVerified: false });
 
       const setCookies = verifyRes.headers.getSetCookie().join(";");
       expect(setCookies).toContain("nawebeus_access=");
@@ -404,7 +404,11 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
         }),
       });
       expect(ok.status).toBe(200);
-      expect(((await ok.json()) as any).data.user).toEqual({ id: f.userId, orgId: f.orgId });
+      expect(((await ok.json()) as any).data.user).toEqual({
+        id: f.userId,
+        orgId: f.orgId,
+        emailVerified: false,
+      });
       expect(accessCookieFrom(ok)).not.toBeNull();
 
       // Regression: the old path never awaited the TOTP check, so ANY 6-char
@@ -463,7 +467,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
       expect(res.status).toBe(200);
       const json = ((await res.json()) as any).data;
       expect("requiresMfa" in json).toBe(false);
-      expect(json.user).toEqual({ id: f.userId, orgId: f.orgId });
+      expect(json.user).toEqual({ id: f.userId, orgId: f.orgId, emailVerified: false });
       expect(accessCookieFrom(res)).not.toBeNull();
     });
   });

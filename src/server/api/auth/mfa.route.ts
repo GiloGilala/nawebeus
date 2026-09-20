@@ -7,12 +7,7 @@ import { getClientIp } from "@/lib/ip";
 import { success } from "@/lib/response";
 import { authMiddleware } from "@/server/middleware/auth";
 import { verifyMfaChallengeLogin } from "@/services/auth/auth.service";
-import {
-  confirmMFASetup,
-  disableMFA,
-  getMFAStatus,
-  initiateMFASetup,
-} from "@/services/auth/mfa";
+import { confirmMFASetup, disableMFA, getMFAStatus, initiateMFASetup } from "@/services/auth/mfa";
 import { setSessionCookies } from "./session-cookies";
 
 const confirmSchema = z.object({
@@ -73,7 +68,11 @@ router.post("/mfa/verify-login", async (c) => {
 
   return c.json(
     success({
-      user: { id: result.userId, orgId: result.orgId },
+      user: {
+        id: result.userId,
+        orgId: result.orgId,
+        emailVerified: result.emailVerified ?? false,
+      },
     }),
   );
 });

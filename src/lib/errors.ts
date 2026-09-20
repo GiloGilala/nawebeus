@@ -45,6 +45,18 @@ export class AccountLockedError extends AppError {
   }
 }
 
+/**
+ * The credentials were right but the account is not allowed to hold a session
+ * (`users.status = 'suspended'`). Distinct from `AccountLockedError`: a lockout
+ * is temporary and self-clearing, a suspension is an administrator's decision.
+ * Raised only after the password has been verified, so it cannot be used to
+ * enumerate accounts.
+ */
+export class AccountSuspendedError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "ACCOUNT_SUSPENDED";
+}
+
 export class ValidationError extends AppError {
   readonly statusCode = 422;
   readonly code = "VALIDATION_ERROR";

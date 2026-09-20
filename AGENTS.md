@@ -40,7 +40,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (88 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (123 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
@@ -78,21 +78,33 @@ bun run build           # typecheck + bundle to dist/
 
 ### Layers (current)
 
-> **Last verified against HEAD `049a837` (2026-08-03) on 2026-09-13.** If the
+> **Last verified against HEAD `d03dc49` (2026-09-20) on 2026-09-20.** If the
 > tree below looks older than the working copy, re-verify before trusting it —
 > `src/` is always the source of truth.
 
+**Two entry points, one `services/` layer.** The Hono API serves `/api/*` for mobile,
+webhooks and third parties; the web app goes through TanStack Start Server Functions
+(`src/app/server-functions/**`), which call `src/services/*` in-process (ADR-002/ADR-007).
+Anything in the planning docs that points at `src/app/auth/…`, `src/app/users/…`,
+`src/app/orgs/…` or `src/app/api-keys/…` as a *route* path is historical — those copies were
+deleted in NWB-P0-026 and the canonical tree is `src/server/api/**`.
+
 ```
 src/index.ts              ← Bun.serve entry point
-src/server/index.ts       ← Hono app factory (CORS, error handler, routes)
+src/server/index.ts       ← Hono app factory (CORS, error handler, route mounting)
+  api/                    ← Hono route handlers, mounted at /api (thin: validate + delegate)
+    auth/   signin, signup, signout, refresh, sessions, mfa, verification,
+            password-reset, session-cookies helper
+    users/  /me, /admin
+    orgs/   /orgs, /members, /roles
+    api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
-src/app/                  ← Hono route handlers (thin: validate + delegate to services)
-  auth/   signin, signup, signout, refresh, sessions, mfa,
-          verification, password-reset
-  users/  /me, /admin
-  orgs/   /orgs, /members, /roles
-  api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
+src/app/                  ← Web layer (TanStack Start): routes/ (file-based pages),
+                            server-functions/ (in-process services calls + auth helpers),
+                            router.tsx, start.ts, routeTree.gen.ts
+src/app/lib/createServerFn.ts ← local shim used by every Server Function (no framework
+                            dependency is installed; the app is not yet runnable end to end)
 src/server/middleware/    ← Hono middleware
   auth.ts      ← session-cookie OR API-key Bearer verification + CASL ability load
   rbac.ts      ← requireAbility(action, subject) guard
@@ -142,6 +154,21 @@ directory you care about) for the complete set.
 - **Auth is cookie-first, with API keys as a Bearer alternative** — the browser flow sets an access token (15-min JWT) and refresh token (7-day JWT) as HTTP-only cookies (`nawebeus_access`, `nawebeus_refresh`) in the signin route. The access cookie path is `/`; the refresh cookie path is `/api/auth`. Machine clients send `Authorization: Bearer nwb_<env>_<publicKey>_<secret>` instead, which `authMiddleware` resolves to the same user + org. A Bearer header takes precedence over the cookie.
 - **API keys are stored as a digest, never the secret** — only the SHA-256 of the 256-bit secret is persisted. The 128-bit `public_key` exists so verification is a single indexed lookup rather than a scan-and-compare over every stored hash. The full key is returned exactly once, at creation.
 - **API key abilities are narrowed, never widened** — `apiKeyAbility(base, permissionLevel, scopes)` rebuilds the owner's ability, filtered by permission level (`read_only`/`read` → `read`; `write` → `read`,`create`,`update`, deliberately not `delete`; `admin` → no action narrowing) and by `scopes` (subject allow-list; empty means all subjects). It can only ever remove rules the owner already holds.
+- **`users.status` is enforced twice, from one predicate** — `assertAccountCanAuthenticate()`
+  (`src/services/auth/auth.service.ts`) runs after the password check in `signIn` and
+  `verifyMfaChallengeLogin`, and again on **every** request in `authMiddleware`
+  (`assertActivePrincipal`, one statement covering account + status + membership, for both the
+  cookie and API-key paths). Allowed: `active`, `pending_verification` (the response carries
+  `emailVerified: false`; the hard server-side gate lands with real email in Phase 2).
+  `suspended` → 403 `ACCOUNT_SUSPENDED`; `deleted`/unknown → generic 401 so the status is never
+  disclosed to a caller without the password. NWB-P0-015.
+- **Account deletion keeps its grace window in `users.scheduled_deletion_at`** — nullable
+  `timestamptz` written by `deleteAccount`, read by `reactivateAccount` /
+  `purgeExpiredAccounts` / `getAccountDeletionStatus`. The column was missing until NWB-P0-024,
+  which meant every one of those functions failed with 42703. Read instants back with
+  `extract(epoch …)::bigint`, not `timestamptz`: node-postgres returns the latter as
+  `2026-10-20 17:24:06.801+00`, which JS `Date` rejects. The purge still cannot remove an
+  org owner (F-25 / NWB-P0-025 — open decision).
 - **Session rotation on every refresh** — the old session is revoked and a new one created. Reusing a refresh token after rotation is detected and rejected.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.
@@ -151,7 +178,7 @@ directory you care about) for the complete set.
 - **API response envelope** — success: `{ data: T, meta? }`; error: `{ error: { code, message, details? } }`.
 - **Every 500 is opaque by default** — `errorHandler` maps any non-`AppError` to a generic `INTERNAL_ERROR`, so the real cause never reaches the client. Run with `NWB_DEBUG_ERRORS=1` to have it log the underlying exception and stack first.
 - **Biome is the formatter and linter** (`biome.json`, `@biomejs/biome`). Bun 1.4 ships neither a formatter nor a linter — verified: `bun fmt` is "Script not found", and `bun lint` just runs our own script. `bun run lint` fails CI on errors but **not** on warnings, and `noExplicitAny` is deliberately a warning because the codebase has 246 `any` sites. **Never put `//` comments in `biome.json`** — Biome's parser rejects them and then silently falls back to defaults, so a `--write` pass will reformat the tree to tabs instead of the configured 2 spaces. Put rationale in the ticket instead.
-- **CI exists** (`.github/workflows/ci.yml`, added 2026-09-13) — typecheck + lint + build, then the full suite against a `postgres:14` service container. Branch protection on `main` is not yet configured, so CI currently reports without blocking. **No pre-commit hooks.**
+- **CI exists** (`.github/workflows/ci.yml`, added 2026-09-13) — typecheck + lint + build, then the full suite against a `postgres:14` service container. Branch protection on `main` is not yet configured (NWB-P0-022), so CI currently reports without blocking — and **it has never actually executed on GitHub**. The web merge left `bun run lint` red (18 errors, all formatting/import-order), so the `quality` job could not have passed anyway; fixed in NWB-P0-027. Run `bunx biome check .` locally before pushing. **No pre-commit hooks.**
 
 ### Path aliases (tsconfig.json)
 

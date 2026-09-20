@@ -15,12 +15,9 @@
  * @see docs/technical/Engineering%20Standards.md#4.4
  */
 
-import { createServerFn } from "../lib/createServerFn";
 import { z } from "zod";
-
 import { ValidationError } from "@/lib/errors";
 import { validatePassword } from "@/lib/password";
-import { withServerOrgContext, getServerAuth, getServerDb, setServerAuthCookies } from "./helpers";
 import {
   changePassword,
   refreshSession,
@@ -30,9 +27,11 @@ import {
 } from "@/services/auth/auth.service";
 import { confirmMFASetup, disableMFA, getMFAStatus, initiateMFASetup } from "@/services/auth/mfa";
 import { forgotPassword, resetPassword } from "@/services/auth/password-reset";
+import { getSessionDetail, listUserSessions, revokeSession } from "@/services/auth/session";
 import { signup } from "@/services/auth/signup";
 import { sendVerificationEmail, verifyEmail } from "@/services/auth/verification";
-import { getSessionDetail, listUserSessions, revokeSession } from "@/services/auth/session";
+import { createServerFn } from "../lib/createServerFn";
+import { getServerAuth, getServerDb, setServerAuthCookies, withServerOrgContext } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // Schemas — shared with Hono routes and `services/` input validation.
@@ -45,11 +44,25 @@ const signupSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters").max(100),
   organizationName: z.string().min(2, "Organization name must be at least 2 characters").max(100),
   industry: z
-    .enum(["banking", "fintech", "telecom", "fmcg", "pr_agency", "government", "media", "technology", "other"])
+    .enum([
+      "banking",
+      "fintech",
+      "telecom",
+      "fmcg",
+      "pr_agency",
+      "government",
+      "media",
+      "technology",
+      "other",
+    ])
     .optional(),
   teamSize: z.string().optional(),
-  termsAccepted: z.boolean().refine((v) => v === true, { message: "You must accept the Terms of Service" }),
-  privacyAccepted: z.boolean().refine((v) => v === true, { message: "You must accept the Privacy Policy" }),
+  termsAccepted: z
+    .boolean()
+    .refine((v) => v === true, { message: "You must accept the Terms of Service" }),
+  privacyAccepted: z
+    .boolean()
+    .refine((v) => v === true, { message: "You must accept the Privacy Policy" }),
   marketingOptIn: z.boolean().optional(),
 });
 
@@ -58,7 +71,10 @@ const signinSchema = z.object({
   password: z.string().min(1, "Password is required"),
   mfaCode: z
     .string()
-    .regex(/^(\d{6}|[A-Za-z0-9]{8})$/, "MFA code must be a 6-digit TOTP code or an 8-character backup code")
+    .regex(
+      /^(\d{6}|[A-Za-z0-9]{8})$/,
+      "MFA code must be a 6-digit TOTP code or an 8-character backup code",
+    )
     .optional(),
   rememberMe: z.boolean().optional().default(false),
   // Injected by the caller when available (SSR loader can pass `x-forwarded-for`)
@@ -71,7 +87,12 @@ const refreshSchema = z.object({
 
 const verifyLoginSchema = z.object({
   mfaSessionId: z.string().min(1, "Challenge token is required").max(128),
-  code: z.string().regex(/^(\d{6}|[A-Za-z0-9]{8})$/, "MFA code must be a 6-digit TOTP code or an 8-character backup code"),
+  code: z
+    .string()
+    .regex(
+      /^(\d{6}|[A-Za-z0-9]{8})$/,
+      "MFA code must be a 6-digit TOTP code or an 8-character backup code",
+    ),
   rememberMe: z.boolean().optional().default(false),
   ip: z.string().optional(),
 });
@@ -109,7 +130,10 @@ export const signupServerFn = createServerFn({ method: "POST" })
       email: data.email,
     });
     if (!complexity.valid) {
-      throw new ValidationError("Password does not meet complexity requirements", complexity.errors.map((msg) => ({ field: "password", message: msg })));
+      throw new ValidationError(
+        "Password does not meet complexity requirements",
+        complexity.errors.map((msg) => ({ field: "password", message: msg })),
+      );
     }
     const db = getServerDb();
     const result = await signup(db, {
@@ -141,6 +165,7 @@ export const signinServerFn = createServerFn({ method: "POST" })
         requiresMfa: true as const,
         mfaMethod: result.mfaMethod,
         mfaSessionId: result.mfaSessionId,
+        emailVerified: result.emailVerified ?? false,
       };
     }
 
@@ -154,7 +179,11 @@ export const signinServerFn = createServerFn({ method: "POST" })
 
     return {
       requiresMfa: false as const,
-      user: { id: result.userId, orgId: result.orgId },
+      user: {
+        id: result.userId,
+        orgId: result.orgId,
+        emailVerified: result.emailVerified ?? false,
+      },
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
     };
@@ -214,8 +243,14 @@ export const signoutServerFn = createServerFn({ method: "POST" })
         appendResponseHeader?: (name: string, value: string) => void;
       };
       if (mod.appendResponseHeader) {
-        mod.appendResponseHeader("Set-Cookie", "nawebeus_access=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
-        mod.appendResponseHeader("Set-Cookie", "nawebeus_refresh=; Path=/api/auth; HttpOnly; SameSite=Strict; Max-Age=0");
+        mod.appendResponseHeader(
+          "Set-Cookie",
+          "nawebeus_access=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+        );
+        mod.appendResponseHeader(
+          "Set-Cookie",
+          "nawebeus_refresh=; Path=/api/auth; HttpOnly; SameSite=Strict; Max-Age=0",
+        );
       }
     } catch {
       // outside TanStack Start — caller clears cookies client-side
@@ -239,7 +274,9 @@ export const resetPasswordServerFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const complexity = validatePassword(data.password);
     if (!complexity.valid) {
-      throw new ValidationError("Password does not meet complexity requirements", [{ field: "password", message: complexity.errors.join("; ") }]);
+      throw new ValidationError("Password does not meet complexity requirements", [
+        { field: "password", message: complexity.errors.join("; ") },
+      ]);
     }
     const db = getServerDb();
     const result = await resetPassword(db, data.token, data.password);
@@ -285,7 +322,9 @@ export const confirmMfaSetupServerFn = createServerFn({ method: "POST" })
     const db = getServerDb();
     // mfa service looks up the user email itself if needed
     const { sql } = await import("drizzle-orm");
-    const rows = await db.execute<{ email: string }>(sql`SELECT email FROM users WHERE id = ${auth.userId} LIMIT 1`);
+    const rows = await db.execute<{ email: string }>(
+      sql`SELECT email FROM users WHERE id = ${auth.userId} LIMIT 1`,
+    );
     const email = (rows as unknown as { rows?: Array<{ email: string }> }).rows?.[0]?.email;
     await withServerOrgContext(auth, () => confirmMFASetup(db, auth.userId, data.token, email));
     return { message: "Two-factor authentication enabled." };
@@ -310,7 +349,9 @@ export const getSessionDetailServerFn = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
     const db = getServerDb();
-    const detail = await withServerOrgContext(auth, () => getSessionDetail(db, data.sessionId, auth.userId));
+    const detail = await withServerOrgContext(auth, () =>
+      getSessionDetail(db, data.sessionId, auth.userId),
+    );
     if (!detail) throw new ValidationError("Session not found");
     return { session: detail };
   });
@@ -320,7 +361,9 @@ export const revokeSessionServerFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
     const db = getServerDb();
-    const detail = await withServerOrgContext(auth, () => getSessionDetail(db, data.sessionId, auth.userId));
+    const detail = await withServerOrgContext(auth, () =>
+      getSessionDetail(db, data.sessionId, auth.userId),
+    );
     if (!detail) throw new ValidationError("Session not found");
     await withServerOrgContext(auth, () => revokeSession(db, data.sessionId));
     return { revoked: true as const, sessionId: data.sessionId };
@@ -350,9 +393,14 @@ export const changePasswordServerFn = createServerFn({ method: "POST" })
     const auth = await getServerAuth();
     const complexity = validatePassword(data.newPassword, { email: "" });
     if (!complexity.valid) {
-      throw new ValidationError("New password does not meet complexity requirements", complexity.errors.map((msg) => ({ field: "newPassword", message: msg })));
+      throw new ValidationError(
+        "New password does not meet complexity requirements",
+        complexity.errors.map((msg) => ({ field: "newPassword", message: msg })),
+      );
     }
     const db = getServerDb();
-    await withServerOrgContext(auth, () => changePassword(db, auth.userId, data.currentPassword, data.newPassword));
+    await withServerOrgContext(auth, () =>
+      changePassword(db, auth.userId, data.currentPassword, data.newPassword),
+    );
     return { changed: true as const };
   });

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
-import { AccountLockedError, AuthError } from "../../lib/errors";
+import { AccountLockedError, AccountSuspendedError, AuthError } from "../../lib/errors";
 import { checkRateLimit } from "../../lib/rate-limit";
 import { writeAuditLog } from "../audit";
 import { type JwtPayload, signAccessToken, signRefreshToken, verifyToken } from "./jwt";
@@ -28,6 +28,35 @@ const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
 const IP_BLOCK_THRESHOLD = 20;
 const IP_BLOCK_DURATION_MS = 30 * 60 * 1000; // 30 min
 
+/**
+ * Statuses allowed to hold a session (F-05 / NWB-P0-015). `pending_verification`
+ * is deliberately included: the verification email is console-only in dev, so
+ * hard-blocking there would strand users before Phase 2 ships a real provider.
+ * The client is told via `emailVerified` and gates features itself; Phase 2 adds
+ * the server-side gate together with real email delivery.
+ */
+const SIGN_IN_ALLOWED_STATUSES = ["active", "pending_verification"] as const;
+
+/**
+ * Single source of truth for "may this account sign in / keep its session".
+ * Shared by `signIn`, `verifyMfaChallengeLogin` and `authMiddleware` so a
+ * suspension is effective at the next request, not at the next sign-in.
+ *
+ * Callers must have proven the password (or hold a valid session) before calling
+ * this: `suspended` is a 403 with a distinct code, and disclosing it to an
+ * anonymous caller would turn sign-in into an account-enumeration oracle.
+ */
+export function assertAccountCanAuthenticate(status: string): void {
+  if ((SIGN_IN_ALLOWED_STATUSES as readonly string[]).includes(status)) return;
+  if (status === "suspended") {
+    throw new AccountSuspendedError(
+      "This account is suspended. Contact your organization administrator.",
+    );
+  }
+  // `deleted` (and anything unrecognised) is not disclosed as a distinct state.
+  throw new AuthError("Invalid email or password");
+}
+
 export interface SignInOptions {
   mfaCode?: string;
   rememberMe?: boolean;
@@ -42,6 +71,12 @@ export interface SignInResult {
   sessionId?: string;
   requiresMfa: boolean;
   mfaMethod?: "totp" | "backup";
+  /**
+   * `users.email_verified`. `pending_verification` accounts may sign in (see
+   * `SIGN_IN_ALLOWED_STATUSES`) but must be told the address is unconfirmed so
+   * the client can route to the verification screen. Absent on refresh.
+   */
+  emailVerified?: boolean;
   /**
    * Login-challenge token, present only when `requiresMfa` is true. The client
    * presents it to `POST /mfa/verify-login` alongside the TOTP/backup code.
@@ -79,9 +114,10 @@ export async function signIn(
     two_factor_enabled: boolean;
     two_factor_secret: string | null;
     status: string;
+    email_verified: boolean;
   }>(
     sql`SELECT id, password, organization_id, account_locked_until,
-              two_factor_enabled, two_factor_secret, status
+              two_factor_enabled, two_factor_secret, status, email_verified
         FROM users WHERE email = ${email} AND deleted_at IS NULL LIMIT 1`,
   );
   const user = (rows as any).rows?.[0] as any;
@@ -148,6 +184,11 @@ export async function signIn(
     throw new AuthError("Invalid email or password");
   }
 
+  // --- Status gate (F-05 / NWB-P0-015) ---
+  // Deliberately after the password check: the 403 must not be reachable without
+  // valid credentials, or it becomes an account-enumeration oracle.
+  assertAccountCanAuthenticate(user.status as string);
+
   // --- Reset failed attempts on success ---
   await db.execute(
     sql`UPDATE users SET failed_login_attempts = 0, account_locked_until = null WHERE id = ${user.id}`,
@@ -155,6 +196,7 @@ export async function signIn(
 
   const userId = user.id as string;
   const orgId = (user.organization_id as string) ?? "";
+  const emailVerified = !!user.email_verified;
 
   // --- MFA: single-shot code, or issue a login challenge ---
   if (user.two_factor_enabled) {
@@ -174,6 +216,7 @@ export async function signIn(
         requiresMfa: true,
         mfaMethod: "totp",
         mfaSessionId,
+        emailVerified,
       };
     }
   }
@@ -191,6 +234,7 @@ export async function signIn(
     accessToken: issued.accessToken,
     refreshToken: issued.refreshToken,
     requiresMfa: false,
+    emailVerified,
   };
 }
 
@@ -276,11 +320,18 @@ export async function verifyMfaChallengeLogin(
   // Success burns the challenge: a verified challenge can never complete twice.
   await revokeMfaChallenge(db, challenge.id);
 
-  const rows = await db.execute<{ organization_id: string | null }>(
-    sql`SELECT organization_id FROM users WHERE id = ${challenge.userId} LIMIT 1`,
+  const rows = await db.execute<{
+    organization_id: string | null;
+    status: string;
+    email_verified: boolean;
+  }>(
+    sql`SELECT organization_id, status, email_verified FROM users WHERE id = ${challenge.userId} LIMIT 1`,
   );
   const user = (rows as any).rows?.[0] as any;
   if (!user) throw new AuthError("User not found");
+  // The challenge was minted after a valid password; re-check the account state
+  // here so a suspension between the two steps cannot finish a login.
+  assertAccountCanAuthenticate(user.status as string);
   const orgId = (user.organization_id as string | null) ?? "";
 
   const issued = await completeSignIn(db, challenge.userId, orgId, {
@@ -295,6 +346,7 @@ export async function verifyMfaChallengeLogin(
     accessToken: issued.accessToken,
     refreshToken: issued.refreshToken,
     requiresMfa: false,
+    emailVerified: !!user.email_verified,
   };
 }
 
