@@ -37,7 +37,12 @@ router.patch(
   "/orgs/:orgId",
   authMiddleware,
   requireOrgMatch(),
-  requireAbility("update", "organization"),
+  // Subject is "org", not "organization": ability subjects derive from the
+  // permission_string prefix (seed: org.read/org.update/org.delete), and all
+  // other routes use the compact prefix convention (members, users, apikeys).
+  // The old "organization" subject matched no rule, so this route 403'd for
+  // every user (F-02).
+  requireAbility("update", "org"),
   async (c) => {
     const db = c.var.db;
     const orgId = c.req.param("orgId");
