@@ -1,7 +1,8 @@
 # NWB-P0-016 — Invitation accept flow (F-08)
 
 **Status:** done — 2026-09-20 (verified locally: typecheck + lint + build + 341/341 `bun test`
-with a live database, 208 pass / 140 skip / 0 fail without one; CI run on this branch's PR)
+with a live database, 208 pass / 140 skip / 0 fail without one; **CI green on PR #13**, run
+[35530916668](https://github.com/GiloGilala/nawebeus/actions/runs/35530916668))
 **Source task:** `docs/plan/master-roadmap/06-phase-1-foundation.md` §NWB-P0-016.
 **Module spec:** FR-AUTH-006 (`docs/modules/Authentication & User Management.md` §3.6).
 **Deps:** D14 — Phase 1 proceeds with the single-org branch (interim answer, option (a));
