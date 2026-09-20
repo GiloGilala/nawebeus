@@ -177,6 +177,23 @@ directory you care about) for the complete set.
   every attribution FK to `users(id)` in the schema is now `set null`).
   Until NWB-P0-023 ships an ownership-transfer path, a user whose signup created their
   personal organization cannot complete account deletion.
+- **DSAR data export exists (AC8 of FR-AUTH-007 / NWB-P0-002)** — Phase 1 is synchronous:
+  `POST /api/users/me/data-export` builds the package in-request and stores it on
+  `data_export_requests` with a 7-day download window (expired reads answer 410,
+  `GoneError`; unknown or another subject's id answers 404). Sections: profile minus
+  credentials/2FA material, sessions, memberships, apiKeys masked (prefix + `public_key`
+  — never `secret_hash`/`encrypted_secret`), auditLog for rows `actor_id = subject OR
+  target_user_id = subject` (admin-filed requests must be visible to the subject), and
+  `meta.formatVersion: 1`. Each collection caps at 10k rows and closes with a
+  `truncated` marker (`sectionRowCap` is an internal service option for tests). The
+  `compliance.dsar.requested` event is written BEFORE the build so the request
+  self-cites inside its own export — and its module is `core`, not `compliance`:
+  `unified_audit_log` requires a hash-chain `checksum` for modules admin/compliance/system
+  and nothing computes the chain yet. Admin-on-behalf is `POST /api/users/:userId/data-export`
+  (org-scoped, 404 cross-tenant with no request row created) and returns the receipt
+  only — the payload only ever travels the subject's own channel
+  (`GET /api/users/me/data-export/:requestId`). Self-service POST is rate-limited
+  5/day per user (`dsar:req:<userId>`).
 - **Session rotation on every refresh** — the old session is revoked and a new one created. Reusing a refresh token after rotation is detected and rejected.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.

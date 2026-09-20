@@ -74,6 +74,17 @@ export class NotFoundError extends AppError {
   readonly code = "NOT_FOUND";
 }
 
+/**
+ * The resource existed but is no longer available and will not be again —
+ * used by the DSAR export download once its 7-day window closes (NWB-P0-002):
+ * distinct from 404 ("never existed or not yours") because the subject is
+ * owed a clear "request a fresh export" message.
+ */
+export class GoneError extends AppError {
+  readonly statusCode = 410;
+  readonly code = "GONE";
+}
+
 export class ConflictError extends AppError {
   readonly statusCode = 409;
   readonly code = "CONFLICT";

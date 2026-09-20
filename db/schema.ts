@@ -68,6 +68,7 @@ export { templates, templatesRelations } from "./shared/templates";
 
 export {
   apiKeys,
+  dataExportRequests,
   oauthAccounts,
   oauthAccountsRelations,
   permissionGroups,
