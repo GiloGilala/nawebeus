@@ -11,18 +11,28 @@ and the residual F-20 list/dedup work), 017 (CORS + IP policy), and the findings
 while landing them — 024 (missing `users.scheduled_deletion_at`), 025 (org-owner purge
 refused at delete time, F-25 / D16), 026 (duplicate route mirror), 027 (lint gate red at
 HEAD), 028 (purge attribution FKs, F-28 — filed while landing 025),
+006 (foundation issue-07 reconciled — `.scratch/foundation` is now fully `done`),
 and 002 (DSAR data export, AC8 of FR-AUTH-007), plus 005 (migration baseline —
 `drizzle/migrations/` is the committed evolution path; the CI step switch to
 `db:migrate` is locally proven and blocked only on the GitHub App's missing
 `workflows` permission — see the ticket), and 018 (CASL scope cleanup, F-06 —
 the inert org condition removed, the real enforcement chain documented, and a
 route-invariant scan that fails any `:orgId` route missing `requireOrgMatch`).
-**Outstanding:** foundation issue-07 reconciliation
-(06 — the API-key half is `done`; the role-assignment half shipped and its boxes are still
-unticked), bookkeeping/verification/email base/branch
+**Outstanding:** bookkeeping/verification/email base/branch
 protection/org deletion (019–023).
 
-> **2026-09-20 (latest): F-06 is closed and the IDOR class is now caught by CI.** NWB-P0-018
+> **2026-09-20 (latest): `.scratch/foundation` is fully `done` (NWB-P0-006).** Its issue 07
+> carried six unticked boxes under a `done` status. Audit: four were honestly tickable on
+> existing evidence; two named integration tests (non-existent role → 404, non-admin → 403)
+> genuinely did not exist — the behaviour was correct, nothing pinned it. Both written, plus
+> a third for the unpinned member-id case. Two wording mismatches are recorded rather than
+> "fixed": the ticket's `PATCH /api/organizations/:id/members/:memberId/role` does not exist
+> (as-built: `POST /orgs/:orgId/members/assign-role` and `PATCH /orgs/:orgId/members/:memberId`
+> with `roleId`), and the last-`org_admin` rule is ticked against its DEC-039 successor,
+> `assertNotLastAdministrator`. Suite: **363 pass / 0 fail** with a live database.
+> This closes the exit-gate clause "foundation `.scratch` set fully `done`".
+
+> **2026-09-20: F-06 is closed and the IDOR class is now caught by CI.** NWB-P0-018
 > removed the `{ organizationId }` condition `loadAbility` attached to every rule — it was
 > inert (CASL v7 skips conditions for string subjects, and every check here passes a string),
 > so the removal is behaviour-identical and the "3-layer defense" in Security Architecture
@@ -78,7 +88,7 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-003 | CI pipeline | — | M | `issues/03-ci-pipeline.md` |
 | NWB-P0-004 | Linter (Biome) | — | S | `issues/04-linter.md` |
 | NWB-P0-005 | Migration baseline | — | M | `issues/05-migration-baseline.md` — **code done; CI workflow edit blocked on GitHub `workflows` permission** |
-| NWB-P0-006 | Reconcile `.scratch/foundation` issue 07 → `done` | NWB-P0-001 | S | `issues/06-reconcile-foundation-07.md` |
+| NWB-P0-006 | Reconcile `.scratch/foundation` issue 07 → `done` | NWB-P0-001, NWB-P0-014 | S/M | `issues/06-reconcile-foundation-07.md` — **done** |
 | NWB-P0-007 | Adopt decisions D1 + D5; track D2–D12 | — | S | [issues/07-adopt-decisions.md](issues/07-adopt-decisions.md) |
 | NWB-P0-008 | Concurrent sign-in lockout is a lost update | — | S | `issues/08-concurrent-lockout-lost-update.md` |
 | NWB-P0-009 | `db:push` cannot converge on an existing database | NWB-P0-005 | M | `issues/09-db-push-not-idempotent.md` — **done** |
@@ -94,9 +104,9 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 | NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **done** |
 
-> Tickets 06 and 19–23 are listed here but their files do not exist yet — the index
-> was written ahead of the tickets. Files present: 01, 02, 03, 04, 05, 07, 08, 09, 10, 11, 12,
-> 13, 14, 15, 16, 17, 18, 24, 25, 26, 27, 28. The Phase 1
+> Tickets 19–23 are listed here but their files do not exist yet — the index
+> was written ahead of the tickets. Files present: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11,
+> 12, 13, 14, 15, 16, 17, 18, 24, 25, 26, 27, 28. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 

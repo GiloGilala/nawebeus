@@ -310,6 +310,68 @@ describe.skipIf(!hasDb())("Role assignment — hierarchy & self-protection (DEC-
     });
   });
 
+  // The three acceptance criteria that `.scratch/foundation/issues/07` listed
+  // and NWB-P0-014 never wrote a test for. The behaviour was correct; nothing
+  // pinned it, which is why the boxes could not honestly be ticked (NWB-P0-006).
+  test("a role id that exists nowhere returns 404, not 403 or 500", async () => {
+    await withTestDb(async ({ db }) => {
+      const f = await buildOrg(db, ["viewer"]);
+      const res = await f.app.request(`/api/orgs/${f.orgId}/members/assign-role`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: await f.cookiesFor(f.owner.email) },
+        body: JSON.stringify({ userId: f.u("viewer").id, roleId: crypto.randomUUID() }),
+      });
+      expect(res.status).toBe(404);
+      expect((await res.json()).error.code).toBe("NOT_FOUND");
+      // The member is untouched — a failed lookup must not be a partial write.
+      expect(await roleCodeOf(db, f.u("viewer").memberId)).toBe("viewer");
+    });
+  });
+
+  test("a user who is not a member of this organization returns 404", async () => {
+    await withTestDb(async ({ db }) => {
+      const f = await buildOrg(db, ["viewer"]);
+      const stranger = await createTestUser(db, {
+        email: `stranger-${crypto.randomUUID().slice(0, 8)}@example.com`,
+      });
+      const res = await f.app.request(`/api/orgs/${f.orgId}/members/assign-role`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: await f.cookiesFor(f.owner.email) },
+        body: JSON.stringify({
+          userId: stranger.id,
+          roleId: await systemRoleId(db, "viewer"),
+        }),
+      });
+      // 404, not 403: the caller is entitled to assign roles here, the subject
+      // simply is not one of this org's members. Nothing about the stranger's
+      // existence leaks either way.
+      expect(res.status).toBe(404);
+      expect((await res.json()).error.code).toBe("NOT_FOUND");
+    });
+  });
+
+  test("a member without members.update cannot assign roles at all (403 at the ability gate)", async () => {
+    await withTestDb(async ({ db }) => {
+      const f = await buildOrg(db, ["creator", "viewer"]);
+      // A creator holds content permissions, never `members.update` — so this
+      // is refused by `requireAbility` before the hierarchy policy is consulted.
+      const res = await f.app.request(`/api/orgs/${f.orgId}/members/assign-role`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: await f.cookiesFor(f.u("creator").email),
+        },
+        body: JSON.stringify({
+          userId: f.u("viewer").id,
+          roleId: await systemRoleId(db, "analyst"),
+        }),
+      });
+      expect(res.status).toBe(403);
+      expect((await res.json()).error.code).toBe("FORBIDDEN");
+      expect(await roleCodeOf(db, f.u("viewer").memberId)).toBe("viewer");
+    });
+  });
+
   test("a role from another organization is not assignable (404, no cross-tenant leakage)", async () => {
     await withTestDb(async ({ db }) => {
       const f = await buildOrg(db, ["viewer"]);
