@@ -181,12 +181,25 @@
 - **Acceptance criteria:** no code path relies on an inert condition; the scan test fails when a future `:orgId` route omits `requireOrgMatch`.
 - **Risk:** low (behavior-preserving — the condition was inert). **Rollback:** revert.
 
-#### NWB-P0-020 — Re-run the verification log (plan Appendix C)
+#### NWB-P0-020 — Re-run the verification log (plan Appendix C) — **DONE**
 - **Objective:** refresh every "last verified" number against the current tree with a live database.
 - **Why:** the plan's test numbers (96/33 skip; 162 with DB) are dated 2026-09-13 and this sandbox could not execute them; the roadmap's baseline must be current.
 - **Steps:** `bun install`; fresh PG (≥14); `db:push -- --force` (with `DB_*`); `bun run seed`; `bun test` (with and without `DATABASE_URL`); `bun run typecheck && bun run lint && bun run build`; record in Appendix C of the plan with today's date + HEAD.
 - **Acceptance:** typecheck PASS, lint PASS (errors), build PASS, test 0 fail. Any failure becomes a Phase 1 defect ticket before anything else.
 - **Risk:** none. **Rollback:** n/a.
+- **Outcome (2026-09-20):** done — `.scratch/p0-foundation-gap/issues/20-rerun-verification-log.md`.
+  Executed at HEAD `51c1a2d` against a **freshly created empty** PostgreSQL 14.23:
+  `db:migrate` from zero PASS (1 migration, 30 tables), **re-run a no-op** (exit criterion 3
+  evidenced), `seed` PASS and idempotent, `bun test` **395 pass / 0 fail** with a database and
+  **222 pass / 184 skip / 0 fail** without one, typecheck PASS, `biome check .` **0 errors**,
+  build PASS. No failure surfaced, so no new defect ticket. Appendix C now carries the measured
+  table and the 2026-09-13 log is marked superseded; plan §1 and `01-discovery.md` refreshed
+  (including 28 → **30** tables and three stale `src/app/*` route paths deleted in NWB-P0-026).
+  **Deviation:** the ticket's `db:push -- --force` step was deliberately not used — NWB-P0-005/009
+  replaced it with `db:migrate` as the evolution path; `db:push` is dev-convenience only.
+  Exit criteria re-scored against evidence: 1, 2, 3, 4, 6, 7 met; **5 not met** (only D13 is in
+  the Decision Log as DEC-039 — D11, D12, D15 outstanding, → NWB-P0-019), and 7's
+  branch-protection half is NWB-P0-022.
 
 #### NWB-P0-002 — DSAR data export (plan ticket, open)
 - **Objective:** any authenticated user (and admin on behalf) can request a machine-readable export of all personal data in their org; delivered within the NDPR window (PRD: 24h; Module 1 spec AC8).
@@ -267,12 +280,14 @@
 **Phase 1 infrastructure changes:** branch protection; CI step swap `db:push → db:migrate`.
 
 **Phase 1 exit criteria (all must be evidenced):**
-> Suite counts quoted in this document are dated; the live numbers as of the NWB-P0-015/024
-> work (2026-09-20) are **325 pass / 0 fail** with a database, 208 pass / 123 skip / 0 fail
-> without one, and `biome check .` clean. **CI is green on PR #12** for both jobs — the first
-> green run since PR #11's merge, and the runtime proof the workflow was missing: the suite
-> passes on the pinned `postgres:14` floor. Exit criterion 1 is therefore met in CI, not just
-> locally; criterion 7 (branch protection, NWB-P0-022) is not.
+> **Live numbers, re-measured 2026-09-20 at HEAD `51c1a2d` (NWB-P0-020 — executed, not carried
+> forward): 395 pass / 0 fail with a live PostgreSQL 14.23; 222 pass / 184 skip / 0 fail without
+> a database; `biome check .` 0 errors; typecheck and build clean.** Earlier counts in this
+> document (96, 162, 325 …) are historical. CI is green on both jobs for PR #14 on the pinned
+> `postgres:14` floor, so exit criterion 1 is met in CI and not merely locally. Criterion 3 is
+> now evidenced directly: `db:migrate` was run against a freshly created empty database and then
+> re-run as a no-op. **Criterion 7 remains open** — branch protection (NWB-P0-022) is a GitHub
+> *settings* change requiring repo-owner access, so CI still reports without blocking merges.
 1. `bun test` green with a live DB, **including** the new suites: signup-owner-role, org-update positive+negative, MFA full flow, rate-limit windows, role-matrix self-protection, status enforcement, invitation accept, CORS/IP, route-invariant scan, DSAR, org deletion. (NWB-P0-020 re-run recorded.)
 2. A fresh org owner can: invite a member → invitee accepts (new + existing user) → member acts with the invited role → role changes respect self-protection. **This end-to-end sequence is the Phase 1 demo.**
 3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`.

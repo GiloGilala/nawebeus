@@ -123,7 +123,7 @@ Legend: ✅ complete & verified · 🟨 complete but with defects/gaps (defect I
 | Deployment / infra | 🔴 | No Dockerfile, no systemd unit, no nginx conf in repo. Target documented in `docs/technical/Infrastructure.md` (VPS + Coolify + WireGuard, ADR-008/DEC-029) |
 | Backups / DR | 🔴 | Documented strategy (Infra §5) not implemented; no scripts |
 | Secrets management | 🔴 | Env vars via `.env`; no rotation schedule implemented (Infra §8.3 documented) |
-| Testing | 🟨 | 28 test files, ~195 describe/test blocks; transaction-wrapped DB tests (`withTestDb`), no-DB unit seam, factories. Last verified: **96 pass / 33 skip without DB; 162 pass / 0 fail with live DB (2026-09-13, NWB-P0-008 note)** — must be re-run as first Phase 1 action (NWB-P0-020). No E2E (no UI to test), no coverage report, no security suite beyond ad-hoc tenant checks inside feature tests |
+| Testing | 🟨 | 42 test files, 438 describe/test blocks; transaction-wrapped DB tests (`withTestDb`), no-DB unit seam, factories. Last verified **2026-09-20 at HEAD `51c1a2d` (NWB-P0-020, re-run executed — not carried forward)**: **395 pass / 0 fail with a live PostgreSQL 14.23; 222 pass / 184 skip / 0 fail without a database**. Still no E2E (no UI to test), no coverage report, and no dedicated security suite — tenant checks live inside feature tests plus the route-invariant scan |
 | Config | ✅ | Zod-validated env singleton (`src/lib/config.ts`); `loadConfig()` before `getConfig()` convention documented |
 
 **P0 (execution plan) status, re-verified today:**

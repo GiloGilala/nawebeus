@@ -27,20 +27,20 @@ This plan covers: **closing the current foundation gap → MVP (10 modules) → 
 
 ## 1. As-built baseline
 
-> **Last verified against HEAD `049a837` (2026-08-03) on 2026-09-13.** Verified by reading `package.json`, `tsconfig.json`, `db/schema.ts`, the `src/` tree, and by executing `bun test`. If the tree has moved, re-verify before trusting this section.
+> **Last verified against HEAD `51c1a2d` on 2026-09-20 (NWB-P0-020).** Verified by reading `package.json`, `tsconfig.json`, `db/schema.ts`, the `src/` tree, and by executing the full gate against a freshly created PostgreSQL 14.23 database — see Appendix C for the measured numbers. If the tree has moved, re-verify before trusting this section.
 
 ### 1.1 What exists and works
 
 | Area | State | Evidence |
 |---|---|---|
-| Runtime | Bun 1.4.0 + Hono + Drizzle ORM + PostgreSQL (`pg`) | `package.json` deps: `@casl/ability`, `drizzle-orm`, `hono`, `pg`, `zod` — nothing else |
+| Runtime | Bun 1.4.2 + Hono + Drizzle ORM + PostgreSQL (`pg`) | `package.json` deps: `@casl/ability`, `drizzle-orm`, `hono`, `pg`, `zod` — nothing else |
 | Entry point | Single API process | `src/index.ts` (`Bun.serve`), `src/server/index.ts` (Hono factory) |
-| Auth | Cookie-based JWT, session rotation, token binding, MFA (TOTP), email verification, password reset + history, email change, account deletion, rate limiting + account lockout | `src/services/auth/*`, `src/app/auth/*`, `src/lib/rate-limit.ts` |
-| RBAC | CASL abilities loaded per-request from DB, scoped by `organizationId` | `src/services/auth/ability.ts`, `src/server/middleware/rbac.ts` |
+| Auth | Cookie-based JWT, session rotation, token binding, MFA (TOTP), email verification, password reset + history, email change, account deletion, rate limiting + account lockout | `src/services/auth/*`, `src/server/api/auth/*`, `src/lib/rate-limit.ts` (the `src/app/auth/*` route mirror was deleted in NWB-P0-026) |
+| RBAC | CASL abilities loaded per-request from DB, per `(user, org)`. The decorative `organizationId` *condition* was removed in NWB-P0-018 (inert under CASL v7 string subjects); isolation rests on JWT org → `requireOrgMatch` → service predicates | `src/services/auth/ability.ts`, `src/server/middleware/rbac.ts`, Security Architecture §4.3.1 |
 | Multi-tenancy | `AsyncLocalStorage` org context; `:orgId` vs JWT org match | `src/lib/org-context.ts`, `src/server/middleware/org-match.ts` |
-| Users / Orgs | Profile read+update, org settings, member list, invitations (incl. bulk CSV), role assignment | `src/app/users/*`, `src/app/orgs/*`, `src/services/orgs/*` |
-| Schema | 28 active tables across 3 modules | `db/core/` (10), `db/organization/` (4), `db/shared/` (14) |
-| Tests | **96 pass, 0 fail, 33 skipped** (`bun test`) | Skips are DB-backed tests; documented behaviour without `DATABASE_URL` |
+| Users / Orgs | Profile read+update, org settings, member list, invitations (incl. bulk CSV + accept), role assignment, organization deletion | `src/server/api/users/*`, `src/server/api/orgs/*`, `src/services/orgs/*` |
+| Schema | **30** active tables across 3 modules, reached by committed migrations (`drizzle/migrations/`, NWB-P0-005) | verified live: 30 `public` tables after `db:migrate` on an empty database |
+| Tests | **395 pass, 0 fail** with a live database; **222 pass / 184 skip / 0 fail** without one | Skips are DB-backed tests; documented behaviour without `DATABASE_URL`. Re-measured 2026-09-20 (NWB-P0-020) |
 
 ### 1.2 What is missing or non-functional
 
@@ -692,6 +692,40 @@ In exact dependency order:
 ---
 
 ## Appendix C — Verification log
+
+### NWB-P0-020 re-run (2026-09-20) — supersedes the 2026-09-13 numbers below
+
+Executed end to end on a **freshly created, empty** PostgreSQL 14.23 database
+(`DROP DATABASE` → `CREATE DATABASE` → `db:migrate` → `seed` → `bun test`), at
+HEAD `51c1a2d` on branch `arena/01a0c0ad-nawebeus`. Every number below was run,
+not carried forward — the 2026-09-13 entries were dated and the sandbox that
+produced the roadmap could not execute Bun at all.
+
+| Check | Result |
+|---|---|
+| `git rev-parse HEAD` | `51c1a2dedb91ac3627d43d6fbc0a31d97761d3eb` |
+| `bun --version` | 1.4.2 (was 1.4.0 on 2026-09-13) |
+| `node --version` | v22.22.3 |
+| PostgreSQL | 14.23 (the pinned CI floor) |
+| `db:migrate` from an **empty** database | PASS — 1 migration, 30 public tables, ~1.5 s |
+| `db:migrate` re-run on the migrated database | PASS — **no-op, no error** (exit criterion 3) |
+| `bun run seed` | PASS; re-run idempotent |
+| `bun test` **with** `DATABASE_URL` | **395 pass / 0 fail**, 1182 assertions, 42 files, ~28 s |
+| `bun test` **without** `DATABASE_URL` | **222 pass / 184 skip / 0 fail**, 406 collected, ~0.2 s |
+| `bun run typecheck` | PASS (clean) |
+| `bunx biome check .` | PASS — **0 errors**, 499 warnings, 2 infos, 178 files |
+| `bun run build` | PASS — `dist/index.js`, 0.66 MB |
+| Test files / blocks | 42 files, 438 `describe`/`test` blocks |
+| Active tables | **30** (plan §1 said 28: `data_export_requests` added by NWB-P0-002, plus the org-deletion work) |
+| Routes / services | 15 `*.route.ts`, 27 service modules, 124 `.ts` files under `src/` |
+
+Deltas worth noting against the last recorded run: the suite has gone
+**96 → 395 passing** (+311), the DB-gated skip count **33 → 184**, and lint moved
+from red at HEAD (F-27) to 0 errors. The `db:push` step named in the original
+NWB-P0-020 steps was deliberately **not** used — NWB-P0-005/009 replaced it with
+`db:migrate` as the evolution path, and `db:push` is now dev-convenience only.
+
+### Original log (2026-09-13, HEAD `049a837` — superseded)
 
 | Date | Check | Result |
 |---|---|---|

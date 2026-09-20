@@ -81,7 +81,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Layers (current)
 
-> **Last verified against HEAD `d03dc49` (2026-09-20) on 2026-09-20.** If the
+> **Last verified against HEAD `51c1a2d` on 2026-09-20 (NWB-P0-020 re-run).** If the
 > tree below looks older than the working copy, re-verify before trusting it —
 > `src/` is always the source of truth.
 
