@@ -283,9 +283,15 @@ export const organizationMembers = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
 
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    // Nullable on purpose: an invited member who has no account yet is a
+    // row with status='invited' and user_id=NULL until they accept (the
+    // invitation flow, F-08/NWB-P0-016). inviteMember has always inserted
+    // NULL there; the old NOT NULL made every invite of a new email 500
+    // with 23502 (F-20). The (organization_id, user_id) unique index is
+    // unaffected — Postgres treats NULLs as distinct.
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
 
     roleId: uuid("role_id").references(() => roles.id, {
       onDelete: "set null",
@@ -302,6 +308,21 @@ export const organizationMembers = pgTable(
       onDelete: "set null",
     }),
     invitedAt: timestamp("invited_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+
+    // Invitation token (raw value shown in the /invite?token= link) and its
+    // SHA-256 hash. Written by inviteMember since before these columns
+    // existed in the schema (F-20): every invite 500'd with 42703 until
+    // 2026-09-20. Conventions follow the core `tokens` table (text hash).
+    invitationToken: varchar("invitation_token", { length: 255 }),
+    invitationTokenHash: text("invitation_token_hash"),
+    invitationSentAt: timestamp("invitation_sent_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    expiresAt: timestamp("expires_at", {
       withTimezone: true,
       mode: "date",
     }),
@@ -777,7 +798,10 @@ export function isManager(member: OrganizationMember): boolean {
  * Get member's full display name
  */
 export function getMemberDisplayName(member: OrganizationMember): string {
-  return member.displayName || `User ${member.userId.slice(0, 8)}`;
+  if (member.displayName) return member.displayName;
+  // Pending invites have no account yet (user_id is NULL, F-20)
+  if (member.userId) return `User ${member.userId.slice(0, 8)}`;
+  return "Invited member";
 }
 
 /**

@@ -244,6 +244,20 @@ async function seed() {
       isProtected: true,
       permissions: permissionDefs.map((p) => p.string),
     },
+    // D13/DEC-039 (2026-09-20): top per-org tier. Full org permission set
+    // including billing — per the module spec RBAC matrix
+    // (docs/modules/Organization & Account Management.md §3.6), only Owner
+    // may manage billing. Assigned at signup (F-01 fix, NWB-P0-010).
+    {
+      slug: "owner",
+      name: "Owner",
+      code: "owner",
+      level: 90,
+      priority: 5,
+      isSystemRole: true,
+      isProtected: true,
+      permissions: permissionDefs.map((p) => p.string),
+    },
     {
       slug: "org_admin",
       name: "Organization Admin",

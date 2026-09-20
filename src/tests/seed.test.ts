@@ -38,7 +38,7 @@ describe.skipIf(!hasDb())("seed data", () => {
   });
 
   test("default roles are created", async () => {
-    const slugs = ["super_admin", "org_admin", "member", "viewer"];
+    const slugs = ["super_admin", "owner", "org_admin", "member", "viewer"];
     for (const slug of slugs) {
       const rows = await db.execute<{ id: string }>(
         sql`SELECT id FROM roles WHERE slug = ${slug} LIMIT 1`,

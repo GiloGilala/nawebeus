@@ -111,6 +111,7 @@ This log complements the technical Architecture Decision Records (ADRs), which c
 | DEC-035 | 2026-03-01 | Funding | Close pre-seed round at ₦800,000,000 (~$500K USD equivalent) | Approved |
 | DEC-036 | 2026-03-05 | Funding | Target seed round of ₦4,800,000,000 (~$3M USD equivalent) in Q1 2026 | Approved |
 | DEC-037 | 2026-03-10 | Funding | Target Series A of ₦16,000,000,000–₦24,000,000,000 (~$10–15M) in Q4 2026/Q1 2027 | Approved |
+| DEC-039 | 2026-09-20 | Infrastructure & Technical | Role hierarchy: platform `super_admin` + per-org `owner/admin/manager/creator/analyst/viewer`; drop `org_admin`/`member` pre-prod | Approved |
 
 ### 2.3 Deferred Decisions
 
@@ -1349,6 +1350,60 @@ Build a **single deployable service** with two entry points (web frontend + API)
 - Faster development velocity; simpler operations; lower DevOps burden
 - Extraction decisions deferred until clear performance or team-scaling trigger exists
 - Mitigation: Module boundaries enforced in code review; ADRs document module boundaries clearly
+
+---
+
+### DEC-039: Role Hierarchy — Platform `super_admin` + Six-Tier Org Role Model
+
+| Field | Detail |
+|-------|--------|
+| **Decision ID** | DEC-039 |
+| **Date** | 2026-09-20 |
+| **Category** | Infrastructure & Technical |
+| **Status** | Approved |
+| **Deciders** | Engineering Lead, Product Lead |
+| **Reversibility** | Reversible pre-production (schema + seed + guards change together; no production data exists yet) |
+
+**Context:**
+Three sources define the role hierarchy differently, and the in-code role self-protection guards
+reference role codes that do not exist in the seed (`owner`/`admin`), so they can never fire:
+
+| Source | Role model |
+|--------|-----------|
+| `docs/modules/` role specification §6 | six org tiers: Owner, Admin, Manager, Creator, Analyst, Viewer |
+| PRD §8.2.2 | five tiers |
+| `src/seed.ts` | four roles: `super_admin`, `org_admin`, `member`, `viewer` |
+
+This inconsistency was surfaced by the master implementation roadmap audit (2026-09-20,
+decision D13) together with defects F-01 (signup creates the owner membership **without a role**,
+leaving every new org owner with zero permissions) and F-07 (self-protection guards reference
+phantom role codes).
+
+**Decision:**
+Adopt the module-specification six-tier org model on top of the existing platform role:
+
+- Platform-level: `super_admin` (unchanged — the codebase, AGENTS.md, and execution plan already operate on this name).
+- Per-organization: `owner`, `admin`, `manager`, `creator`, `analyst`, `viewer`.
+- `owner` is assigned atomically with the membership when an organization is created (signup) — this is the role that closes F-01.
+- `org_admin` and `member` are **dropped** in the same change (pre-production ⇒ no compatibility burden; no alias period).
+- All role guards and the role-permission matrix reference only the seven real codes above (closes F-07).
+
+**Rationale:**
+- The six-tier spec model is the most complete source and is what the module permission tables are written against; the PRD's five tiers are a strict subset of it.
+- The seed's four-role set is provably insufficient — F-01 shows a user who can be nothing but an owner has no permissions at all under it.
+- Pre-production means the cost of a clean replacement is one seed + guard change with a full matrix test, instead of carrying alias/deprecation machinery into production.
+
+**Alternatives Considered:**
+
+| Alternative | Reason Rejected |
+|-------------|----------------|
+| **Keep seed set; rewrite guards to the four seed codes** | Role model stays inconsistent with PRD/spec; product roles (creator, analyst) cannot be represented; the gap would have to be re-opened after launch, when it becomes a data migration |
+| **Adopt the spec's tier names wholesale, including its platform-level naming** | Diverges from the `super_admin` convention already used in seed, AGENTS.md, and the execution plan; strictly more churn for no product benefit |
+
+**Impact:**
+- Changes `src/seed.ts` (4 → 7 roles), the role self-protection guards, the signup service (owner role assignment), and the role-management UI contract (P14.13) in one coordinated task set (NWB-P0-010, NWB-P0-014) — risk R-04 in the master roadmap.
+- Unblocks NWB-P0-010 (owner role at signup) and NWB-P0-014 (role model + guards) in Phase 1.
+- Mitigation: the full role × permission matrix is test-verified in the same tasks; no production data exists, so no migration is required.
 
 ---
 

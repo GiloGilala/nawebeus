@@ -1,8 +1,9 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
-import { ConflictError, ValidationError } from "../../lib/errors";
+import { ConflictError, InternalError, ValidationError } from "../../lib/errors";
 import { generateSecureToken, hashToken } from "../../lib/tokens";
+import { withAtomicWrites } from "../../lib/transaction";
 import { writeAuditLog } from "../audit";
 import { emailService } from "../email";
 import { hashPassword } from "./password";
@@ -110,13 +111,47 @@ export async function signup(
   const username = generateUsername(email);
   const { firstName, lastName } = splitName(fullName);
 
-  // Create user with password history
-  const now = new Date().toISOString();
-  const userRows = await db.execute<{
-    id: string;
-    password_history: string[] | null;
-  }>(
+  // D13/DEC-039: the org owner gets the per-org `owner` role (a system role
+  // with a NULL organization_id). A missing role means an unseeded
+  // environment — fail closed instead of creating a permission-less owner
+  // (F-01: a NULL role_id means loadAbility yields zero permissions, so the
+  // product was unusable right after signup).
+  const roleRows = await db.execute<{ id: string }>(
     sql`
+      SELECT id FROM roles
+      WHERE code = 'owner'
+        AND organization_id IS NULL
+        AND deleted_at IS NULL
+        AND archived_at IS NULL
+      LIMIT 1
+    `,
+  );
+  const ownerRoleId = (roleRows as any).rows?.[0]?.id as string | undefined;
+  if (!ownerRoleId) {
+    throw new InternalError(
+      "The 'owner' role is missing from the role catalog. Run the seed before allowing signups.",
+    );
+  }
+
+  // Generate the email verification token (32 bytes, SHA-256 hash stored)
+  // before the write block so the email send (a side effect) stays after the
+  // commit: a failed email must not roll back a committed account.
+  const rawToken = generateSecureToken();
+  const tokenHash = await hashToken(rawToken);
+  const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const now = new Date().toISOString();
+
+  // Atomic signup (FR-ORG-001 AC7): user + organization + membership +
+  // token + audit rows commit or roll back together. Previously these were
+  // six independent writes — a crash mid-signup left an orphan user or an
+  // organization with no owner.
+  const { userId, orgId } = await withAtomicWrites(db, async (tx) => {
+    // Create user with password history
+    const userRows = await tx.execute<{
+      id: string;
+      password_history: string[] | null;
+    }>(
+      sql`
       INSERT INTO users (
         email, password, password_history, username, first_name, last_name,
         status, email_verified, timezone, locale,
@@ -131,20 +166,19 @@ export async function signup(
       )
       RETURNING id, password_history
     `,
-  );
-  const user = (userRows as any).rows?.[0] as any;
-  const userId = user.id;
+    );
+    const user = (userRows as any).rows?.[0] as any;
 
-  // Create organization with Nigerian defaults
-  const orgRows = await db.execute<{ id: string }>(
-    sql`
+    // Create organization with Nigerian defaults
+    const orgRows = await tx.execute<{ id: string }>(
+      sql`
       INSERT INTO organizations (
         name, slug, display_name, owner_id, created_by, is_parent, is_verified,
         type, industry, company_size, terms_accepted_at, privacy_policy_accepted_at,
         currency, language, status, is_active
       )
       VALUES (
-        ${organizationName}, ${slug}, ${organizationName}, ${userId}, ${userId}, true, false,
+        ${organizationName}, ${slug}, ${organizationName}, ${user.id}, ${user.id}, true, false,
         'team', ${industry ?? null}, ${teamSize ?? null},
         ${new Date().toISOString()}::timestamptz, ${new Date().toISOString()}::timestamptz,
         ${NIGERIAN_ORG_DEFAULTS.currency}, ${NIGERIAN_ORG_DEFAULTS.language},
@@ -152,61 +186,85 @@ export async function signup(
       )
       RETURNING id
     `,
-  );
-  const org = (orgRows as any).rows?.[0] as any;
-  const orgId = org.id;
+    );
+    const org = (orgRows as any).rows?.[0] as any;
 
-  // Set Nigerian preferences via JSON
-  const prefs = {
-    timezone: NIGERIAN_ORG_DEFAULTS.timezone,
-    locale: NIGERIAN_ORG_DEFAULTS.language,
-    dateFormat: NIGERIAN_ORG_DEFAULTS.dateFormat,
-    currency: NIGERIAN_ORG_DEFAULTS.currency,
-  };
+    // Set Nigerian preferences via JSON
+    const prefs = {
+      timezone: NIGERIAN_ORG_DEFAULTS.timezone,
+      locale: NIGERIAN_ORG_DEFAULTS.language,
+      dateFormat: NIGERIAN_ORG_DEFAULTS.dateFormat,
+      currency: NIGERIAN_ORG_DEFAULTS.currency,
+    };
 
-  await db.execute(
-    sql`
+    await tx.execute(
+      sql`
       UPDATE organizations
       SET preferences = ${JSON.stringify(prefs)}::jsonb,
-          owner_id = ${userId}, created_by = ${userId}
-      WHERE id = ${orgId}
+          owner_id = ${user.id}, created_by = ${user.id}
+      WHERE id = ${org.id}
     `,
-  );
-
-  // Set user's organization
-  await db.execute(sql`UPDATE users SET organization_id = ${orgId} WHERE id = ${userId}`);
-
-  // Create org membership (user is Owner)
-  await db.execute(
-    sql`
-      INSERT INTO organization_members (organization_id, user_id, status, is_active)
-      VALUES (${orgId}, ${userId}, 'active', true)
-    `,
-  );
-
-  // If password_history is null, update it
-  if (!user.password_history || user.password_history.length === 0) {
-    await db.execute(
-      sql`UPDATE users SET password_history = ${JSON.stringify([hashed])}::jsonb WHERE id = ${userId}`,
     );
-  }
 
-  // Generate email verification token (32 bytes, SHA-256 hash stored)
-  const rawToken = generateSecureToken();
-  const tokenHash = await hashToken(rawToken);
-  const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // Set user's organization
+    await tx.execute(sql`UPDATE users SET organization_id = ${org.id} WHERE id = ${user.id}`);
 
-  await db.execute(
-    sql`
+    // Create org membership WITH the owner role (FR-ORG-001 AC2 — this
+    // column was missing before the F-01 fix; a NULL role_id yields zero
+    // permissions in loadAbility).
+    await tx.execute(
+      sql`
+      INSERT INTO organization_members (organization_id, user_id, role_id, status, is_active)
+      VALUES (${org.id}, ${user.id}, ${ownerRoleId}, 'active', true)
+    `,
+    );
+
+    // If password_history is null, update it
+    if (!user.password_history || user.password_history.length === 0) {
+      await tx.execute(
+        sql`UPDATE users SET password_history = ${JSON.stringify([hashed])}::jsonb WHERE id = ${user.id}`,
+      );
+    }
+
+    await tx.execute(
+      sql`
       INSERT INTO tokens (
         user_id, token_type, selector, hashed_validator, status, purpose, target_email, expires_at
       )
       VALUES (
-        ${userId}, 'email_verification', ${rawToken.slice(0, 32)}, ${tokenHash},
+        ${user.id}, 'email_verification', ${rawToken.slice(0, 32)}, ${tokenHash},
         'active', 'email_verification', ${email}, ${tokenExpires.toISOString()}
       )
     `,
-  );
+    );
+
+    await writeAuditLog({
+      db: tx,
+      module: "core",
+      actorId: user.id,
+      actorType: "user",
+      action: "auth.signup.completed",
+      category: "authentication",
+      resourceType: "user",
+      resourceId: user.id,
+      afterState: { organizationId: org.id, status: "pending_verification" },
+    });
+
+    await writeAuditLog({
+      db: tx,
+      module: "core",
+      organizationId: org.id,
+      actorId: user.id,
+      actorType: "user",
+      action: "organization.owner.created",
+      category: "authorization",
+      resourceType: "organization",
+      resourceId: org.id,
+      afterState: { ownerId: user.id, roleCode: "owner" },
+    });
+
+    return { userId: user.id, orgId: org.id };
+  });
 
   const verificationLink = `${config.CORS_ORIGIN}/verify-email?token=${rawToken}`;
 
@@ -219,18 +277,6 @@ export async function signup(
       <p><a href="${verificationLink}">Verify Email</a></p>
       <p>This link expires in 24 hours.</p>
     `,
-  });
-
-  await writeAuditLog({
-    db,
-    module: "core",
-    actorId: userId,
-    actorType: "user",
-    action: "auth.signup.completed",
-    category: "authentication",
-    resourceType: "user",
-    resourceId: userId,
-    afterState: { organizationId: orgId, status: "pending_verification" },
   });
 
   return {

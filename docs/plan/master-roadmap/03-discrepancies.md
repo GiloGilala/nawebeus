@@ -1,0 +1,28 @@
+# Master Roadmap — Discrepancy Register: Doc ↔ Code, Adjudicated (§6)
+
+> Part of the **Nawebeus Master Implementation Roadmap** — index: [`../MASTER_IMPLEMENTATION_ROADMAP.md`](../MASTER_IMPLEMENTATION_ROADMAP.md).
+> Section numbers (§N) are **global across parts**; cross-references resolve via the index part-map. Related parts are listed there.
+
+## 6. Discrepancy register (doc ↔ code, adjudicated)
+
+| ID | Conflict | Sources | Adjudication (evidence-based) | Action |
+|---|---|---|---|---|
+| D-01 | MVP module set: 5 (DEC-005) vs 10 (PRD/Roadmap) vs 12 phases (plan) | `Decision Log` DEC-005 vs `PRD §8` vs plan §5 | **Open — decision D12.** Not a code question. Memo recommends Option A (10 PRD modules; the four non-PRD domains deferred), requiring zero supersessions. This roadmap sequences Option A as primary. | Product decision before P3/P8/P9/P10 work starts |
+| D-02 | Module numbering (5 collisions in `docs/modules/`) | `docs/modules/*.md` vs PRD §8 | **Resolved (D1):** PRD 1–10 canonical; map in `CONTEXT.md`; `docs/modules/` numbering deprecated | Fix `docs/modules/` headers opportunistically (cleanup, §29) |
+| D-03 | Rate-limit/cache store: SQLite (ADR-004/015) vs PostgreSQL `rate_limits` (code) | ADR-004 vs `src/lib/rate-limit.ts`, `db/core/rate-limits.ts` | **Code wins.** The Postgres table now exists and the limiter is real (though buggy — F-12). ADR-004's SQLite schema is unimplemented and contradicted by ADR-008 (no extra services on the VPS). | **Decision D3 → recommend: amend ADR-004/015** to "Postgres-backed sliding window; no application cache at MVP". No code change |
+| D-04 | Email provider: Nodemailer (Tech Stack §5.8) vs Resend (DEC-028) | `Tech Stack.md` vs `Decision Log` | **Resolved (D4):** Resend (approved decision). Tech Stack doc is the defect. | Correct `Tech Stack.md` (cleanup) |
+| D-05 | Queue runtime | none recorded | **Resolved (D5/ADR-028):** pg-boss on the existing Postgres; started alongside API per ADR-007; pg-boss schema must be versioned with migrations (NWB-P0-005 scope) | Implement in Phase 2 |
+| D-06 | Object storage: R2 + Bunny CDN (docs) vs nothing in code | `Tech Stack.md`, `Infrastructure.md` vs `src/` | **Open — decision D6.** Docs agree with each other (R2 + Bunny); keep behind the interface pattern of `src/services/email.ts` (proven transport-interface convention) | Product/eng decision before Phase 2 media service |
+| D-07 | Payments: Paystack vs Stripe | `ADR-011` vs `Roadmap §4.3` | **Resolved (D7):** both — Paystack NGN, Stripe USD (DEC-025). | Implement in billing phase |
+| D-08 | RLS vs app-layer isolation | `ADR-009` (RLS) vs code (app-layer only) + F-06 | **Open — decision D11.** Given F-06 shows the API tier already relies on app-layer enforcement, and RLS on a 28-table + 54-aspirational schema is a large surface, **recommend: amend ADR-009 to "application-layer scoping mandatory + verified in tests; RLS deferred to post-launch hardening"**, unless the security review (Phase 8) concludes otherwise. Do not leave ambiguous (plan §4 D11). | Decide in Phase 1 (cheap), enforce in Phase 8 |
+| D-09 | Audit templates contain another project's placeholder ("Gilo Business" in `DOMAIN_PRODUCTION_AUDIT_TEMPLATE.md`); `ADRs.md` ends with a "Money Handling Convention" section about "the Gilo Business ecosystem" | `docs/audit/*`, `ADRs.md` tail | **Documentation contamination** — not Nawebeus content. | Cleanup task (§29): quarantine/remove with owner sign-off; do not silently delete |
+| D-10 | Table names: `Database Schema.md` (`conversations`, `mentions`, `articles`, `media_contacts`) vs actual (`engagement_messages`, `social_mentions`, `media_articles`, `journalists` in `db/engagement|monitoring|pr`) | `Database Schema.md` vs `db/` | **Code wins** (aspirational code is the more recent, ADR-017-consistent artifact). | Correct `Database Schema.md` when those modules are adopted (Phase 4) |
+| D-11 | API paths: module spec `/api/v1/auth/register|login|…` vs actual `/api/auth/signup|signin|…`, `/api/users/me`, `/api/orgs/…` | `docs/modules/Authentication & User Management.md` §7 vs `src/app/` | **Code wins.** The v1 prefix was never adopted; execution plan §1.4 already flags doc drift. | Rewrite `docs/technical/API Reference.md` + module §7 to the actual surface (task in Phase 7, when the web app consumes it — the reference must be generated from routes) |
+| D-12 | Role hierarchy: 6 tiers (module spec) / 5 (PRD) / 4 seeded (code) | module spec §6 vs PRD §8.2.2 vs `src/seed.ts` | **Open — decision D13** (new). Code + plan + AGENTS.md all operate on `super_admin/org_admin/member/viewer`; the spec/PRD tiers (Owner/Admin/…) are unreferenced anywhere in `src/`. The F-07 guards were written for the *spec's* codes. Must align before role work. | Decision D13 in Phase 1 (blocks F-01/F-07 fixes' role-choice) |
+| D-13 | Phase schemes (Roadmap 0–10 / Foundation 0–15 / Charter 0–8 / plan P0–P17) | various | **Resolved by plan §4/Appendix A:** plan P0–P17 is canonical for engineering; business phasing stays in Roadmap | None |
+| D-14 | PRD 8.2.1 "Organization deletion (P0)" vs no org-deletion code | PRD vs `src/` | **Gap, not conflict.** Unplanned in the execution plan at all — add as Phase 1 task (small) | Task NWB-P0-023 |
+| D-15 | `Roadmap.md §4.3` tech table (Redis cache, "Payments: Stripe", Datadog) vs ADRs/DECs (no Redis; Paystack+Stripe; self-hosted monitoring per Infra §6.2) | Roadmap vs ADRs | **Docs stale.** ADRs + approved DEC-025/029 govern. | Correct `Roadmap §4.3` (cleanup) |
+| D-16 | `CI`: plan §1.1 says "no CI" (baseline) vs workflow exists | plan (2026-09-13) vs `.github/workflows/ci.yml` | Code wins — CI landed 2026-09-13 (NWB-P0-003). Plan's §11 item 3 already marked done in the ticket. | None |
+
+---
+
