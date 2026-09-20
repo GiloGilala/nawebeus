@@ -36,7 +36,7 @@ router.get("/:userId", authMiddleware, requireAbility("read", "users"), async (c
 });
 
 router.patch("/:userId", authMiddleware, requireAbility("update", "users"), async (c) => {
-  const { orgId } = c.var.user;
+  const { orgId, userId: actingUserId } = c.var.user;
   const db = c.var.db;
   const userId = c.req.param("userId");
   let body: unknown;
@@ -46,15 +46,15 @@ router.patch("/:userId", authMiddleware, requireAbility("update", "users"), asyn
     body = {};
   }
   const parsed = adminUpdateSchema.parse(body);
-  const user = await updateUserAsAdmin(db, orgId, userId, parsed);
+  const user = await updateUserAsAdmin(db, orgId, userId, parsed, actingUserId);
   return c.json(success({ user }));
 });
 
 router.delete("/:userId", authMiddleware, requireAbility("delete", "users"), async (c) => {
-  const { orgId } = c.var.user;
+  const { orgId, userId: actingUserId } = c.var.user;
   const db = c.var.db;
   const userId = c.req.param("userId");
-  await deleteUser(db, orgId, userId);
+  await deleteUser(db, orgId, userId, actingUserId);
   c.status(204);
   return c.body(null);
 });

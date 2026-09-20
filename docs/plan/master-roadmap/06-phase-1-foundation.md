@@ -98,6 +98,7 @@
 - **Risk:** low. **Rollback:** revert SQL; limiter reverts to today's (broken-after-first-window) state — acceptable for pre-prod.
 
 #### NWB-P0-014 — Align the role model with the spec (D13) + make self-protection real (F-07)
+> **Status: done — 2026-09-20.** Ticket: `.scratch/p0-foundation-gap/issues/14-role-model-and-self-protection.md`. Delivered as specified, with two deviations recorded there: the BR-AUTH-030 409 is pinned at the service boundary (unreachable through HTTP once the Owner is immutable and only Owner/super_admin outrank an Admin), and Manager *can* remove members below Manager per FR-ORG-006. Also fixed F-21 (removal 500) and the assign-role 404.
 - **Objective:** one role hierarchy, used identically by seed, guards, routes, and docs; self-protection rules fire for the roles that exist.
 - **Why:** F-07: guards check codes `owner`/`admin` that don't exist in the seed (`super_admin`/`org_admin`/`member`/`viewer`), so "cannot remove last admin" and "cannot demote owner" can never fire.
 - **Current state:** spec §6 = 6 tiers (Owner, Admin, Manager, Creator, Analyst, Viewer); PRD §8.2.2 = 5 (Owner, Admin, Manager, Analyst, Viewer); seed = 4 (super_admin, org_admin, member, viewer); guards reference `owner`/`admin`; plan/AGENTS reference `super_admin`/`org_admin`.

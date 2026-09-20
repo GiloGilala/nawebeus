@@ -232,74 +232,143 @@ async function seed() {
     permMap.set((row as any).permission_string as string, (row as any).id as string);
   }
 
-  // ── Roles ────────────────────────────────────────────────────────
+  // ── Roles (DEC-039 / D13) ────────────────────────────────────────
+  // One platform role + the module spec's six per-org tiers. Levels are the
+  // rank the role-hierarchy policy compares (src/services/orgs/role-policy.ts);
+  // keep them in step with ROLE_LEVELS there. Permission sets are the module
+  // spec matrices (Auth & User Management §6.2, Org & Account Management
+  // FR-ORG-006) mapped onto the permission strings above:
+  //
+  //   owner    everything, incl. billing.* and org.delete (sole billing owner)
+  //   admin    everything except billing.* and org.delete
+  //   manager  team management (members.*, users.read/update, roles.read),
+  //            content incl. approval (posts.publish), analytics export
+  //   creator  create/submit content (posts.* except publish), read-only elsewhere
+  //   analyst  read-only + analytics.export; no content creation
+  //   viewer   read-only dashboards/reports
+  //
+  // Hierarchy rules ("Manager scope: roles below Manager only", Owner never
+  // demoted, last Owner/Admin stays) are enforced in code, not here.
+  const everyone = ["org.read", "settings.read", "posts.read", "analytics.read"];
+  const teamManagement = [
+    "members.read",
+    "members.create",
+    "members.update",
+    "members.delete",
+    "users.read",
+    "users.update",
+    "roles.read",
+  ];
+  const contentCreation = ["posts.create", "posts.update", "posts.delete"];
+  const contentApproval = ["posts.publish"];
+  const analyticsExport = ["analytics.export"];
+  const orgAdministration = [
+    "org.update",
+    "settings.update",
+    "users.create",
+    "users.delete",
+    "roles.create",
+    "roles.update",
+    "roles.delete",
+    "audit.read",
+    "apikeys.create",
+    "apikeys.read",
+    "apikeys.update",
+    "apikeys.delete",
+  ];
+  // Owner-only, and therefore absent from admin above: billing.read,
+  // billing.update, org.delete. owner/super_admin take the full catalog.
+
   const roleDefs = [
     {
       slug: "super_admin",
       name: "Super Admin",
       code: "super_admin",
+      description: "Platform operator. Not an organization tier.",
       level: 100,
       priority: 1,
-      isSystemRole: true,
+      scope: "global",
       isProtected: true,
       permissions: permissionDefs.map((p) => p.string),
     },
-    // D13/DEC-039 (2026-09-20): top per-org tier. Full org permission set
-    // including billing — per the module spec RBAC matrix
-    // (docs/modules/Organization & Account Management.md §3.6), only Owner
-    // may manage billing. Assigned at signup (F-01 fix, NWB-P0-010).
     {
       slug: "owner",
       name: "Owner",
       code: "owner",
+      description: "Full access; owns billing; assigned at signup, transferred not granted.",
       level: 90,
       priority: 5,
-      isSystemRole: true,
+      scope: "organization",
       isProtected: true,
       permissions: permissionDefs.map((p) => p.string),
     },
     {
-      slug: "org_admin",
-      name: "Organization Admin",
-      code: "org_admin",
+      slug: "admin",
+      name: "Admin",
+      code: "admin",
+      description: "Full platform access except billing ownership and organization deletion.",
       level: 80,
       priority: 10,
-      isSystemRole: true,
+      scope: "organization",
       isProtected: true,
-      permissions: permissionDefs
-        .filter((p) => !p.string.startsWith("billing."))
-        .map((p) => p.string),
+      permissions: [
+        ...everyone,
+        ...teamManagement,
+        ...contentCreation,
+        ...contentApproval,
+        ...analyticsExport,
+        ...orgAdministration,
+      ],
     },
     {
-      slug: "member",
-      name: "Member",
-      code: "member",
-      level: 30,
-      priority: 50,
-      isSystemRole: true,
+      slug: "manager",
+      name: "Manager",
+      code: "manager",
+      description: "Operational access; content approval; team management below Manager.",
+      level: 60,
+      priority: 20,
+      scope: "organization",
       isProtected: false,
       permissions: [
-        "posts.create",
-        "posts.read",
-        "posts.update",
-        "posts.delete",
-        "posts.publish",
-        "analytics.read",
-        "members.read",
-        "users.read",
-        "org.read",
-        "settings.read",
+        ...everyone,
+        ...teamManagement,
+        ...contentCreation,
+        ...contentApproval,
+        ...analyticsExport,
       ],
+    },
+    {
+      slug: "creator",
+      name: "Creator",
+      code: "creator",
+      description: "Create and submit content; no approval authority.",
+      level: 40,
+      priority: 30,
+      scope: "organization",
+      isProtected: false,
+      permissions: [...everyone, ...contentCreation],
+    },
+    {
+      slug: "analyst",
+      name: "Analyst",
+      code: "analyst",
+      description: "Read-only analytics, monitoring and reporting; no content creation.",
+      level: 20,
+      priority: 40,
+      scope: "organization",
+      isProtected: false,
+      permissions: [...everyone, ...analyticsExport],
     },
     {
       slug: "viewer",
       name: "Viewer",
       code: "viewer",
+      description: "Read-only dashboard and report access.",
       level: 10,
-      priority: 100,
-      isSystemRole: true,
+      priority: 50,
+      scope: "organization",
       isProtected: false,
-      permissions: ["posts.read", "analytics.read", "members.read", "org.read"],
+      permissions: [...everyone],
     },
   ] as const;
 
@@ -310,14 +379,18 @@ async function seed() {
     // alone can never infer an arbiter (Postgres 42P10).
     await db.execute(
       sql`
-        INSERT INTO roles (slug, name, display_name, code, level, priority, is_system_role, is_protected)
-        VALUES (${role.slug}, ${role.name}, ${role.name}, ${role.code}, ${role.level}, ${role.priority}, ${role.isSystemRole}, ${role.isProtected})
+        INSERT INTO roles (slug, name, display_name, description, code, level, priority, type, scope, is_system_role, is_protected)
+        VALUES (${role.slug}, ${role.name}, ${role.name}, ${role.description}, ${role.code}, ${role.level}, ${role.priority}, 'system', ${role.scope}::role_scope, true, ${role.isProtected})
         ON CONFLICT (code) WHERE deleted_at IS NULL AND archived_at IS NULL DO UPDATE SET
           name = EXCLUDED.name,
           display_name = EXCLUDED.display_name,
-          code = EXCLUDED.code,
+          description = EXCLUDED.description,
           level = EXCLUDED.level,
-          priority = EXCLUDED.priority
+          priority = EXCLUDED.priority,
+          type = EXCLUDED.type,
+          scope = EXCLUDED.scope,
+          is_system_role = EXCLUDED.is_system_role,
+          is_protected = EXCLUDED.is_protected
         RETURNING id
       `,
     );
@@ -325,13 +398,48 @@ async function seed() {
   console.log(`  ✓ ${roleDefs.length} roles seeded`);
 
   // Fetch role IDs
-  const roleRows = await db.execute<{ id: string; slug: string }>(sql`SELECT id, slug FROM roles`);
+  const roleRows = await db.execute<{ id: string; slug: string }>(
+    sql`SELECT id, slug FROM roles WHERE organization_id IS NULL AND deleted_at IS NULL`,
+  );
   const roleMap = new Map<string, string>();
   for (const row of roleRows.rows ?? []) {
     roleMap.set((row as any).slug as string, (row as any).id as string);
   }
 
+  // ── Retire pre-DEC-039 roles ─────────────────────────────────────
+  // `org_admin` and `member` are dropped, not aliased (pre-production, no
+  // compatibility burden). Any membership still pointing at them is moved to
+  // the nearest successor first — organization_members.role_id is ON DELETE
+  // SET NULL, and a NULL role means zero permissions (F-01). role_permissions
+  // and user_roles cascade.
+  const retired: Array<{ code: string; successor: string }> = [
+    { code: "org_admin", successor: "admin" },
+    { code: "member", successor: "creator" },
+  ];
+  for (const { code, successor } of retired) {
+    const successorId = roleMap.get(successor);
+    if (!successorId) continue;
+    for (const table of ["organization_members", "users", "user_roles"] as const) {
+      await db.execute(
+        sql`
+          UPDATE ${sql.raw(table)} t SET role_id = ${successorId}
+          FROM roles r
+          WHERE t.role_id = r.id AND r.code = ${code} AND r.organization_id IS NULL
+        `,
+      );
+    }
+    const deleted = await db.execute(
+      sql`DELETE FROM roles WHERE code = ${code} AND organization_id IS NULL RETURNING id`,
+    );
+    if ((deleted.rows ?? []).length > 0) {
+      console.log(`  ✓ retired role "${code}" (memberships moved to "${successor}")`);
+    }
+  }
+
   // ── Role-Permission Mappings ─────────────────────────────────────
+  // Converges on the matrix above: grants that are missing are added and
+  // grants that are no longer in the matrix are removed, so re-running the
+  // seed after a matrix change leaves no stale permissions behind.
   let mappingCount = 0;
   for (const role of roleDefs) {
     const roleId = roleMap.get(role.slug);
@@ -349,6 +457,18 @@ async function seed() {
       );
       mappingCount++;
     }
+    await db.execute(
+      sql`
+        DELETE FROM role_permissions rp
+        USING permissions p
+        WHERE rp.role_id = ${roleId}
+          AND rp.permission_id = p.id
+          AND p.permission_string NOT IN (${sql.join(
+            role.permissions.map((perm) => sql`${perm}`),
+            sql`, `,
+          )})
+      `,
+    );
   }
   console.log(`  ✓ ${mappingCount} role-permission mappings seeded`);
 

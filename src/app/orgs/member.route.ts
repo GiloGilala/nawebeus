@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { getOrgContext } from "../../lib/org-context";
 import { success } from "../../lib/response";
 import { authMiddleware } from "../../server/middleware/auth";
 import { requireOrgMatch } from "../../server/middleware/org-match";
@@ -51,7 +52,8 @@ router.patch(
       body = {};
     }
     const parsed = updateMemberSchema.parse(body);
-    const member = await updateMember(db, orgId, memberId, parsed);
+    const { userId: actingUserId } = await getOrgContext();
+    const member = await updateMember(db, orgId, memberId, parsed, actingUserId);
     return c.json(success({ member }));
   },
 );
@@ -65,7 +67,8 @@ router.delete(
     const db = c.var.db;
     const orgId = c.req.param("orgId");
     const memberId = c.req.param("memberId");
-    await removeMember(db, orgId, memberId);
+    const { userId: actingUserId } = await getOrgContext();
+    await removeMember(db, orgId, memberId, actingUserId);
     c.status(204);
     return c.body(null);
   },

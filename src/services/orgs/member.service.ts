@@ -1,6 +1,14 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../../lib/errors";
+import { writeAuditLog } from "../audit";
+import { assignRole } from "./role-assignment.service";
+import {
+  assertMemberActionAllowed,
+  assertNotLastAdministrator,
+  findMemberRole,
+  requireActorRole,
+} from "./role-policy";
 
 export interface MemberProfile {
   id: string;
@@ -106,9 +114,17 @@ export async function updateMember(
   orgId: string,
   memberId: string,
   input: UpdateMemberInput,
+  actingUserId: string,
 ): Promise<MemberProfile> {
+  // A role change is a role assignment, wherever it is submitted from: run
+  // it through the guarded path so PATCH /members/:id cannot bypass the
+  // hierarchy and self-protection rules enforced on /members/assign-role.
+  if (input.roleId !== undefined) {
+    const target = await getMember(db, orgId, memberId);
+    await assignRole(db, orgId, actingUserId, { userId: target.userId, roleId: input.roleId });
+  }
+
   const sets: ReturnType<typeof sql>[] = [];
-  if (input.roleId !== undefined) sets.push(sql`role_id = ${input.roleId}`);
   if (input.displayName !== undefined) sets.push(sql`display_name = ${input.displayName}`);
   if (input.jobTitle !== undefined) sets.push(sql`job_title = ${input.jobTitle}`);
   if (input.department !== undefined) sets.push(sql`department = ${input.department}`);
@@ -121,18 +137,57 @@ export async function updateMember(
   return await getMember(db, orgId, memberId);
 }
 
+/**
+ * Remove a member from the organization (soft delete).
+ *
+ * Guards (role-policy.ts): the Owner is never removed, nobody removes
+ * themselves, the actor must outrank the member, and the last active
+ * Owner/Admin stays (BR-AUTH-030).
+ *
+ * The row is marked `deleted_at` + `is_active = false` and its status set to
+ * `suspended`: `member_status` has no "removed"/"deactivated" value (the
+ * previous `status = 'deactivated'` was an enum violation, so every removal
+ * failed with a 500 — F-21). `deleted_at IS NULL` is the membership
+ * predicate everywhere, so the status value only has to be a legal one;
+ * `suspended` matches what account deletion already writes.
+ */
 export async function removeMember(
   db: NodePgDatabase<Record<string, any>>,
   orgId: string,
   memberId: string,
+  actingUserId: string,
 ): Promise<void> {
+  const actor = await requireActorRole(db, orgId, actingUserId);
+  const target = await findMemberRole(db, orgId, { memberId });
+  if (!target) throw new NotFoundError("Member not found");
+
+  assertMemberActionAllowed({
+    actor: { userId: actor.userId, code: actor.code, level: actor.level },
+    target: { userId: target.userId, code: target.code, level: target.level },
+  });
+  await assertNotLastAdministrator(db, orgId, target);
+
   await db.execute(
     sql`
       UPDATE organization_members
-      SET deleted_at = now(), status = 'deactivated'
+      SET deleted_at = now(), status = 'suspended', is_active = false, updated_at = now()
       WHERE id = ${memberId}
         AND organization_id = ${orgId}
         AND deleted_at IS NULL
     `,
   );
+
+  await writeAuditLog({
+    db,
+    module: "core",
+    organizationId: orgId,
+    actorId: actingUserId,
+    actorType: "user",
+    action: "organization.member.removed",
+    category: "authorization",
+    resourceType: "member",
+    resourceId: memberId,
+    targetUserId: target.userId,
+    beforeState: { roleId: target.roleId, roleCode: target.code, status: target.status },
+  });
 }

@@ -1,6 +1,14 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { NotFoundError } from "../../lib/errors";
+import { ForbiddenError, NotFoundError } from "../../lib/errors";
+import { writeAuditLog } from "../audit";
+import { assignRole } from "../orgs/role-assignment.service";
+import {
+  assertMemberActionAllowed,
+  assertNotLastAdministrator,
+  findMemberRole,
+  requireActorRole,
+} from "../orgs/role-policy";
 
 export interface AdminUserProfile {
   id: string;
@@ -103,12 +111,43 @@ export async function getUserById(
   };
 }
 
+/**
+ * Admin update of a user inside the acting user's organization.
+ *
+ * Role changes delegate to `assignRole`, so this endpoint enforces the same
+ * hierarchy and self-protection rules as /members/assign-role. Suspending
+ * (or otherwise changing the status of) a member is a moderation action on
+ * that member and is guarded the same way removal is: not the Owner, not
+ * yourself ("Cannot suspend self", module spec §6.3), only members below
+ * your own role, and never the last active Owner/Admin.
+ */
 export async function updateUserAsAdmin(
   db: NodePgDatabase<Record<string, any>>,
   orgId: string,
   userId: string,
   input: AdminUpdateUserInput,
+  actingUserId: string,
 ): Promise<AdminUserProfile> {
+  // Confirms the target is a member of *this* organization before any write.
+  const before = await getUserById(db, orgId, userId);
+
+  if (input.roleId !== undefined) {
+    await assignRole(db, orgId, actingUserId, { userId, roleId: input.roleId });
+  }
+
+  if (input.status !== undefined && input.status !== before.status) {
+    const actor = await requireActorRole(db, orgId, actingUserId);
+    const target = await findMemberRole(db, orgId, { userId });
+    if (!target) throw new NotFoundError("User not found in this organization");
+    assertMemberActionAllowed({
+      actor: { userId: actor.userId, code: actor.code, level: actor.level },
+      target: { userId: target.userId, code: target.code, level: target.level },
+    });
+    if (input.status !== "active") {
+      await assertNotLastAdministrator(db, orgId, target);
+    }
+  }
+
   const sets: ReturnType<typeof sql>[] = [];
   if (input.firstName !== undefined) sets.push(sql`first_name = ${input.firstName}`);
   if (input.lastName !== undefined) sets.push(sql`last_name = ${input.lastName}`);
@@ -121,20 +160,56 @@ export async function updateUserAsAdmin(
     );
   }
 
-  if (input.roleId !== undefined) {
-    await db.execute(
-      sql`UPDATE organization_members SET role_id = ${input.roleId}, updated_at = now() WHERE organization_id = ${orgId} AND user_id = ${userId} AND deleted_at IS NULL`,
-    );
+  if (input.status !== undefined && input.status !== before.status) {
+    await writeAuditLog({
+      db,
+      module: "core",
+      organizationId: orgId,
+      actorId: actingUserId,
+      actorType: "user",
+      action: "organization.member.status_changed",
+      category: "user_management",
+      resourceType: "user",
+      resourceId: userId,
+      targetUserId: userId,
+      beforeState: { status: before.status },
+      afterState: { status: input.status },
+    });
   }
 
   return await getUserById(db, orgId, userId);
 }
 
+/**
+ * Admin deletion of a user from the acting user's organization.
+ *
+ * Guarded like member removal (Owner never, self never, only members below
+ * the actor, last Owner/Admin stays). The membership status is set to
+ * `suspended` alongside `deleted_at` because `member_status` has no
+ * "deactivated" value — the previous literal was an enum violation and every
+ * call 500'd (F-21).
+ *
+ * Note: this soft-deletes the *user account*, not just the membership —
+ * inherited behaviour, kept as-is pending the multi-org decision (D14).
+ */
 export async function deleteUser(
   db: NodePgDatabase<Record<string, any>>,
   orgId: string,
   userId: string,
+  actingUserId: string,
 ): Promise<void> {
+  const actor = await requireActorRole(db, orgId, actingUserId);
+  const target = await findMemberRole(db, orgId, { userId });
+  if (!target) throw new NotFoundError("User not found in this organization");
+  if (actor.userId === target.userId) {
+    throw new ForbiddenError("You cannot delete your own account here — use account deletion");
+  }
+  assertMemberActionAllowed({
+    actor: { userId: actor.userId, code: actor.code, level: actor.level },
+    target: { userId: target.userId, code: target.code, level: target.level },
+  });
+  await assertNotLastAdministrator(db, orgId, target);
+
   await db.execute(
     sql`
       UPDATE users
@@ -145,8 +220,22 @@ export async function deleteUser(
   await db.execute(
     sql`
       UPDATE organization_members
-      SET deleted_at = now(), status = 'deactivated'
+      SET deleted_at = now(), status = 'suspended', is_active = false, updated_at = now()
       WHERE organization_id = ${orgId} AND user_id = ${userId} AND deleted_at IS NULL
     `,
   );
+
+  await writeAuditLog({
+    db,
+    module: "core",
+    organizationId: orgId,
+    actorId: actingUserId,
+    actorType: "user",
+    action: "organization.member.deleted",
+    category: "user_management",
+    resourceType: "user",
+    resourceId: userId,
+    targetUserId: userId,
+    beforeState: { roleId: target.roleId, roleCode: target.code, status: target.status },
+  });
 }

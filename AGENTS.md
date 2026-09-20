@@ -69,7 +69,7 @@ bun run build           # typecheck + bundle to dist/
 - **`db:push` is not idempotent** — it fails with `42P16` (`column "id" is in a primary key`) against any database that already has the schema, after partially applying statements. `strict: true` also makes it prompt unless you pass `-- --force`. Dropping and recreating the database is currently the only reliable path. NWB-P0-005 replaces this with a real migration baseline.
 - `bun run db:generate` — generate migration SQL to `drizzle/migrations/`.
 - `bun run db:studio` — open Drizzle Studio GUI.
-- `bun run seed` — seed permissions, roles, the bootstrap admin, and its organization. **Idempotent.** The test suite depends on it: against an unseeded database 7 tests fail (the `seed data`, `RBAC integration`, and `signin with valid credentials` groups).
+- `bun run seed` — seed permissions, roles, the bootstrap admin, and its organization. **Idempotent and convergent**: role-permission grants not in the seed's matrix are removed on re-run, and the pre-DEC-039 roles (`org_admin`, `member`) are retired with their memberships re-pointed (`admin`, `creator`). The test suite depends on it: against an unseeded database 7 tests fail (the `seed data`, `RBAC integration`, and `signin with valid credentials` groups).
 
 ## Architecture
 
@@ -101,7 +101,7 @@ src/services/             ← Business logic (single source of truth)
            mfa, totp, ability, api-key
   users/   user.service, admin.service, account-deletion.service
   orgs/    org.service, member.service, invitation.service,
-           role-assignment.service
+           role-assignment.service, role-policy (hierarchy rules)
   email.ts, audit.ts
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
@@ -143,6 +143,7 @@ directory you care about) for the complete set.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.
 - **`runWithOrgContext()` must be awaited inside middleware** — Hono's `compose()` checks `context.finalized` as soon as a handler's promise settles. Calling `next()` without awaiting it resolves the chain before the route handler writes its response, and Hono throws "Context is not finalized" → a blanket 500 on every protected route.
+- **Role hierarchy is DEC-039** — one platform role (`super_admin`, level 100) plus six per-organization system roles: `owner` 90, `admin` 80, `manager` 60, `creator` 40, `analyst` 20, `viewer` 10 (all `organization_id IS NULL`; `org_admin`/`member` no longer exist — the seed retires them). Rank comparisons use `roles.level`; only `owner`/`admin` have code-specific semantics. The rules — Owner is transferred never granted, Owner never demoted/removed, no self-change, actor must strictly outrank both the target and the granted role, at least one active Owner/Admin remains (BR-AUTH-030) — live in `src/services/orgs/role-policy.ts`, and **every** path that writes `organization_members.role_id` or removes/suspends a member goes through it (`assign-role`, `PATCH /members/:id`, `PATCH /users/:id`, both DELETEs). Add a new write path without it and you have re-opened F-07.
 - **CASL for authorization** — `loadAbility()` queries the DB for the user's role permissions, builds a CASL ability scoped with `{ organizationId: orgId }`, and attaches it to the context. Routes use `requireAbility(action, subject)`.
 - **API response envelope** — success: `{ data: T, meta? }`; error: `{ error: { code, message, details? } }`.
 - **Every 500 is opaque by default** — `errorHandler` maps any non-`AppError` to a generic `INTERNAL_ERROR`, so the real cause never reaches the client. Run with `NWB_DEBUG_ERRORS=1` to have it log the underlying exception and stack first.

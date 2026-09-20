@@ -50,9 +50,14 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-007 | Adopt decisions D1 + D5; track D2–D12 | — | S | [issues/07-adopt-decisions.md](issues/07-adopt-decisions.md) |
 | NWB-P0-008 | Concurrent sign-in lockout is a lost update | — | S | `issues/08-concurrent-lockout-lost-update.md` |
 | NWB-P0-009 | `db:push` cannot converge on an existing database | NWB-P0-005 | M | `issues/09-db-push-not-idempotent.md` |
+| NWB-P0-010 | Assign the Owner role atomically at signup (F-01) | D13 | M | `issues/10-owner-role-at-signup.md` — **done** |
+| NWB-P0-011 | Org permission subject `org` vs `organization` (F-02) | D13 | S | `issues/11-org-permission-subject.md` — **done** |
+| NWB-P0-014 | Role model (DEC-039) + real self-protection guards (F-07, F-21) | D13 | M | `issues/14-role-model-and-self-protection.md` — **done** |
 
 > Tickets 02, 05, and 06 are listed here but their files do not exist yet — the index was
-> written ahead of the tickets. Files present: 01, 03, 04, 07, 08, 09.
+> written ahead of the tickets. Files present: 01, 03, 04, 07, 08, 09, 10, 11, 14. The Phase 1
+> task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
+> filed here as they are picked up.
 
 
 ## Decisions

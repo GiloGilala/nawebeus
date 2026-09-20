@@ -18,7 +18,7 @@ Verified against the repo on **2026-09-13** at HEAD `049a837`.
 | D10 | Decision Engine scope | 🔴 Open | `docs/modules/Nawebeus Decision Engine.md` supersedes the `new features/` docs and is unreferenced by PRD/Roadmap. Product call. |
 | D11 | Row-level security | 🔴 Open | ADR-009 specifies RLS; not implemented. Blocks P15-001. |
 | D12 | **Module-set scope** *(new — found during D1)* | 🔴 Open | **Must be resolved before P3, P8, P9, P10.** Options memo: [D12-scope-decision-memo.md](D12-scope-decision-memo.md). See below. |
-| D13 | **Role hierarchy** *(new — master roadmap audit 2026-09-20)* | ✅ **Resolved** | **DEC-039 (Approved, 2026-09-20), option (a):** platform `super_admin` + per-org `owner/admin/manager/creator/analyst/viewer`; drop `org_admin`/`member` pre-prod; guards reference real codes. Implementing via NWB-P0-010 + NWB-P0-014. See below. |
+| D13 | **Role hierarchy** *(new — master roadmap audit 2026-09-20)* | ✅ **Resolved** | **DEC-039 (Approved, 2026-09-20), option (a):** platform `super_admin` + per-org `owner/admin/manager/creator/analyst/viewer`; drop `org_admin`/`member` pre-prod; guards reference real codes. **Implemented: NWB-P0-010 (owner at signup) + NWB-P0-014 (full role set, guards, seed retirement) — both done 2026-09-20.** See below. |
 | D14 | **Multi-org membership / org switching** *(new — master roadmap 2026-09-20)* | 🔴 Open | Phase 1 proceeds with single-org semantics (option (a)) as the conservative default for invitation-accept. Final call with D12's product session, **before Phase 7**. |
 | D15 | **API versioning** *(new — master roadmap 2026-09-20)* | 🔴 Open | Recommended: keep unversioned, correct docs (discrepancy D-11); revisit at P17 public API. Record in Phase 1 bookkeeping (NWB-P0-019). |
 
