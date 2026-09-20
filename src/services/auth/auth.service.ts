@@ -5,6 +5,13 @@ import { AccountLockedError, AuthError } from "../../lib/errors";
 import { checkRateLimit } from "../../lib/rate-limit";
 import { writeAuditLog } from "../audit";
 import { type JwtPayload, signAccessToken, signRefreshToken, verifyToken } from "./jwt";
+import {
+  createMfaChallenge,
+  enforceMfaVerifyRateLimit,
+  peekMfaChallenge,
+  revokeMfaChallenge,
+  verifyMFAForLogin,
+} from "./mfa";
 import { hashPassword, verifyPassword } from "./password";
 import { recordPasswordChange } from "./password-history";
 import {
@@ -15,7 +22,6 @@ import {
   revokeSession,
   sessionTtlSeconds,
 } from "./session";
-import { verifyTOTP } from "./totp";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
@@ -36,6 +42,12 @@ export interface SignInResult {
   sessionId?: string;
   requiresMfa: boolean;
   mfaMethod?: "totp" | "backup";
+  /**
+   * Login-challenge token, present only when `requiresMfa` is true. The client
+   * presents it to `POST /mfa/verify-login` alongside the TOTP/backup code.
+   * Single-use, 15-minute TTL.
+   */
+  mfaSessionId?: string;
 }
 
 export async function signIn(
@@ -44,7 +56,6 @@ export async function signIn(
   password: string,
   options?: SignInOptions,
 ): Promise<SignInResult> {
-  const config = getConfig();
   const ip = options?.ip ?? "unknown";
 
   // --- IP-level rate limit (BR-AUTH-018) ---
@@ -145,31 +156,67 @@ export async function signIn(
   const userId = user.id as string;
   const orgId = (user.organization_id as string) ?? "";
 
-  // --- MFA verification if a code was provided ---
-  if (options?.mfaCode && user.two_factor_enabled) {
-    const mfaValid = user.two_factor_secret
-      ? verifyTOTP(options.mfaCode, user.two_factor_secret)
-      : false;
-    if (!mfaValid) {
-      throw new AuthError("Invalid MFA code");
+  // --- MFA: single-shot code, or issue a login challenge ---
+  if (user.two_factor_enabled) {
+    if (options?.mfaCode) {
+      // Password + second factor in one request. Gated by the same AC8 budget
+      // as the challenge path, and verified against the active secret (TOTP)
+      // or the stored backup-code digests.
+      await enforceMfaVerifyRateLimit(db, userId, ip);
+      await verifyMFAForLogin(db, userId, options.mfaCode, { ip });
+    } else {
+      // Password checks out but the second factor is still outstanding: issue a
+      // challenge and let `verifyMfaChallengeLogin` complete the login.
+      const mfaSessionId = await createMfaChallenge(db, userId, ip);
+      return {
+        userId,
+        orgId,
+        requiresMfa: true,
+        mfaMethod: "totp",
+        mfaSessionId,
+      };
     }
   }
 
-  // --- If MFA is enabled and no code was provided, return a challenge ---
-  if (user.two_factor_enabled && !options?.mfaCode) {
-    return {
-      userId,
-      orgId,
-      requiresMfa: true,
-      mfaMethod: "totp",
-      sessionId: userId,
-    };
-  }
+  // --- Create session (shared with the MFA-challenge completion path) ---
+  const issued = await completeSignIn(db, userId, orgId, {
+    rememberMe: !!options?.rememberMe,
+    ip,
+  });
 
-  // --- Create session ---
+  return {
+    userId,
+    orgId,
+    sessionId: issued.sessionId,
+    accessToken: issued.accessToken,
+    refreshToken: issued.refreshToken,
+    requiresMfa: false,
+  };
+}
+
+export interface IssuedSession {
+  sessionId: string;
+  accessToken: string;
+  refreshToken: string;
+}
+
+/**
+ * Issues a session + token pair for an already-authenticated user. Shared by
+ * `signIn` (password-only and single-shot MFA logins) and
+ * `verifyMfaChallengeLogin` (challenge completion), so every login path mints
+ * sessions identically.
+ */
+export async function completeSignIn(
+  db: NodePgDatabase<Record<string, any>>,
+  userId: string,
+  orgId: string,
+  options: { rememberMe: boolean; ip: string },
+): Promise<IssuedSession> {
+  const config = getConfig();
+
   const sessionId = crypto.randomUUID();
   // Same TTL the session row records as `expires_at` — see sessionTtlSeconds.
-  const refreshTtlSec = sessionTtlSeconds(!!options?.rememberMe);
+  const refreshTtlSec = sessionTtlSeconds(options.rememberMe);
   const refreshToken = await signRefreshToken(
     sessionId,
     userId,
@@ -178,8 +225,8 @@ export async function signIn(
     refreshTtlSec,
   );
   const tokenHash = await hashToken(refreshToken);
-  const session = await createSession(db, sessionId, userId, tokenHash, !!options?.rememberMe, {
-    ip,
+  const session = await createSession(db, sessionId, userId, tokenHash, options.rememberMe, {
+    ip: options.ip,
   });
 
   const accessToken = await signAccessToken(userId, orgId, config.JWT_ACCESS_SECRET);
@@ -197,12 +244,56 @@ export async function signIn(
     resourceId: userId,
   });
 
+  return { sessionId: session.id, accessToken, refreshToken };
+}
+
+export interface VerifyMfaChallengeInput {
+  challengeToken: string;
+  code: string;
+  rememberMe?: boolean;
+  ip?: string;
+}
+
+/**
+ * Completes a challenged login: validates the `mfaSessionId` issued by `signIn`,
+ * enforces the AC8 attempt budget, verifies the TOTP/backup code, burns the
+ * challenge (single-use), and issues the session.
+ */
+export async function verifyMfaChallengeLogin(
+  db: NodePgDatabase<Record<string, any>>,
+  input: VerifyMfaChallengeInput,
+): Promise<SignInResult> {
+  const ip = input.ip ?? "unknown";
+
+  const challenge = await peekMfaChallenge(db, input.challengeToken);
+  if (!challenge) {
+    throw new AuthError("Invalid or expired MFA challenge. Sign in again to get a new one.");
+  }
+
+  await enforceMfaVerifyRateLimit(db, challenge.userId, ip);
+  await verifyMFAForLogin(db, challenge.userId, input.code, { ip });
+
+  // Success burns the challenge: a verified challenge can never complete twice.
+  await revokeMfaChallenge(db, challenge.id);
+
+  const rows = await db.execute<{ organization_id: string | null }>(
+    sql`SELECT organization_id FROM users WHERE id = ${challenge.userId} LIMIT 1`,
+  );
+  const user = (rows as any).rows?.[0] as any;
+  if (!user) throw new AuthError("User not found");
+  const orgId = (user.organization_id as string | null) ?? "";
+
+  const issued = await completeSignIn(db, challenge.userId, orgId, {
+    rememberMe: !!input.rememberMe,
+    ip,
+  });
+
   return {
-    userId,
+    userId: challenge.userId,
     orgId,
-    sessionId: session.id,
-    accessToken,
-    refreshToken,
+    sessionId: issued.sessionId,
+    accessToken: issued.accessToken,
+    refreshToken: issued.refreshToken,
     requiresMfa: false,
   };
 }

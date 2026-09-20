@@ -97,6 +97,16 @@ export const users = pgTable(
       .$type<string[]>()
       .default(sql`'[]'::jsonb`),
 
+    // Staged MFA setup (NWB-P0-012 / F-04b). `initiateMFASetup` writes here and
+    // leaves the active secret alone; `confirmMFASetup` promotes staged state
+    // to active. An abandoned setup therefore never disturbs working MFA.
+    // Backup codes are staged as SHA-256 hex digests (see mfa.ts).
+    pendingTwoFactorSecret: varchar("pending_two_factor_secret", { length: 255 }),
+    pendingTwoFactorBackupCodes: jsonb("pending_two_factor_backup_codes").$type<string[]>(),
+    pendingTwoFactorExpiresAt: timestamp("pending_two_factor_expires_at", {
+      withTimezone: true,
+    }),
+
     // Security tracking
     loginCount: integer("login_count").notNull().default(0),
     failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),

@@ -10,8 +10,26 @@ export interface RateLimitConfig {
 let warnedAboutFailure = false;
 
 /**
- * Sliding-window rate limit backed by the `rate_limits` table.
+ * Fixed-window rate limit backed by the `rate_limits` table.
  * Returns true when the caller has exceeded the allowed number of attempts.
+ *
+ * Window-aware upsert (NWB-P0-013's specified statement, adopted here as a
+ * prerequisite because the MFA AC8 gate needs a working limiter): the stored
+ * window is compared against the current clock-anchored window in one
+ * statement, so the count increments inside the window and resets to 1 when
+ * the window rolls. The previous shape compared the stored `window_start`
+ * against a freshly computed sliding begin, which is always later than any
+ * stored value — so the `WHERE` never matched, the count stuck at 1, and the
+ * limiter never blocked anything (F-12 is worse than described: not "dead
+ * after the first window" but a complete no-op).
+ *
+ * Anchored windows admit a boundary burst (up to 2× max across a window edge).
+ * That is the roadmap's specified semantic; brute-forcing any current budget
+ * (IP 20/30 min, MFA 3/15 min) stays infeasible even doubled.
+ *
+ * NWB-P0-013 retains: the reclamation path for expired rows, dedicated limiter
+ * tests (window rollover, reclamation), and doc updates. The MFA AC8 tests
+ * cover this statement behaviorally (3 allowed, 4th blocked in-window).
  */
 export async function checkRateLimit(
   db: NodePgDatabase<Record<string, any>>,
@@ -20,14 +38,23 @@ export async function checkRateLimit(
   windowMs: number,
 ): Promise<boolean> {
   try {
-    const windowStart = new Date(Date.now() - windowMs);
+    // Clock-anchored window: the CASE below is only correct when `$windowStart`
+    // is stable within a window (a sliding begin would reset the count on
+    // every call — the mirror image of the bug this replaces).
+    const anchor = Math.floor(Date.now() / windowMs) * windowMs;
+    const windowStart = new Date(anchor);
+    const windowEnd = new Date(anchor + windowMs);
     await db.execute(
       sql`
         INSERT INTO rate_limits (id, key, count, window_start, expires_at)
-        VALUES (${crypto.randomUUID()}, ${key}, 1, ${windowStart.toISOString()}, ${new Date(Date.now() + windowMs).toISOString()})
+        VALUES (${crypto.randomUUID()}, ${key}, 1, ${windowStart.toISOString()}, ${windowEnd.toISOString()})
         ON CONFLICT (key)
-        DO UPDATE SET count = rate_limits.count + 1, expires_at = ${new Date(Date.now() + windowMs).toISOString()}
-        WHERE rate_limits.window_start >= ${windowStart.toISOString()}
+        DO UPDATE SET
+          count = CASE WHEN rate_limits.window_start >= ${windowStart.toISOString()}
+                       THEN rate_limits.count + 1 ELSE 1 END,
+          window_start = CASE WHEN rate_limits.window_start >= ${windowStart.toISOString()}
+                              THEN rate_limits.window_start ELSE ${windowStart.toISOString()} END,
+          expires_at = ${windowEnd.toISOString()}
       `,
     );
     const rows = await db.execute<{ count: number }>(

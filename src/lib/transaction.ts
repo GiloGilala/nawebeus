@@ -33,19 +33,36 @@ export type DbOrTx =
  *   while leaving the outer transaction usable (preserving the harness's
  *   rollback isolation).
  *
- * The probe query adds one round-trip per call; intended for correctness
- * paths (signup, org lifecycle), not hot loops.
+ * The probe adds two round-trips per call; intended for correctness paths
+ * (signup, org lifecycle), not hot loops.
  */
 let savepointCounter = 0;
 
+/**
+ * True when the handle's connection is already inside a transaction block.
+ *
+ * Implemented as a throwaway SAVEPOINT pair: PostgreSQL accepts it inside a
+ * transaction and rejects it outside one (25P01), and a statement that fails
+ * outside a transaction auto-commits nothing, so the failed probe poisons
+ * nothing. Do NOT "simplify" this to `txid_current_if_assigned() IS NOT
+ * NULL` — that reads NULL until the transaction's first *write*, so a caller
+ * that only reads before this helper (every signup test) takes the production
+ * path, whose stray COMMIT ends the outer transaction and silently persists
+ * the data (F-23).
+ */
+async function isInTransaction(db: Db): Promise<boolean> {
+  const probe = `sp_tx_probe_${savepointCounter++}`;
+  try {
+    await db.execute(sql.raw(`SAVEPOINT ${probe}`));
+    await db.execute(sql.raw(`RELEASE SAVEPOINT ${probe}`));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function withAtomicWrites<T>(db: Db, fn: (tx: DbOrTx) => Promise<T>): Promise<T> {
-  // txid_current_if_assigned() is NULL outside a transaction and errors-free
-  // (unlike txid_current()); it has been a built-in since Postgres 10, so it
-  // works on the PG14 floor and the PG18 local dev server alike.
-  const probe = await db.execute<{ in_tx: boolean }>(
-    sql`SELECT txid_current_if_assigned() IS NOT NULL AS in_tx`,
-  );
-  const inTx = Boolean((probe as any).rows?.[0]?.in_tx);
+  const inTx = await isInTransaction(db);
 
   if (!inTx) {
     // Production path: drizzle manages BEGIN/COMMIT on a dedicated pooled
