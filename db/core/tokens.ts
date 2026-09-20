@@ -106,7 +106,9 @@ export const tokens = pgTable(
     deletedBy: varchar("deleted_by", { length: 255 }),
     isRevoked: boolean("is_revoked").notNull().default(false),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    revokedBy: uuid("revoked_by").references(() => users.id),
+    // set null like every other attribution FK (F-28): nothing writes this yet,
+    // but a future token-revocation path must not resurrect the purge blocker.
+    revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
     revokeReason: revokeReasonPgEnum("revoke_reason"),
     isActive: boolean("is_active").notNull().default(true),
 

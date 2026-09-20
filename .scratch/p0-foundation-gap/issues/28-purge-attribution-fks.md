@@ -1,6 +1,9 @@
 # NWB-P0-028 — Purge still 23503s on `api_keys.*_by` and `tokens.revoked_by` (F-28)
 
-**Status:** ready-for-agent
+**Status:** done — 2026-09-20 (verified locally: typecheck + lint + build + 342/342 `bun test`
+with a live database; red-first: with the old NO ACTION FKs the new test dies on 23503
+(`api_keys_created_by_users_id_fk`), with the fix it passes and all six affected constraints
+read `confdeltype = 'n'` (SET NULL) in the catalog; CI run on this branch's PR)
 **Deps:** none. The `organizations.created_by` half of this class shipped in NWB-P0-025.
 **Size:** S.
 **Found while:** landing NWB-P0-025 (F-25) — enumeration of every FK to `users(id)` in the
@@ -33,9 +36,21 @@ gates on); `organizations.created_by` was fixed in NWB-P0-025.
 
 ## Acceptance criteria
 
-- [ ] All five columns carry `.references(() => users.id, { onDelete: "set null" })`
-- [ ] A DB-gated test: user with an API key (and, if cheap, a revoked token) deletes
-      their account, grace window is expired, `purgeExpiredAccounts` removes them and
-      the attribution columns on the surviving rows are NULL
-- [ ] `bun run db:push -- --force` applies cleanly (FK drop/add only)
-- [ ] `bun test` green with DB
+- [x] All five columns carry `.references(() => users.id, { onDelete: "set null" })`
+      (catalog-verified: `confdeltype = 'n'` on all six constraints incl.
+      `organizations.created_by`)
+- [x] A DB-gated test: user with an API key deletes their account, grace window is
+      expired, `purgeExpiredAccounts` removes them and the attribution columns on the
+      surviving rows are NULL — `src/tests/auth/account-deletion.test.ts` ("purge
+      removes a user who created and revoked API keys…"), made to fail against the old
+      NO ACTION FKs first (23503 on `api_keys_created_by_users_id_fk`)
+- [x] `bun run db:push -- --force` applies cleanly (FK drop/add only; convergence run
+      clean twice, incl. the stash-revert round-trip used for the red-first proof)
+- [x] `bun test` green with DB — 342 pass / 0 fail
+
+Note on coverage shape: the behavioral test exercises `created_by` and `revoked_by`
+(the only columns with writers today — nothing writes `tokens.revoked_by` or
+`api_keys.updated_by/deleted_by` yet); those three columns got the same `set null` so a
+future writer cannot resurrect the blocker. `api_keys.user_id` was already correctly
+`set null` — a purged user's keys survive as org-owned rows and authorize nothing,
+since ability rebuild needs the owner.

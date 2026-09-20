@@ -173,7 +173,8 @@ directory you care about) for the complete set.
   written, so the purge is never reachable for an owner. `organizations.created_by` is
   nullable + `set null` so a *former* owner erases cleanly once ownership has moved on —
   `owner_id` itself stays NOT NULL + `restrict` on purpose. The same restrictive-FK
-  class on `api_keys.*_by` / `tokens.revoked_by` is still open (F-28 / NWB-P0-028).
+  class on `api_keys.*_by` / `tokens.revoked_by` is closed too (F-28 / NWB-P0-028 —
+  every attribution FK to `users(id)` in the schema is now `set null`).
   Until NWB-P0-023 ships an ownership-transfer path, a user whose signup created their
   personal organization cannot complete account deletion.
 - **Session rotation on every refresh** — the old session is revoked and a new one created. Reusing a refresh token after rotation is detected and rejected.

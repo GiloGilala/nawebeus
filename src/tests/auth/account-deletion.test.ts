@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { getConfig, loadConfig } from "../../lib/config";
+import { createApiKey, revokeApiKey } from "../../services/auth/api-key";
 import { signAccessToken } from "../../services/auth/jwt";
 import { createSession } from "../../services/auth/session";
 import {
@@ -301,6 +302,66 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
       expect(survivor.created_by).toBeNull();
       const gone = await db.execute<{ id: string }>(
         sql`SELECT id FROM users WHERE id = ${user.id}`,
+      );
+      expect((gone as unknown as { rows: Array<{ id: string }> }).rows).toHaveLength(0);
+    });
+  });
+
+  /**
+   * F-28: the same restrictive-FK class as F-25, one door down — until this fix
+   * `api_keys.created_by/updated_by/revoked_by/deleted_by` and `tokens.revoked_by`
+   * had no `onDelete` (NO ACTION ≈ restrict), so purging anyone who ever
+   * created or revoked an API key died on 23503 and the erasure stranded. Now
+   * they're `set null` like every other attribution FK: the purge completes and
+   * the surviving org-owned rows keep no trace of the purged user's id. (The
+   * class was already demonstrated red on `organizations.created_by` during
+   * NWB-P0-025; `api_keys.user_id` was always correctly `set null`.)
+   */
+  test("purge removes a user who created and revoked API keys; surviving keys lose the attribution (F-28)", async () => {
+    await withTestDb(async ({ db }) => {
+      const { org } = await signedInUser(db); // org owned by someone else — D16
+      const target = await createTestUser(db);
+
+      const created = await createApiKey(db, {
+        organizationId: org.id,
+        userId: target.id,
+        createdBy: target.id,
+        name: `key-${crypto.randomUUID().slice(0, 6)}`,
+        keyType: "admin",
+        environment: "development",
+        permissionLevel: "write",
+        securityLevel: "standard",
+        scopes: [],
+        expiresAt: null,
+        rotationStrategy: "manual",
+      });
+      await revokeApiKey(db, org.id, created.id, target.id, "cleanup", "user");
+
+      await deleteAccount(db, target.id);
+      await db.execute(
+        sql`UPDATE users SET scheduled_deletion_at = now() - interval '1 day' WHERE id = ${target.id}`,
+      );
+
+      const purged = await purgeExpiredAccounts(db);
+      expect(purged).toBe(1);
+
+      const keys = await db.execute<{
+        user_id: string | null;
+        created_by: string | null;
+        updated_by: string | null;
+        revoked_by: string | null;
+        deleted_by: string | null;
+      }>(
+        sql`SELECT user_id, created_by, updated_by, revoked_by, deleted_by FROM api_keys WHERE id = ${created.id}`,
+      );
+      const key = (keys as unknown as { rows: Array<Record<string, string | null>> }).rows[0]!;
+      // The org-owned key row survives; every pointer back to the purged user is nulled.
+      expect(key.created_by).toBeNull();
+      expect(key.revoked_by).toBeNull();
+      expect(key.user_id).toBeNull();
+
+      const gone = await db.execute<{ id: string }>(
+        sql`SELECT id FROM users WHERE id = ${target.id}`,
       );
       expect((gone as unknown as { rows: Array<{ id: string }> }).rows).toHaveLength(0);
     });
