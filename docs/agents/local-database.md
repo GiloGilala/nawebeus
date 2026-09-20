@@ -2,8 +2,8 @@
 
 `bun run dev`, `bun run seed`, and the integration suites need a PostgreSQL 14+ database. Nothing else does:
 
-- **Without `DATABASE_URL`** `bun test` runs the pure suites (208 pass, ~0.3 s) and cleanly **skips the 123 database-gated tests** (`describe.skipIf(!hasDb())`). It never goes red for lack of a database.
-- **With `DATABASE_URL`** pointing at a pushed and seeded database, the full suite runs (325 tests across 37 files, ~18 s).
+- **Without `DATABASE_URL`** `bun test` runs the pure suites (215 pass, ~0.2 s) and cleanly **skips the 152 database-gated tests** (`describe.skipIf(!hasDb())`). It never goes red for lack of a database.
+- **With `DATABASE_URL`** pointing at a pushed and seeded database, the full suite runs (360 tests across 40 files, ~22 s).
 - **CI** always runs the full suite against a `postgres:14` service container (`.github/workflows/ci.yml`). That is the source of truth; anything below is for reproducing it locally.
 
 ## Option 1 — a PostgreSQL you already have

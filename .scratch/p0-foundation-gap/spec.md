@@ -14,13 +14,24 @@ HEAD), 028 (purge attribution FKs, F-28 — filed while landing 025),
 and 002 (DSAR data export, AC8 of FR-AUTH-007), plus 005 (migration baseline —
 `drizzle/migrations/` is the committed evolution path; the CI step switch to
 `db:migrate` is locally proven and blocked only on the GitHub App's missing
-`workflows` permission — see the ticket).
+`workflows` permission — see the ticket), and 018 (CASL scope cleanup, F-06 —
+the inert org condition removed, the real enforcement chain documented, and a
+route-invariant scan that fails any `:orgId` route missing `requireOrgMatch`).
 **Outstanding:** foundation issue-07 reconciliation
 (06 — the API-key half is `done`; the role-assignment half shipped and its boxes are still
-unticked), CASL scope cleanup (018), bookkeeping/verification/email base/branch
+unticked), bookkeeping/verification/email base/branch
 protection/org deletion (019–023).
 
-> **2026-09-20 (latest):** the merged tree was red — one test
+> **2026-09-20 (latest): F-06 is closed and the IDOR class is now caught by CI.** NWB-P0-018
+> removed the `{ organizationId }` condition `loadAbility` attached to every rule — it was
+> inert (CASL v7 skips conditions for string subjects, and every check here passes a string),
+> so the removal is behaviour-identical and the "3-layer defense" in Security Architecture
+> §4.3 now reads as what it is. §4.3.1 states the chain that actually runs, the CASL trap is
+> pinned by a regression test, and a new static scan (`src/tests/route-invariants.test.ts`)
+> fails any `:orgId` route that omits `requireOrgMatch`. Suite: **360 pass / 0 fail** with a
+> live database (was 353), 215 pass / 152 skip / 0 fail without one; `biome check .` clean.
+
+> **2026-09-20:** the merged tree was red — one test
 > (`Server Functions — integration (with DB)`) failed on a **missing `users.scheduled_deletion_at`
 > column** (F-24), which also 500'd `GET /api/users/me` for every authenticated user. Fixed in
 > NWB-P0-024. Suite now **325 pass / 0 fail** with a live database and 208 pass / 123 skip /
@@ -76,15 +87,16 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-014 | Role model (DEC-039) + real self-protection guards (F-07, F-21) | D13 | M | `issues/14-role-model-and-self-protection.md` — **done** |
 | NWB-P0-015 | Enforce user status at sign-in (F-05) | — | M | `issues/15-user-status-enforcement.md` — **done** |
 | NWB-P0-016 | Invitation accept flow (F-08; incl. invite role ladder + residual F-20) | D14 interim | M | `issues/16-invitation-accept.md` — **done** |
+| NWB-P0-018 | CASL scope cleanup — make the scoping decision explicit (F-06) | D11 (wording) | S/M | `issues/18-casl-scope-cleanup.md` — **done** |
 | NWB-P0-024 | Account deletion referenced a missing column (F-24) | — | S | `issues/24-scheduled-deletion-column.md` — **done** |
 | NWB-P0-025 | `purgeExpiredAccounts` cannot delete an org owner (F-25) | NWB-P0-023 | S/M | `issues/25-org-owner-purge-fk.md` — **done** |
 | NWB-P0-026 | Duplicate Hono route mirror under `src/app/**` (F-26) | — | S | `issues/26-duplicate-route-mirror.md` — **done** |
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 | NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **done** |
 
-> Tickets 02, 05, 06, 16, 18–23 are listed here but their files do not exist yet — the index
-> was written ahead of the tickets. Files present: 01, 03, 04, 07, 08, 09, 10, 11, 12, 13, 14,
-> 15, 16, 17, 24, 25, 26, 27, 28. The Phase 1
+> Tickets 06 and 19–23 are listed here but their files do not exist yet — the index
+> was written ahead of the tickets. Files present: 01, 02, 03, 04, 05, 07, 08, 09, 10, 11, 12,
+> 13, 14, 15, 16, 17, 18, 24, 25, 26, 27, 28. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 

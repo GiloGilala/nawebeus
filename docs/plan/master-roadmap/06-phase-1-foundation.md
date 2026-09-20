@@ -167,7 +167,8 @@
 - **Acceptance criteria:** no cross-origin credentialed preflight succeeds from an unlisted origin; one IP helper, three call sites.
 - **Risk:** low-medium (could break a dev setup that relied on `*`; dev default keeps localhost). **Rollback:** revert to `cors()`.
 
-#### NWB-P0-018 — Make the CASL scoping decision explicit (F-06)
+#### NWB-P0-018 — Make the CASL scoping decision explicit (F-06) — **DONE 2026-09-20**
+- **Shipped:** the recommended minimal option. Condition removed from `loadAbility` (behaviour-identical: it was inert); `Security Architecture.md` §4.3 gained an as-built column and a new §4.3.1 stating the real chain, with RLS marked unimplemented pending D11 (so no "per D11" placeholder was needed and the doc is true today); CASL v7 trap pinned plus three DB-gated `loadAbility` assertions in `src/tests/auth/ability-scoping.test.ts`; `src/tests/route-invariants.test.ts` added — a static scan over `src/server/api/**` that fails any `:orgId` route not covered by `requireOrgMatch` (inline or via `router.use`), with a negative control so it cannot pass vacuously. Ticket: `.scratch/p0-foundation-gap/issues/18-casl-scope-cleanup.md`.
 - **Objective:** the authorization story is true, documented, and pinned by a test — either the condition works or it is removed.
 - **Why:** F-06: every rule carries `{organizationId}` that can never be evaluated in the current `requireAbility` pattern; security docs claim it works; future developers will be misled.
 - **Current state:** `loadAbility` adds the condition; `requireAbility` checks string subjects; CASL v7 ignores conditions for string subjects (verified, §5 note).

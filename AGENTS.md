@@ -42,7 +42,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (123 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (152 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
@@ -133,6 +133,7 @@ src/lib/                  ← Infrastructure
 src/tests/                ← Bun tests
   preload.ts ← runs before any test file (bunfig.toml); supplies the always-required
                JWT secrets so suites don't each set/delete them
+  route-invariants.test.ts ← static scan: every `:orgId` route must carry requireOrgMatch
   helpers/  test-db.ts (withTestDb), test-client.ts (createTestApp),
             test-factory.ts (data factories)
 db/                       ← Drizzle schema modules
@@ -213,7 +214,7 @@ directory you care about) for the complete set.
   hash stays for the double-accept 409. D14's interim single-org answer is enforced: an
   account with an active membership elsewhere gets a clear 409, never a silent re-home —
   the multi-org branch is deliberately unbuilt until D14's final call.
-- **CASL for authorization** — `loadAbility()` queries the DB for the user's role permissions, builds a CASL ability scoped with `{ organizationId: orgId }`, and attaches it to the context. Routes use `requireAbility(action, subject)`.
+- **CASL for authorization, and org scoping is NOT a CASL condition** — `loadAbility(db, userId, orgId)` queries that org's memberships for the user's role permissions and builds `can(action, subject)` rules with **no conditions**; routes use `requireAbility(action, subject)`. The rules used to carry `{ organizationId: orgId }`, which was inert: CASL v7 evaluates conditions only against a *subject instance*, and every check here passes a string subject, so the condition could never deny anything (F-06, removed in NWB-P0-018). What actually scopes a request to one organization: the JWT-derived `orgId` (no request input can change it) → `assertActivePrincipal` (active membership + active `users.status`) → the per-(user, org) ability load itself (a user in org A is never handed org B's rules) → `requireOrgMatch()` on any `:orgId` path plus the services' `organization_id` predicates. Full chain: `docs/technical/Security Architecture.md` §4.3.1. **Do not re-add rule conditions** expecting them to enforce anything — `src/tests/auth/ability-scoping.test.ts` fails if you do, and `src/tests/route-invariants.test.ts` fails any new `:orgId` route that omits `requireOrgMatch`.
 - **API response envelope** — success: `{ data: T, meta? }`; error: `{ error: { code, message, details? } }`.
 - **Every 500 is opaque by default** — `errorHandler` maps any non-`AppError` to a generic `INTERNAL_ERROR`, so the real cause never reaches the client. Run with `NWB_DEBUG_ERRORS=1` to have it log the underlying exception and stack first.
 - **Biome is the formatter and linter** (`biome.json`, `@biomejs/biome`). Bun 1.4 ships neither a formatter nor a linter — verified: `bun fmt` is "Script not found", and `bun lint` just runs our own script. `bun run lint` fails CI on errors but **not** on warnings, and `noExplicitAny` is deliberately a warning because the codebase has 246 `any` sites. **Never put `//` comments in `biome.json`** — Biome's parser rejects them and then silently falls back to defaults, so a `--write` pass will reformat the tree to tabs instead of the configured 2 spaces. Put rationale in the ticket instead.
