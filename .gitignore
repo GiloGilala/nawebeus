@@ -2,10 +2,10 @@ node_modules/
 dist/
 .env
 *.db
+# Migration history is committed (NWB-P0-005); only drizzle-tooling scratch hides.
 drizzle/*
 !drizzle/migrations/
-drizzle/migrations/*
-!drizzle/migrations/0000_campaign_domain_disambiguation.sql
+!drizzle/README.md
 data/
 
 # `.scratch/` is a work queue read by agents — status metadata is useless if it

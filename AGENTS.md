@@ -23,7 +23,9 @@ Only add a package once you have confirmed Bun can't cover the need — and say 
 bun install
 cp .env.example .env
 # Edit .env to point DATABASE_URL *and* DB_* at a local PostgreSQL 14+ instance, then:
-bun run db:push        # push schema to DB
+bun run db:generate    # emit a new migration from db/schema.ts changes
+bun run db:migrate     # apply committed migrations (idempotent)
+bun run db:push        # dev-only schema push; NOT the evolution path
 bun run seed            # seed permissions, roles, bootstrap org + admin
 ```
 
@@ -54,23 +56,24 @@ bun run build           # typecheck + bundle to dist/
 | Job | Steps |
 | --- | --- |
 | `quality` | `bun install --frozen-lockfile` → `typecheck` → `lint` → `build` |
-| `test` | `bun install --frozen-lockfile` → `db:push` → `seed` → `bun test` against a `postgres:14` service container |
+| `test` | `bun install --frozen-lockfile` → `db:migrate` (×2 — the second run proves idempotency) → `seed` → `bun test` against a `postgres:14` service container |
 
 - **PostgreSQL 14 is deliberate** — ADR-003 sets 14+ as the floor, so CI tests the floor. The generated DDL needs no extensions and nothing newer than PG14.
 - Bun is pinned to `1.4.0` (the lockfile's version); do not float it.
 - `bun run lint` runs `biome check .` — formatting, linting, and import order in one pass. It exits non-zero on **errors only**; warnings do not fail the build. `lint:fix` applies safe fixes, `format` formats without linting.
-- The `db:push` step needs only `DATABASE_URL` — `drizzle.config.ts` resolves the connection from it and refuses to run when a `DB_*` variable disagrees with it (NWB-P0-009).
-- Local reproduction of the `test` job: create a fresh database, then run `db:push -- --force`, `seed`, and `bun test` with `DATABASE_URL` set. A fresh database is preferred, because push is not a migration history (see the Database section above). Step-by-step, including a no-install PostgreSQL 14: `docs/agents/local-database.md`.
+- The `db:migrate` step needs only `DATABASE_URL` — `drizzle.config.ts` resolves the connection from it and refuses to run when a `DB_*` variable disagrees with it (NWB-P0-009).
+- Local reproduction of the `test` job: create a fresh database, then run `db:migrate`, `seed`, and `bun test` with `DATABASE_URL` set. Dev convenience only: `db:push -- --force` against throwaway databases (see the Database section). Step-by-step, including a no-install PostgreSQL 14: `docs/agents/local-database.md`.
 - Deliberately absent (no tooling yet, and each would be permanently red): coverage thresholds, `bun audit`/Snyk/Trivy, Playwright, Codecov, `db:migrate`, deploy. Formatting and linting are now covered by Biome; ESLint and Prettier are not used and should not be added.
 
 
 ### Database
 
-- `bun run db:push` — push `db/schema.ts` changes to the database (alias of `migrate`).
+- **Schema evolution is migration-only (NWB-P0-005).** `drizzle/migrations/` is the committed, ordered history of the active schema. Change `db/**`, run `bun run db:generate`, review the generated SQL, commit it, apply with `bun run db:migrate` (idempotent — the `drizzle.__drizzle_migrations` ledger makes a second run a no-op). See `drizzle/README.md` for the rules of the road, incl. **pg-boss being library-managed** (its tables never enter the drizzle baseline) and the ADR-017 pointer (`db/manual-migrations/` applies when PR/influencer are adopted).
+- `bun run db:push` — dev convenience only against disposable databases; NOT a migration history, never the evolution path.
 - **`db:push` reads `DATABASE_URL`** — the same variable the app and the tests read (`src/lib/db-config.ts` is the resolver; `drizzle.config.ts` calls it). The old `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` variables still work as a fallback when `DATABASE_URL` is unset, but when **both** are set and any of them disagrees with the URL, `db:push` exits with an error naming the conflict instead of silently picking a database. See NWB-P0-009.
-- **`db:push` always needs `-- --force`.** `strict: true` makes drizzle-kit prompt even on a fresh database; with a closed stdin (CI, scripts) it aborts **silently while exiting 0**, leaving zero tables pushed — a green no-op. Always `bun run db:push -- --force`.
-- **`db:push` converges, with one known exception** (verified 2026-09-20, NWB-P0-009). The old `42P16` failure on re-push is fixed (every `primaryKey()` now carries `.notNull()`, matching what PostgreSQL actually stores) and two churn sources are gone: the `analytics_aggregates` composite PK has an explicit ≤63-char name (PostgreSQL truncates identifiers to 63 bytes, so drizzle's 120-char generated name could never round-trip), and `api_keys.rate_limits` uses a compact jsonb literal default (PG deparses jsonb defaults with spaces; drizzle-kit compares textually after stripping them). The remaining exception: every push drops and recreates the **36 descending/partial indexes**. drizzle-kit models `desc()` as a raw SQL expression and predicates as drizzle-rendered text, while introspection reports sorted plain columns and PG-normalized predicates — the two textual forms can never agree. Verified unfixed in both drizzle-kit 0.28.1 and latest 0.31.10; the statements are semantically no-ops. NWB-P0-005 (real migration baseline) replaces push for anything that matters.
-- `bun run db:generate` — generate migration SQL to `drizzle/migrations/`.
+- **`db:push` always needs `-- --force`** (dev use). `strict: true` makes drizzle-kit prompt even on a fresh database; with a closed stdin (CI, scripts) it aborts **silently while exiting 0**, leaving zero tables pushed — a green no-op. Always `bun run db:push -- --force`.
+- **`db:push` converges, with one known exception** (verified 2026-09-20, NWB-P0-009). The old `42P16` failure on re-push is fixed (every `primaryKey()` now carries `.notNull()`, matching what PostgreSQL actually stores) and two churn sources are gone: the `analytics_aggregates` composite PK has an explicit ≤63-char name (PostgreSQL truncates identifiers to 63 bytes, so drizzle's 120-char generated name could never round-trip), and `api_keys.rate_limits` uses a compact jsonb literal default (PG deparses jsonb defaults with spaces; drizzle-kit compares textually after stripping them). The remaining exception: every push drops and recreates the **36 descending/partial indexes**. drizzle-kit models `desc()` as a raw SQL expression and predicates as drizzle-rendered text, while introspection reports sorted plain columns and PG-normalized predicates — the two textual forms can never agree. Verified unfixed in both drizzle-kit 0.28.1 and latest 0.31.10; the statements are semantically no-ops. Since NWB-P0-005, push is dev-only; `db:migrate` is the path for anything that matters.
+- `bun run db:generate` — generate the next migration into `drizzle/migrations/`; `bun run db:migrate` — apply committed migrations (idempotent).
 - `bun run db:studio` — open Drizzle Studio GUI.
 - `bun run seed` — seed permissions, roles, the bootstrap admin, and its organization. **Idempotent and convergent**: role-permission grants not in the seed's matrix are removed on re-run, and the pre-DEC-039 roles (`org_admin`, `member`) are retired with their memberships re-pointed (`admin`, `creator`). The test suite depends on it: against an unseeded database 7 tests fail (the `seed data`, `RBAC integration`, and `signin with valid credentials` groups).
 

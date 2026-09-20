@@ -11,8 +11,11 @@ and the residual F-20 list/dedup work), 017 (CORS + IP policy), and the findings
 while landing them — 024 (missing `users.scheduled_deletion_at`), 025 (org-owner purge
 refused at delete time, F-25 / D16), 026 (duplicate route mirror), 027 (lint gate red at
 HEAD), 028 (purge attribution FKs, F-28 — filed while landing 025),
-and 002 (DSAR data export, AC8 of FR-AUTH-007).
-**Outstanding:** migration baseline (05), foundation issue-07 reconciliation
+and 002 (DSAR data export, AC8 of FR-AUTH-007), plus 005 (migration baseline —
+`drizzle/migrations/` is the committed evolution path; the CI step switch to
+`db:migrate` is locally proven and blocked only on the GitHub App's missing
+`workflows` permission — see the ticket).
+**Outstanding:** foundation issue-07 reconciliation
 (06 — the API-key half is `done`; the role-assignment half shipped and its boxes are still
 unticked), CASL scope cleanup (018), bookkeeping/verification/email base/branch
 protection/org deletion (019–023).
@@ -63,7 +66,7 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-002 | DSAR data export (AC8 of FR-AUTH-007) | — | M | `issues/02-dsar-export.md` — **done** |
 | NWB-P0-003 | CI pipeline | — | M | `issues/03-ci-pipeline.md` |
 | NWB-P0-004 | Linter (Biome) | — | S | `issues/04-linter.md` |
-| NWB-P0-005 | Migration baseline | — | M | `issues/05-migration-baseline.md` |
+| NWB-P0-005 | Migration baseline | — | M | `issues/05-migration-baseline.md` — **code done; CI workflow edit blocked on GitHub `workflows` permission** |
 | NWB-P0-006 | Reconcile `.scratch/foundation` issue 07 → `done` | NWB-P0-001 | S | `issues/06-reconcile-foundation-07.md` |
 | NWB-P0-007 | Adopt decisions D1 + D5; track D2–D12 | — | S | [issues/07-adopt-decisions.md](issues/07-adopt-decisions.md) |
 | NWB-P0-008 | Concurrent sign-in lockout is a lost update | — | S | `issues/08-concurrent-lockout-lost-update.md` |
