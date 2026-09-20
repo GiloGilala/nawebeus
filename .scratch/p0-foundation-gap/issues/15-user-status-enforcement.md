@@ -1,8 +1,8 @@
 # NWB-P0-015 — Enforce user status at sign-in (F-05)
 
 **Status:** done — 2026-09-20 (verified locally: typecheck + lint + build + 325/325
-`bun test` with a live database, 208 pass / 123 skip / 0 fail without one; CI re-run
-pending)
+`bun test` with a live database, 208 pass / 123 skip / 0 fail without one; CI green on
+PR #12)
 **Deps:** none. **Size:** M.
 **Fixes:** F-05 (suspended/pending accounts could authenticate and act).
 Found en route: F-24, F-25, F-26, F-27 (see their tickets).

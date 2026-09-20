@@ -1,7 +1,7 @@
 # NWB-P0-024 — The whole account-deletion service referenced a column that does not exist (F-24)
 
 **Status:** done — 2026-09-20 (verified locally: typecheck + lint + build + 325/325
-`bun test` with a live database; CI re-run pending)
+`bun test` with a live database; CI green on PR #12)
 **Deps:** none. **Size:** S.
 **Fixes:** F-24. **Found while:** running the suite at `d03dc49` — one test was red
 (`Server Functions — integration (with DB)`), and the cause was not the Server Function.

@@ -254,7 +254,10 @@
 **Phase 1 exit criteria (all must be evidenced):**
 > Suite counts quoted in this document are dated; the live numbers as of the NWB-P0-015/024
 > work (2026-09-20) are **325 pass / 0 fail** with a database, 208 pass / 123 skip / 0 fail
-> without one, and `biome check .` clean.
+> without one, and `biome check .` clean. **CI is green on PR #12** for both jobs — the first
+> green run since PR #11's merge, and the runtime proof the workflow was missing: the suite
+> passes on the pinned `postgres:14` floor. Exit criterion 1 is therefore met in CI, not just
+> locally; criterion 7 (branch protection, NWB-P0-022) is not.
 1. `bun test` green with a live DB, **including** the new suites: signup-owner-role, org-update positive+negative, MFA full flow, rate-limit windows, role-matrix self-protection, status enforcement, invitation accept, CORS/IP, route-invariant scan, DSAR, org deletion. (NWB-P0-020 re-run recorded.)
 2. A fresh org owner can: invite a member → invitee accepts (new + existing user) → member acts with the invited role → role changes respect self-protection. **This end-to-end sequence is the Phase 1 demo.**
 3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`.

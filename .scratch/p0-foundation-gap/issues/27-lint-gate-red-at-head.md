@@ -1,7 +1,8 @@
 # NWB-P0-027 — `bun run lint` was red at HEAD, so the CI `quality` job could never pass (F-27)
 
 **Status:** done — 2026-09-20 (verified locally: `bunx biome check .` → 0 errors / 416
-warnings; typecheck + build + 325/325 `bun test` unchanged)
+warnings; typecheck + build + 325/325 `bun test` unchanged; **verified in CI: PR #12 green**,
+run [35526182874](https://github.com/GiloGilala/nawebeus/actions/runs/35526182874))
 **Deps:** NWB-P0-004 (Biome adoption), NWB-P0-003 (CI). **Size:** S. **Fixes:** F-27.
 
 ## The defect
@@ -37,5 +38,9 @@ regression came in with the next merge and nothing re-checked it.
       remains a warning across 246 legacy sites)
 - [x] The 416 warnings are unchanged in kind; no new warnings introduced by NWB-P0-015/024
 - [x] typecheck, build, `bun test` green
-- [ ] **CI must be observed green on GitHub** — the job has still never actually run
-      (same standing item as NWB-P0-003/NWB-P0-022)
+- [x] **CI observed green on GitHub** — PR #12, run
+      [35526182874](https://github.com/GiloGilala/nawebeus/actions/runs/35526182874):
+      `Typecheck, lint, build` ✓ 23 s and `Test (PostgreSQL)` ✓ 55 s. The previous run on `main`
+      (PR #11's merge) had failed on exactly these 18 errors.
+- [ ] Branch protection still absent (NWB-P0-022) — `main` stayed red for ~15 minutes because a
+      red check does not block a merge here.

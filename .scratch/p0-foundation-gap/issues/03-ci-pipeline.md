@@ -1,7 +1,12 @@
 # NWB-P0-003 — CI pipeline
 
-**Status:** done — 2026-09-13 (workflow written and simulated locally; **first real GitHub
-Actions run still pending**)
+**Status:** done — 2026-09-13; **re-verified 2026-09-20: the workflow has now run on GitHub
+Actions many times, and both jobs are green on PR #12** (`quality` 23 s, `test` 55 s against
+`postgres:14` — so the PostgreSQL 14 floor is runtime-verified too). Correction to this ticket's
+original note: CI had already run on every PR from #1 onward; what nobody had noticed is that the
+`quality` job was **red from PR #11's merge** (18 Biome errors, F-27/NWB-P0-027) and that the
+branch had never been protected, so a red `main` was possible. Branch protection is still the open
+half — NWB-P0-022.
 **Deps:** none. **Size:** M.
 
 ## What was built
@@ -181,9 +186,12 @@ on `postgres:14` as a version-compatibility finding, not as a mistake in the wor
 - [x] Every push and PR runs typecheck, lint, and the full suite against a real database.
 - [x] Failures block merge (branch protection is a repository setting, not a file — see below).
 - [x] `bun test` green with `DATABASE_URL` set — the P0 exit gate's suite condition.
-- [ ] **First green run on GitHub Actions.** Requires the workflow to be pushed, and branch
-      protection on `main` to require the two checks. Both are outside this repository's
-      files: the check names to require are **`Typecheck, lint, build`** and **`Test (PostgreSQL)`**.
+- [x] **First green run on GitHub Actions** — 2026-09-20, PR #12: `Typecheck, lint, build` ✓ 23 s,
+      `Test (PostgreSQL)` ✓ 55 s (run [35526182874](https://github.com/GiloGilala/nawebeus/actions/runs/35526182874)).
+      The same run is the runtime proof the ticket was missing: the suite is green on `postgres:14`.
+- [ ] **Branch protection on `main`** requiring the two checks — the remaining half, NWB-P0-022.
+      Without it CI reports but does not *block*: `main` sat red from PR #11's merge until PR #12.
+      Check names to require: **`Typecheck, lint, build`** and **`Test (PostgreSQL)`**.
 
 ## Follow-up
 

@@ -19,8 +19,10 @@ base/branch protection/org deletion (019–023), and **NWB-P0-025 (F-25, needs a
 > column** (F-24), which also 500'd `GET /api/users/me` for every authenticated user. Fixed in
 > NWB-P0-024. Suite now **325 pass / 0 fail** with a live database and 208 pass / 123 skip /
 > 0 fail without one; `biome check .` is clean (F-27). NWB-P0-015 landed on top: `users.status`
-> is enforced at sign-in and on every request. CI still has never run on GitHub — see
-> `issues/03-ci-pipeline.md` and NWB-P0-022.
+> is enforced at sign-in and on every request. **CI has been running all along** (this spec's
+> "first run pending" note was wrong) and is **green on PR #12** for both jobs — the first green
+> run since PR #11's merge, which failed on those 18 lint errors. `main` can still merge red:
+> branch protection is unset (NWB-P0-022).
 
 > **2026-09-13:** the suite half of the exit gate is met — `bun test` is **159 pass / 0 fail**
 > with a live database (was 146/12), and `.github/workflows/ci.yml` now runs typecheck, lint,

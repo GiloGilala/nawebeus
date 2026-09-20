@@ -1,7 +1,7 @@
 # NWB-P0-026 — `src/app/**` carried a byte-identical second copy of the Hono API (F-26)
 
 **Status:** done — 2026-09-20 (verified locally: typecheck + lint + build + 325/325
-`bun test` with a live database; CI re-run pending)
+`bun test` with a live database; CI green on PR #12)
 **Deps:** none. **Size:** S. **Fixes:** F-26.
 
 ## The defect
