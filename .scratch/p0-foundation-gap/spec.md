@@ -2,9 +2,10 @@
 
 **Feature slug:** `p0-foundation-gap`
 **Spec owner:** Engineering Lead
-**Status:** in-progress — 4/7 done. Done: NWB-P0-001 (API keys), NWB-P0-003 (CI), NWB-P0-004
-(linter), NWB-P0-007 (adopt decisions). **NWB-P0-008 (concurrent lockout lost update) is also
-done** — 2026-09-13, in `724d6c2`. Outstanding: DSAR export (02), migration baseline (05),
+**Status:** in-progress — 5/7 done. Done: NWB-P0-001 (API keys), NWB-P0-003 (CI), NWB-P0-004
+(linter), NWB-P0-007 (adopt decisions), NWB-P0-008 (concurrent lockout lost update, 2026-09-13),
+**NWB-P0-009 (`db:push` convergence + `DATABASE_URL` unification, 2026-09-20)**, and the Phase 1
+tickets NWB-P0-010 / 011 / 014. Outstanding: DSAR export (02), migration baseline (05),
 foundation issue-07 reconciliation (06 — the API-key half is now `done`; the role-assignment
 half was already shipped and its boxes are still unticked).
 Two findings raised during NWB-P0-001's verification are filed as NWB-P0-008 and NWB-P0-009.
@@ -49,7 +50,7 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-006 | Reconcile `.scratch/foundation` issue 07 → `done` | NWB-P0-001 | S | `issues/06-reconcile-foundation-07.md` |
 | NWB-P0-007 | Adopt decisions D1 + D5; track D2–D12 | — | S | [issues/07-adopt-decisions.md](issues/07-adopt-decisions.md) |
 | NWB-P0-008 | Concurrent sign-in lockout is a lost update | — | S | `issues/08-concurrent-lockout-lost-update.md` |
-| NWB-P0-009 | `db:push` cannot converge on an existing database | NWB-P0-005 | M | `issues/09-db-push-not-idempotent.md` |
+| NWB-P0-009 | `db:push` cannot converge on an existing database | NWB-P0-005 | M | `issues/09-db-push-not-idempotent.md` — **done** |
 | NWB-P0-010 | Assign the Owner role atomically at signup (F-01) | D13 | M | `issues/10-owner-role-at-signup.md` — **done** |
 | NWB-P0-011 | Org permission subject `org` vs `organization` (F-02) | D13 | S | `issues/11-org-permission-subject.md` — **done** |
 | NWB-P0-014 | Role model (DEC-039) + real self-protection guards (F-07, F-21) | D13 | M | `issues/14-role-model-and-self-protection.md` — **done** |

@@ -110,7 +110,7 @@ import {
 export const contacts = pgTable(
   "contacts",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Kind ────────────────────────────────────────────────────────────────
@@ -360,7 +360,7 @@ export const contacts = pgTable(
 export const contactInteractions = pgTable(
   "contact_interactions",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Contact Reference ────────────────────────────────────────────────────

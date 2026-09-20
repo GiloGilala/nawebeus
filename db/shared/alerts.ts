@@ -204,7 +204,7 @@ import {
 export const alertRules = pgTable(
   "alert_rules",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Classification ──────────────────────────────────────────────────────
@@ -526,7 +526,7 @@ export const alertRules = pgTable(
 export const alertEvents = pgTable(
   "alert_events",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Rule Reference ──────────────────────────────────────────────────────

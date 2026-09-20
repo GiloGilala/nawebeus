@@ -446,7 +446,7 @@ export const organizations = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    id: uuid("id").notNull().primaryKey().default(sql`gen_random_uuid()`),
 
     name: varchar("name", { length: 200 }).notNull(),
     slug: varchar("slug", { length: 100 }).notNull().unique(),

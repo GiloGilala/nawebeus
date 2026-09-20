@@ -153,7 +153,7 @@ import {
 export const engagementSlaPolicies = pgTable(
   "engagement_sla_policies",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
     name: varchar("name", { length: 100 }).notNull(),
     description: text("description"),
@@ -245,7 +245,7 @@ export const engagementSlaPolicies = pgTable(
 export const engagementMessages = pgTable(
   "engagement_messages",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Platform Identifiers ─────────────────────────────────────────────────
@@ -602,7 +602,7 @@ export const engagementMessages = pgTable(
 export const engagementResponses = pgTable(
   "engagement_responses",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     messageId: varchar("message_id", { length: 32 })
       .notNull()
       .references(() => engagementMessages.id, { onDelete: "cascade" }),
@@ -757,7 +757,7 @@ export const engagementResponses = pgTable(
 export const engagementRoutingRules = pgTable(
   "engagement_routing_rules",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
     name: varchar("name", { length: 100 }).notNull(),
     description: text("description"),
@@ -826,7 +826,7 @@ export const engagementRoutingRules = pgTable(
 export const engagementSlaBreaches = pgTable(
   "engagement_sla_breaches",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // Real FK to engagement_messages — RESTRICT on delete
@@ -914,7 +914,7 @@ export const engagementSlaBreaches = pgTable(
 export const engagementAiSuggestions = pgTable(
   "engagement_ai_suggestions",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // Real FK to engagement_messages — CASCADE on delete

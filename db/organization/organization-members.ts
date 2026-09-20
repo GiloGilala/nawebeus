@@ -132,7 +132,7 @@ export interface AccessSchedule {
 export const roleHistory = pgTable(
   `${tablePrefix}member_role_history`,
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
     memberId: uuid("member_id")
       .notNull()
       .references(() => organizationMembers.id, { onDelete: "cascade" }),
@@ -164,7 +164,7 @@ export const roleHistory = pgTable(
 export const permissionHistory = pgTable(
   `${tablePrefix}member_permission_history`,
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
     memberId: uuid("member_id")
       .notNull()
       .references(() => organizationMembers.id, { onDelete: "cascade" }),
@@ -274,7 +274,7 @@ export const organizationMembers = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     // ============================================
     // RELATIONSHIPS

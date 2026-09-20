@@ -205,7 +205,7 @@ import { approvalRequestStatusEnum, platformEnum, templateTypeEnum } from "../sh
 export const templates = pgTable(
   "templates",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // NULL = system template (visible to all orgs or internal only)
     // SET  = org-specific template

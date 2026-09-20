@@ -134,7 +134,7 @@ import {
 export const posts = pgTable(
   "posts",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // Not FK — post may outlive the org for audit purposes
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
@@ -364,7 +364,7 @@ export const posts = pgTable(
 export const publishingResults = pgTable(
   "publishing_results",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // FK-like pointer to posts — not a real FK because:
     // 1. Post versioning means the post.id changes on each edit

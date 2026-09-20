@@ -69,7 +69,7 @@ export const analyticsEvents = pgTable(
   "analytics_events",
   {
     // Auto-increment — efficient for high-volume inserts and range pagination
-    id: serial("id").primaryKey(),
+    id: serial("id").notNull().primaryKey(),
 
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
@@ -189,7 +189,7 @@ export const analyticsEvents = pgTable(
 export const analyticsMetrics = pgTable(
   "analytics_metrics",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // NULL = system metric visible to all orgs
     organizationId: varchar("organization_id", { length: 32 }),
@@ -474,8 +474,13 @@ export const analyticsAggregates = pgTable(
         OR ${table.lastComputedAt} IS NOT NULL`,
     ),
 
-    // Composite primary key — natural key, no surrogate ID needed
+    // Composite primary key — natural key, no surrogate ID needed.
+    // `name` is deliberate: drizzle's generated name for this key is 120 chars,
+    // and PostgreSQL truncates every identifier to 63 bytes. The truncated name
+    // can never match what drizzle-kit expects, so push re-dropped and re-added
+    // this constraint on every run (NWB-P0-009). A short explicit name converges.
     primaryKey({
+      name: "pk_aag_natural_key",
       columns: [
         table.organizationId,
         table.granularity,
@@ -566,7 +571,7 @@ export const analyticsAggregates = pgTable(
 export const analyticsDashboards = pgTable(
   "analytics_dashboards",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 200 }).notNull(),
@@ -685,7 +690,7 @@ export const analyticsDashboards = pgTable(
 export const analyticsReports = pgTable(
   "analytics_reports",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 200 }).notNull(),
