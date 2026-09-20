@@ -42,7 +42,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (155 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (176 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
@@ -99,7 +99,7 @@ src/server/index.ts       ← Hono app factory (CORS, error handler, route mount
     auth/   signin, signup, signout, refresh, sessions, mfa, verification,
             password-reset, invitations (public validate + accept), session-cookies helper
     users/  /me, /admin
-    orgs/   /orgs, /members, /roles
+    orgs/   /orgs (incl. DELETE + /reactivate), /members, /roles
     api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
@@ -118,7 +118,7 @@ src/services/             ← Business logic (single source of truth)
            password-history, password-reset, verification, email-change,
            mfa, totp, ability, api-key
   users/   user.service, admin.service, account-deletion.service
-  orgs/    org.service, member.service, invitation.service,
+  orgs/    org.service, org-deletion.service, member.service, invitation.service,
            role-assignment.service, role-policy (hierarchy rules)
   email.ts, audit.ts
 src/lib/                  ← Infrastructure
@@ -166,6 +166,8 @@ directory you care about) for the complete set.
   `emailVerified: false`; the hard server-side gate lands with real email in Phase 2).
   `suspended` → 403 `ACCOUNT_SUSPENDED`; `deleted`/unknown → generic 401 so the status is never
   disclosed to a caller without the password. NWB-P0-015.
+- **Organization deletion is soft, with a reachable undo** — `deleteOrganization` (`src/services/orgs/org-deletion.service.ts`) stamps `deleted_at`/`scheduled_deletion_at` 30 days out, suspends every membership, revokes the org's API keys and all members' sessions; `reactivateOrganization` restores the memberships and keys but **never the sessions** (a revoked session is a credential that may have leaked). Ownership is checked against `organizations.owner_id`, not a role row — DEC-039 makes Owner a transferred singleton on the organization itself. **`POST /orgs/:orgId/reactivate` is the one route that uses `authMiddlewareAllowingInactiveMembership`**: deletion suspends the owner's own membership, so the normal `assertActivePrincipal` check would 403 the only person who can undo it, making the grace period unreachable. That middleware relaxes *only* the `status='active'` requirement — account existence, soft-delete, `users.status` and "holds a membership row here" all still apply — and the route carries no `requireAbility` because `loadAbility` reads active memberships only, so a deleted org yields an empty ability by construction. Do not reuse it elsewhere. NWB-P0-023.
+- **`purgeExpiredOrganizations` actually completes; `purgeExpiredAccounts` is gated instead** — every FK referencing `organizations.id` is CASCADE or SET NULL, so the org purge has no restrictive edge (users are *detached*, never deleted with the workspace). The account purge has one (`organizations.owner_id`), which is why `deleteAccount` refuses an owner up front (D16/F-25). Relaxing that gate for soft-deleted orgs reintroduces the 23503 — a soft-deleted org still holds the reference; a negative-control test pins this. The unblock is the hard purge: delete org → grace expires → `purgeExpiredOrganizations` → `deleteAccount` → `purgeExpiredAccounts`. Neither purge is scheduled yet (F-18); wire both with the Phase 2 queue.
 - **Account deletion keeps its grace window in `users.scheduled_deletion_at`** — nullable
   `timestamptz` written by `deleteAccount`, read by `reactivateAccount` /
   `purgeExpiredAccounts` / `getAccountDeletionStatus`. The column was missing until NWB-P0-024,

@@ -12,16 +12,30 @@ while landing them — 024 (missing `users.scheduled_deletion_at`), 025 (org-own
 refused at delete time, F-25 / D16), 026 (duplicate route mirror), 027 (lint gate red at
 HEAD), 028 (purge attribution FKs, F-28 — filed while landing 025),
 006 (foundation issue-07 reconciled — `.scratch/foundation` is now fully `done`),
+023 (organization deletion, PRD 8.2.1 / D-14 — incl. the reactivation lockout it
+uncovered and the D16 re-measurement),
 and 002 (DSAR data export, AC8 of FR-AUTH-007), plus 005 (migration baseline —
 `drizzle/migrations/` is the committed evolution path; the CI step switch to
 `db:migrate` is locally proven and blocked only on the GitHub App's missing
 `workflows` permission — see the ticket), and 018 (CASL scope cleanup, F-06 —
 the inert org condition removed, the real enforcement chain documented, and a
 route-invariant scan that fails any `:orgId` route missing `requireOrgMatch`).
-**Outstanding:** bookkeeping/verification/email base/branch
-protection/org deletion (019–023).
+**Outstanding:** bookkeeping/verification/email base/branch protection (019–022).
+023 (organization deletion) is **done**.
 
-> **2026-09-20 (latest): `.scratch/foundation` is fully `done` (NWB-P0-006).** Its issue 07
+> **2026-09-20 (latest): organization deletion ships (NWB-P0-023), and it found a defect in
+> its own design.** Soft-deleting an organization suspends every membership *including the
+> owner's*, so `assertActivePrincipal` would have locked the owner out of the only route that
+> undoes it — the 30-day grace PRD 8.2.1 promises would have been unreachable without a manual
+> database edit. Fixed with a single-route escape hatch
+> (`authMiddlewareAllowingInactiveMembership`) that relaxes *only* the active-membership
+> requirement, fenced in by four containment tests. Separately, D16's "relax the account-deletion
+> gate for sole-member orgs" follow-up was **measured and declined**: a soft-deleted org still
+> holds the restrictive `owner_id` FK, so relaxing it reintroduces F-25's 23503 verbatim
+> (negative control test). The hard purge is the unblock, and that path now works end to end.
+> Suite: **383 pass / 0 fail** with a live database.
+
+> **2026-09-20: `.scratch/foundation` is fully `done` (NWB-P0-006).** Its issue 07
 > carried six unticked boxes under a `done` status. Audit: four were honestly tickable on
 > existing evidence; two named integration tests (non-existent role → 404, non-admin → 403)
 > genuinely did not exist — the behaviour was correct, nothing pinned it. Both written, plus
@@ -98,15 +112,16 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-015 | Enforce user status at sign-in (F-05) | — | M | `issues/15-user-status-enforcement.md` — **done** |
 | NWB-P0-016 | Invitation accept flow (F-08; incl. invite role ladder + residual F-20) | D14 interim | M | `issues/16-invitation-accept.md` — **done** |
 | NWB-P0-018 | CASL scope cleanup — make the scoping decision explicit (F-06) | D11 (wording) | S/M | `issues/18-casl-scope-cleanup.md` — **done** |
+| NWB-P0-023 | Organization deletion (PRD 8.2.1 P0; D-14) | — | M | `issues/23-organization-deletion.md` — **done** |
 | NWB-P0-024 | Account deletion referenced a missing column (F-24) | — | S | `issues/24-scheduled-deletion-column.md` — **done** |
 | NWB-P0-025 | `purgeExpiredAccounts` cannot delete an org owner (F-25) | NWB-P0-023 | S/M | `issues/25-org-owner-purge-fk.md` — **done** |
 | NWB-P0-026 | Duplicate Hono route mirror under `src/app/**` (F-26) | — | S | `issues/26-duplicate-route-mirror.md` — **done** |
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 | NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **done** |
 
-> Tickets 19–23 are listed here but their files do not exist yet — the index
+> Tickets 19–22 are listed here but their files do not exist yet — the index
 > was written ahead of the tickets. Files present: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11,
-> 12, 13, 14, 15, 16, 17, 18, 24, 25, 26, 27, 28. The Phase 1
+> 12, 13, 14, 15, 16, 17, 18, 23, 24, 25, 26, 27, 28. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 
