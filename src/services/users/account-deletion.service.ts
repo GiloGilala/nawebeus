@@ -118,14 +118,24 @@ export async function getAccountDeletionStatus(
   db: NodePgDatabase<Record<string, any>>,
   userId: string,
 ): Promise<{ deleted: boolean; scheduledDeletionAt: string | null }> {
+  // The instant is read back from the database as epoch milliseconds rather than
+  // as `timestamptz`: node-postgres hands that type to JS as its text form
+  // (`2026-10-20 17:24:06.801+00`), which is not valid ISO 8601 and which
+  // `new Date()` rejects. `deleteAccount` returns a real ISO string, so parsing
+  // the text form here would have made the two halves of the same field disagree.
   const rows = await db.execute<{
     deleted_at: string | null;
-    scheduled_deletion_at: string | null;
-  }>(sql`SELECT deleted_at, scheduled_deletion_at FROM users WHERE id = ${userId} LIMIT 1`);
+    scheduled_ms: string | number | null;
+  }>(
+    sql`SELECT deleted_at,
+               (extract(epoch FROM scheduled_deletion_at) * 1000)::bigint AS scheduled_ms
+        FROM users WHERE id = ${userId} LIMIT 1`,
+  );
   const row = (rows as any).rows?.[0] as any;
   if (!row) throw new NotFoundError("Account not found");
   return {
     deleted: !!row.deleted_at,
-    scheduledDeletionAt: row.scheduled_deletion_at ?? null,
+    scheduledDeletionAt:
+      row.scheduled_ms == null ? null : new Date(Number(row.scheduled_ms)).toISOString(),
   };
 }
