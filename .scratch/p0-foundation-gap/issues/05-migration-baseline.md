@@ -140,3 +140,5 @@ The exact sequence was executed locally against a virgin PG 14.23 cluster
 again (no-op) → push converges. To land: reconnect GitHub with the `workflows`
 permission, or apply the block above by hand in the GitHub UI, then flip this
 ticket's status to done and record the CI run.
+Branch CI after the code push (still the old push-based step):
+run 35537755858, both jobs green — the drizzle tree is additive and broke nothing.
