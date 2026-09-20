@@ -11,6 +11,7 @@ import {
   getAccountDeletionStatus,
   reactivateAccount,
 } from "../../services/users/account-deletion.service";
+import { getExportRequest, requestDataExport } from "../../services/users/dsar.service";
 import { getUser, updateUser } from "../../services/users/user.service";
 
 const updateMeSchema = z.object({
@@ -156,6 +157,32 @@ router.post("/me/email-change/confirm", async (c) => {
     throw new ValidationError("Validation failed", details);
   }
   const result = await confirmEmailChange(db, { token: parsed.data.token });
+  return c.json(success(result));
+});
+
+// POST /api/users/me/data-export — DSAR: request (and, in Phase 1,
+// immediately receive) a machine-readable export of the caller's personal
+// data (NWB-P0-002, AC8 of FR-AUTH-007)
+router.post("/me/data-export", authMiddleware, async (c) => {
+  const { userId } = c.var.user;
+  const db = c.var.db;
+  const result = await requestDataExport(db, {
+    subjectUserId: userId,
+    requestedBy: userId,
+    requestIp: c.req.header("x-forwarded-for") ?? undefined,
+    requestUserAgent: c.req.header("user-agent") ?? undefined,
+  });
+  c.status(201);
+  return c.json(success(result));
+});
+
+// GET /api/users/me/data-export/:requestId — re-download a package until it
+// expires (410 afterwards). Allowed for the subject or the original requester.
+router.get("/me/data-export/:requestId", authMiddleware, async (c) => {
+  const { userId } = c.var.user;
+  const db = c.var.db;
+  const requestId = c.req.param("requestId");
+  const result = await getExportRequest(db, requestId, userId);
   return c.json(success(result));
 });
 

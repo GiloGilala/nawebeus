@@ -47,6 +47,13 @@ export async function createTestDb(databaseUrl?: string): Promise<TestDb> {
   const pool = new pg.Pool({ connectionString: url, max: 1 });
   const client = await pool.connect();
   await client.query("BEGIN");
+  // Session-level marker read by withAtomicWrites (src/lib/transaction.ts) so
+  // it can tell "inside the harness transaction" (use savepoints) from
+  // "bare production handle" (use db.transaction). A custom GUC is used
+  // because txids are assigned lazily and PostgreSQL 14 has no
+  // in_transaction setting. is_local=false: the marker survives the harness
+  // ROLLBACK and dies with the session.
+  await client.query("SELECT set_config('nawebeus.test_harness', 'on', false)");
   const db = drizzle(client as any) as unknown as Db;
 
   const done = async () => {

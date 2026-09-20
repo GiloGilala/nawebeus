@@ -1,4 +1,5 @@
 export * from "./api-keys";
+export * from "./dsar-requests";
 export * from "./oauth-accounts";
 export * from "./permission-roles";
 export * from "./permissions";

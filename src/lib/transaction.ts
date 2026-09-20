@@ -39,11 +39,25 @@ export type DbOrTx =
 let savepointCounter = 0;
 
 export async function withAtomicWrites<T>(db: Db, fn: (tx: DbOrTx) => Promise<T>): Promise<T> {
-  // txid_current_if_assigned() is NULL outside a transaction and errors-free
-  // (unlike txid_current()); it has been a built-in since Postgres 10, so it
-  // works on the PG14 floor and the PG18 local dev server alike.
+  // The harness (createTestDb) opens the client's transaction with a raw BEGIN
+  // and marks the session with a custom GUC; this probe reads that marker.
+  // Two earlier probes were wrong:
+  // - txid_current_if_assigned() IS NOT NULL misreads every read-only-so-far
+  //   transaction: PostgreSQL assigns xids lazily (on first write), so a
+  //   transaction that had only read reports "not in a transaction". The
+  //   production db.transaction() branch then ran inside the harness's open
+  //   transaction and its COMMIT silently ended the harness BEGIN,
+  //   persisting every later fixture write (found 2026-09-20 building the
+  //   DSAR export, NWB-P0-002; regression-pinned in
+  //   src/tests/atomic-writes.test.ts).
+  // - current_setting('in_transaction') fails outright with 42704 on the
+  //   PostgreSQL 14 floor (the setting is newer than 14).
+  // A custom GUC is version-proof. Known limitation: a caller that opens its
+  // own raw transaction outside the harness would be misread as "production";
+  // no current caller does this (drizzle-managed nesting goes through
+  // tx.transaction(), which savepoints natively).
   const probe = await db.execute<{ in_tx: boolean }>(
-    sql`SELECT txid_current_if_assigned() IS NOT NULL AS in_tx`,
+    sql`SELECT current_setting('nawebeus.test_harness', true) = 'on' AS in_tx`,
   );
   const inTx = Boolean((probe as any).rows?.[0]?.in_tx);
 

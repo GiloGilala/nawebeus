@@ -81,3 +81,16 @@ CI PG14 remains the canonical gate)
 
 Revert the two commits (`feat(f-01)…` + the F-20 schema commit). No data migration
 needed (pre-prod; `organization_members.role_id` was already nullable).
+
+## Follow-up (2026-09-20, found while building NWB-P0-002)
+
+The `withAtomicWrites` probe (`txid_current_if_assigned() IS NOT NULL`) shipped here was
+wrong: PostgreSQL assigns xids lazily, so a read-only-so-far transaction — every fresh test
+harness transaction — reported "not in a transaction", the production `db.transaction()`
+branch ran inside the harness's BEGIN, and its COMMIT silently ended the harness rollback
+transaction. Every signup-in-test after that point persisted (users, sessions, audit rows).
+The suite stayed green because fixtures use random emails and nothing asserted cross-run
+isolation. Fixed in the NWB-P0-002 change: the harness marks its session with a custom GUC
+(`nawebeus.test_harness`) and the probe reads that; regression-pinned in
+`src/tests/atomic-writes.test.ts`. Databases used for testing before the fix should be
+dropped and recreated.

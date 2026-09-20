@@ -9,6 +9,7 @@ import {
   listUsers,
   updateUserAsAdmin,
 } from "../../services/users/admin.service";
+import { requestDataExport } from "../../services/users/dsar.service";
 
 const adminUpdateSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -58,5 +59,29 @@ router.delete("/:userId", authMiddleware, requireAbility("delete", "users"), asy
   c.status(204);
   return c.body(null);
 });
+
+// POST /api/users/:userId/data-export — DSAR export on behalf of a member
+// (NWB-P0-002). `users.create` gates this to Owner/Admin; the service
+// additionally requires the actor and subject to share an active membership,
+// which is the real cross-tenant guard.
+router.post(
+  "/:userId/data-export",
+  authMiddleware,
+  requireAbility("create", "users"),
+  async (c) => {
+    const { orgId, userId: actingUserId } = c.var.user;
+    const db = c.var.db;
+    const subjectUserId = c.req.param("userId");
+    const result = await requestDataExport(db, {
+      subjectUserId,
+      requestedBy: actingUserId,
+      organizationId: orgId,
+      requestIp: c.req.header("x-forwarded-for") ?? undefined,
+      requestUserAgent: c.req.header("user-agent") ?? undefined,
+    });
+    c.status(201);
+    return c.json(success(result));
+  },
+);
 
 export { router as adminRouter };

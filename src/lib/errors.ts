@@ -84,6 +84,15 @@ export class ForbiddenError extends AppError {
   readonly code = "FORBIDDEN";
 }
 
+/**
+ * The DSAR export package existed but its re-download window has passed
+ * (HTTP 410 Gone — the resource was deliberately removed, not merely missing).
+ */
+export class ExportExpiredError extends AppError {
+  readonly statusCode = 410;
+  readonly code = "EXPORT_EXPIRED";
+}
+
 export class InternalError extends AppError {
   readonly statusCode = 500;
   readonly code = "INTERNAL_ERROR";
