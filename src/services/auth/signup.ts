@@ -2,11 +2,10 @@ import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
 import { ConflictError, InternalError, ValidationError } from "../../lib/errors";
-import { generateSecureToken, hashToken } from "../../lib/tokens";
 import { withAtomicWrites } from "../../lib/transaction";
 import { writeAuditLog } from "../audit";
 import { emailService } from "../email";
-import { hashPassword } from "./password";
+import { createEmailVerificationToken, createUserRecord } from "./user-record";
 
 export interface SignupInput {
   email: string;
@@ -44,12 +43,6 @@ const NIGERIAN_ORG_DEFAULTS = {
   dateFormat: "DD/MM/YYYY",
 };
 
-function generateUsername(email: string): string {
-  const local = email.split("@")[0] ?? "user";
-  const sanitized = local.replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
-  return `${sanitized}-${crypto.randomUUID().slice(0, 6)}`;
-}
-
 function generateSlug(name: string): string {
   const sanitized = name
     .replace(/[^a-zA-Z0-9-]/g, "-")
@@ -57,13 +50,6 @@ function generateSlug(name: string): string {
     .replace(/^-|-$/g, "")
     .toLowerCase();
   return `${sanitized}-${crypto.randomUUID().slice(0, 6)}`;
-}
-
-function splitName(fullName: string): { firstName: string; lastName: string } {
-  const parts = fullName.trim().split(/\s+/);
-  const firstName = parts[0] ?? fullName;
-  const lastName = parts.length > 1 ? parts.slice(1).join(" ") : "Member";
-  return { firstName, lastName };
 }
 
 export async function signup(
@@ -107,10 +93,6 @@ export async function signup(
     slug = `${slug}-${crypto.randomUUID().slice(0, 6)}`;
   }
 
-  const hashed = await hashPassword(password);
-  const username = generateUsername(email);
-  const { firstName, lastName } = splitName(fullName);
-
   // D13/DEC-039: the org owner gets the per-org `owner` role (a system role
   // with a NULL organization_id). A missing role means an unseeded
   // environment — fail closed instead of creating a permission-less owner
@@ -133,52 +115,38 @@ export async function signup(
     );
   }
 
-  // Generate the email verification token (32 bytes, SHA-256 hash stored)
-  // before the write block so the email send (a side effect) stays after the
-  // commit: a failed email must not roll back a committed account.
-  const rawToken = generateSecureToken();
-  const tokenHash = await hashToken(rawToken);
-  const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const now = new Date().toISOString();
 
   // Atomic signup (FR-ORG-001 AC7): user + organization + membership +
   // token + audit rows commit or roll back together. Previously these were
   // six independent writes — a crash mid-signup left an orphan user or an
-  // organization with no owner.
-  const { userId, orgId } = await withAtomicWrites(db, async (tx) => {
-    // Create user with password history
-    const userRows = await tx.execute<{
-      id: string;
-      password_history: string[] | null;
-    }>(
-      sql`
-      INSERT INTO users (
-        email, password, password_history, username, first_name, last_name,
-        status, email_verified, timezone, locale,
-        terms_accepted_at, privacy_accepted_at,
-        marketing_consent_at, data_processing_consent
-      )
-      VALUES (
-        ${email}, ${hashed}, ${JSON.stringify([hashed])}::jsonb, ${username}, ${firstName}, ${lastName},
-        'pending_verification', false, 'Africa/Lagos', 'en-NG',
-        ${now}::timestamptz, ${now}::timestamptz,
-        ${marketingOptIn ? now : null}::timestamptz, ${marketingOptIn ?? false}
-      )
-      RETURNING id, password_history
-    `,
-    );
-    const user = (userRows as any).rows?.[0] as any;
+  // organization with no owner. The user row and the email-verification token
+  // are created by the shared helpers in `user-record.ts` (NWB-P0-016) so the
+  // invitation-accept path produces byte-identical user records; the email
+  // *send* still happens after this transaction commits — a failed send must
+  // not roll back a committed account.
+  const { userId, orgId, username, firstName, lastName, rawToken } = await withAtomicWrites(
+    db,
+    async (tx) => {
+      const user = await createUserRecord(tx, {
+        email,
+        password,
+        fullName,
+        termsAcceptedAt: now,
+        privacyAcceptedAt: now,
+        ...(marketingOptIn !== undefined ? { marketingOptIn } : {}),
+      });
 
-    // Create organization with Nigerian defaults
-    const orgRows = await tx.execute<{ id: string }>(
-      sql`
+      // Create organization with Nigerian defaults
+      const orgRows = await tx.execute<{ id: string }>(
+        sql`
       INSERT INTO organizations (
         name, slug, display_name, owner_id, created_by, is_parent, is_verified,
         type, industry, company_size, terms_accepted_at, privacy_policy_accepted_at,
         currency, language, status, is_active
       )
       VALUES (
-        ${organizationName}, ${slug}, ${organizationName}, ${user.id}, ${user.id}, true, false,
+        ${organizationName}, ${slug}, ${organizationName}, ${user.userId}, ${user.userId}, true, false,
         'team', ${industry ?? null}, ${teamSize ?? null},
         ${new Date().toISOString()}::timestamptz, ${new Date().toISOString()}::timestamptz,
         ${NIGERIAN_ORG_DEFAULTS.currency}, ${NIGERIAN_ORG_DEFAULTS.language},
@@ -186,85 +154,82 @@ export async function signup(
       )
       RETURNING id
     `,
-    );
-    const org = (orgRows as any).rows?.[0] as any;
+      );
+      const org = (orgRows as any).rows?.[0] as any;
 
-    // Set Nigerian preferences via JSON
-    const prefs = {
-      timezone: NIGERIAN_ORG_DEFAULTS.timezone,
-      locale: NIGERIAN_ORG_DEFAULTS.language,
-      dateFormat: NIGERIAN_ORG_DEFAULTS.dateFormat,
-      currency: NIGERIAN_ORG_DEFAULTS.currency,
-    };
+      // Set Nigerian preferences via JSON
+      const prefs = {
+        timezone: NIGERIAN_ORG_DEFAULTS.timezone,
+        locale: NIGERIAN_ORG_DEFAULTS.language,
+        dateFormat: NIGERIAN_ORG_DEFAULTS.dateFormat,
+        currency: NIGERIAN_ORG_DEFAULTS.currency,
+      };
 
-    await tx.execute(
-      sql`
+      await tx.execute(
+        sql`
       UPDATE organizations
       SET preferences = ${JSON.stringify(prefs)}::jsonb,
-          owner_id = ${user.id}, created_by = ${user.id}
+          owner_id = ${user.userId}, created_by = ${user.userId}
       WHERE id = ${org.id}
     `,
-    );
-
-    // Set user's organization
-    await tx.execute(sql`UPDATE users SET organization_id = ${org.id} WHERE id = ${user.id}`);
-
-    // Create org membership WITH the owner role (FR-ORG-001 AC2 — this
-    // column was missing before the F-01 fix; a NULL role_id yields zero
-    // permissions in loadAbility).
-    await tx.execute(
-      sql`
-      INSERT INTO organization_members (organization_id, user_id, role_id, status, is_active)
-      VALUES (${org.id}, ${user.id}, ${ownerRoleId}, 'active', true)
-    `,
-    );
-
-    // If password_history is null, update it
-    if (!user.password_history || user.password_history.length === 0) {
-      await tx.execute(
-        sql`UPDATE users SET password_history = ${JSON.stringify([hashed])}::jsonb WHERE id = ${user.id}`,
       );
-    }
 
-    await tx.execute(
-      sql`
-      INSERT INTO tokens (
-        user_id, token_type, selector, hashed_validator, status, purpose, target_email, expires_at
-      )
-      VALUES (
-        ${user.id}, 'email_verification', ${rawToken.slice(0, 32)}, ${tokenHash},
-        'active', 'email_verification', ${email}, ${tokenExpires.toISOString()}
-      )
+      // Set user's organization
+      await tx.execute(sql`UPDATE users SET organization_id = ${org.id} WHERE id = ${user.userId}`);
+
+      // Create org membership WITH the owner role (FR-ORG-001 AC2 — this
+      // column was missing before the F-01 fix; a NULL role_id yields zero
+      // permissions in loadAbility).
+      await tx.execute(
+        sql`
+      INSERT INTO organization_members (organization_id, user_id, role_id, status, is_active)
+      VALUES (${org.id}, ${user.userId}, ${ownerRoleId}, 'active', true)
     `,
-    );
+      );
 
-    await writeAuditLog({
-      db: tx,
-      module: "core",
-      actorId: user.id,
-      actorType: "user",
-      action: "auth.signup.completed",
-      category: "authentication",
-      resourceType: "user",
-      resourceId: user.id,
-      afterState: { organizationId: org.id, status: "pending_verification" },
-    });
+      // (createUserRecord seeds password_history in the INSERT — the self-heal
+      // UPDATE that used to live here was a no-op and went away with the
+      // extraction.)
+      const { rawToken } = await createEmailVerificationToken(tx, {
+        userId: user.userId,
+        email,
+      });
 
-    await writeAuditLog({
-      db: tx,
-      module: "core",
-      organizationId: org.id,
-      actorId: user.id,
-      actorType: "user",
-      action: "organization.owner.created",
-      category: "authorization",
-      resourceType: "organization",
-      resourceId: org.id,
-      afterState: { ownerId: user.id, roleCode: "owner" },
-    });
+      await writeAuditLog({
+        db: tx,
+        module: "core",
+        actorId: user.userId,
+        actorType: "user",
+        action: "auth.signup.completed",
+        category: "authentication",
+        resourceType: "user",
+        resourceId: user.userId,
+        afterState: { organizationId: org.id, status: "pending_verification" },
+      });
 
-    return { userId: user.id, orgId: org.id };
-  });
+      await writeAuditLog({
+        db: tx,
+        module: "core",
+        organizationId: org.id,
+        actorId: user.userId,
+        actorType: "user",
+        action: "organization.owner.created",
+        category: "authorization",
+        resourceType: "organization",
+        resourceId: org.id,
+        afterState: { ownerId: user.userId, roleCode: "owner" },
+      });
+
+      return {
+        userId: user.userId,
+        orgId: org.id,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        rawToken,
+      };
+    },
+  );
 
   // Primary allowed origin doubles as the link base until NWB-P0-021 introduces APP_BASE_URL.
   const verificationLink = `${config.CORS_ORIGIN[0]}/verify-email?token=${rawToken}`;

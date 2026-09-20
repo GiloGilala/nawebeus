@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { invitationRouter } from "./invitation.route";
 import { mfaRouter } from "./mfa.route";
 import { passwordResetRouter } from "./password-reset.route";
 import { refreshRouter } from "./refresh.route";
@@ -18,5 +19,6 @@ authRouter.route("/auth", verificationRouter);
 authRouter.route("/auth", passwordResetRouter);
 authRouter.route("/auth", mfaRouter);
 authRouter.route("/auth", sessionsRouter);
+authRouter.route("/auth", invitationRouter);
 
 export { authRouter };

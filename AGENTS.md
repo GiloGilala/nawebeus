@@ -23,7 +23,9 @@ Only add a package once you have confirmed Bun can't cover the need — and say 
 bun install
 cp .env.example .env
 # Edit .env to point DATABASE_URL *and* DB_* at a local PostgreSQL 14+ instance, then:
-bun run db:push        # push schema to DB
+bun run db:generate    # emit a new migration from db/schema.ts changes
+bun run db:migrate     # apply committed migrations (idempotent)
+bun run db:push        # dev-only schema push; NOT the evolution path
 bun run seed            # seed permissions, roles, bootstrap org + admin
 ```
 
@@ -54,23 +56,24 @@ bun run build           # typecheck + bundle to dist/
 | Job | Steps |
 | --- | --- |
 | `quality` | `bun install --frozen-lockfile` → `typecheck` → `lint` → `build` |
-| `test` | `bun install --frozen-lockfile` → `db:push` → `seed` → `bun test` against a `postgres:14` service container |
+| `test` | `bun install --frozen-lockfile` → `db:migrate` (×2 — the second run proves idempotency) → `seed` → `bun test` against a `postgres:14` service container |
 
 - **PostgreSQL 14 is deliberate** — ADR-003 sets 14+ as the floor, so CI tests the floor. The generated DDL needs no extensions and nothing newer than PG14.
 - Bun is pinned to `1.4.0` (the lockfile's version); do not float it.
 - `bun run lint` runs `biome check .` — formatting, linting, and import order in one pass. It exits non-zero on **errors only**; warnings do not fail the build. `lint:fix` applies safe fixes, `format` formats without linting.
-- The `db:push` step needs only `DATABASE_URL` — `drizzle.config.ts` resolves the connection from it and refuses to run when a `DB_*` variable disagrees with it (NWB-P0-009).
-- Local reproduction of the `test` job: create a fresh database, then run `db:push -- --force`, `seed`, and `bun test` with `DATABASE_URL` set. A fresh database is preferred, because push is not a migration history (see the Database section above). Step-by-step, including a no-install PostgreSQL 14: `docs/agents/local-database.md`.
+- The `db:migrate` step needs only `DATABASE_URL` — `drizzle.config.ts` resolves the connection from it and refuses to run when a `DB_*` variable disagrees with it (NWB-P0-009).
+- Local reproduction of the `test` job: create a fresh database, then run `db:migrate`, `seed`, and `bun test` with `DATABASE_URL` set. Dev convenience only: `db:push -- --force` against throwaway databases (see the Database section). Step-by-step, including a no-install PostgreSQL 14: `docs/agents/local-database.md`.
 - Deliberately absent (no tooling yet, and each would be permanently red): coverage thresholds, `bun audit`/Snyk/Trivy, Playwright, Codecov, `db:migrate`, deploy. Formatting and linting are now covered by Biome; ESLint and Prettier are not used and should not be added.
 
 
 ### Database
 
-- `bun run db:push` — push `db/schema.ts` changes to the database (alias of `migrate`).
+- **Schema evolution is migration-only (NWB-P0-005).** `drizzle/migrations/` is the committed, ordered history of the active schema. Change `db/**`, run `bun run db:generate`, review the generated SQL, commit it, apply with `bun run db:migrate` (idempotent — the `drizzle.__drizzle_migrations` ledger makes a second run a no-op). See `drizzle/README.md` for the rules of the road, incl. **pg-boss being library-managed** (its tables never enter the drizzle baseline) and the ADR-017 pointer (`db/manual-migrations/` applies when PR/influencer are adopted).
+- `bun run db:push` — dev convenience only against disposable databases; NOT a migration history, never the evolution path.
 - **`db:push` reads `DATABASE_URL`** — the same variable the app and the tests read (`src/lib/db-config.ts` is the resolver; `drizzle.config.ts` calls it). The old `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` variables still work as a fallback when `DATABASE_URL` is unset, but when **both** are set and any of them disagrees with the URL, `db:push` exits with an error naming the conflict instead of silently picking a database. See NWB-P0-009.
-- **`db:push` always needs `-- --force`.** `strict: true` makes drizzle-kit prompt even on a fresh database; with a closed stdin (CI, scripts) it aborts **silently while exiting 0**, leaving zero tables pushed — a green no-op. Always `bun run db:push -- --force`.
-- **`db:push` converges, with one known exception** (verified 2026-09-20, NWB-P0-009). The old `42P16` failure on re-push is fixed (every `primaryKey()` now carries `.notNull()`, matching what PostgreSQL actually stores) and two churn sources are gone: the `analytics_aggregates` composite PK has an explicit ≤63-char name (PostgreSQL truncates identifiers to 63 bytes, so drizzle's 120-char generated name could never round-trip), and `api_keys.rate_limits` uses a compact jsonb literal default (PG deparses jsonb defaults with spaces; drizzle-kit compares textually after stripping them). The remaining exception: every push drops and recreates the **36 descending/partial indexes**. drizzle-kit models `desc()` as a raw SQL expression and predicates as drizzle-rendered text, while introspection reports sorted plain columns and PG-normalized predicates — the two textual forms can never agree. Verified unfixed in both drizzle-kit 0.28.1 and latest 0.31.10; the statements are semantically no-ops. NWB-P0-005 (real migration baseline) replaces push for anything that matters.
-- `bun run db:generate` — generate migration SQL to `drizzle/migrations/`.
+- **`db:push` always needs `-- --force`** (dev use). `strict: true` makes drizzle-kit prompt even on a fresh database; with a closed stdin (CI, scripts) it aborts **silently while exiting 0**, leaving zero tables pushed — a green no-op. Always `bun run db:push -- --force`.
+- **`db:push` converges, with one known exception** (verified 2026-09-20, NWB-P0-009). The old `42P16` failure on re-push is fixed (every `primaryKey()` now carries `.notNull()`, matching what PostgreSQL actually stores) and two churn sources are gone: the `analytics_aggregates` composite PK has an explicit ≤63-char name (PostgreSQL truncates identifiers to 63 bytes, so drizzle's 120-char generated name could never round-trip), and `api_keys.rate_limits` uses a compact jsonb literal default (PG deparses jsonb defaults with spaces; drizzle-kit compares textually after stripping them). The remaining exception: every push drops and recreates the **36 descending/partial indexes**. drizzle-kit models `desc()` as a raw SQL expression and predicates as drizzle-rendered text, while introspection reports sorted plain columns and PG-normalized predicates — the two textual forms can never agree. Verified unfixed in both drizzle-kit 0.28.1 and latest 0.31.10; the statements are semantically no-ops. Since NWB-P0-005, push is dev-only; `db:migrate` is the path for anything that matters.
+- `bun run db:generate` — generate the next migration into `drizzle/migrations/`; `bun run db:migrate` — apply committed migrations (idempotent).
 - `bun run db:studio` — open Drizzle Studio GUI.
 - `bun run seed` — seed permissions, roles, the bootstrap admin, and its organization. **Idempotent and convergent**: role-permission grants not in the seed's matrix are removed on re-run, and the pre-DEC-039 roles (`org_admin`, `member`) are retired with their memberships re-pointed (`admin`, `creator`). The test suite depends on it: against an unseeded database 7 tests fail (the `seed data`, `RBAC integration`, and `signin with valid credentials` groups).
 
@@ -94,7 +97,7 @@ src/index.ts              ← Bun.serve entry point
 src/server/index.ts       ← Hono app factory (CORS, error handler, route mounting)
   api/                    ← Hono route handlers, mounted at /api (thin: validate + delegate)
     auth/   signin, signup, signout, refresh, sessions, mfa, verification,
-            password-reset, session-cookies helper
+            password-reset, invitations (public validate + accept), session-cookies helper
     users/  /me, /admin
     orgs/   /orgs, /members, /roles
     api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
@@ -167,13 +170,49 @@ directory you care about) for the complete set.
   `purgeExpiredAccounts` / `getAccountDeletionStatus`. The column was missing until NWB-P0-024,
   which meant every one of those functions failed with 42703. Read instants back with
   `extract(epoch …)::bigint`, not `timestamptz`: node-postgres returns the latter as
-  `2026-10-20 17:24:06.801+00`, which JS `Date` rejects. The purge still cannot remove an
-  org owner (F-25 / NWB-P0-025 — open decision).
+  `2026-10-20 17:24:06.801+00`, which JS `Date` rejects. **`deleteAccount` refuses an
+  organization owner** (F-25 / D16, option 2 — refuse and report): 409
+  `OWNERSHIP_TRANSFER_REQUIRED`, naming the owned organizations, before anything is
+  written, so the purge is never reachable for an owner. `organizations.created_by` is
+  nullable + `set null` so a *former* owner erases cleanly once ownership has moved on —
+  `owner_id` itself stays NOT NULL + `restrict` on purpose. The same restrictive-FK
+  class on `api_keys.*_by` / `tokens.revoked_by` is closed too (F-28 / NWB-P0-028 —
+  every attribution FK to `users(id)` in the schema is now `set null`).
+  Until NWB-P0-023 ships an ownership-transfer path, a user whose signup created their
+  personal organization cannot complete account deletion.
+- **DSAR data export exists (AC8 of FR-AUTH-007 / NWB-P0-002)** — Phase 1 is synchronous:
+  `POST /api/users/me/data-export` builds the package in-request and stores it on
+  `data_export_requests` with a 7-day download window (expired reads answer 410,
+  `GoneError`; unknown or another subject's id answers 404). Sections: profile minus
+  credentials/2FA material, sessions, memberships, apiKeys masked (prefix + `public_key`
+  — never `secret_hash`/`encrypted_secret`), auditLog for rows `actor_id = subject OR
+  target_user_id = subject` (admin-filed requests must be visible to the subject), and
+  `meta.formatVersion: 1`. Each collection caps at 10k rows and closes with a
+  `truncated` marker (`sectionRowCap` is an internal service option for tests). The
+  `compliance.dsar.requested` event is written BEFORE the build so the request
+  self-cites inside its own export — and its module is `core`, not `compliance`:
+  `unified_audit_log` requires a hash-chain `checksum` for modules admin/compliance/system
+  and nothing computes the chain yet. Admin-on-behalf is `POST /api/users/:userId/data-export`
+  (org-scoped, 404 cross-tenant with no request row created) and returns the receipt
+  only — the payload only ever travels the subject's own channel
+  (`GET /api/users/me/data-export/:requestId`). Self-service POST is rate-limited
+  5/day per user (`dsar:req:<userId>`).
 - **Session rotation on every refresh** — the old session is revoked and a new one created. Reusing a refresh token after rotation is detected and rejected.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.
 - **`runWithOrgContext()` must be awaited inside middleware** — Hono's `compose()` checks `context.finalized` as soon as a handler's promise settles. Calling `next()` without awaiting it resolves the chain before the route handler writes its response, and Hono throws "Context is not finalized" → a blanket 500 on every protected route.
-- **Role hierarchy is DEC-039** — one platform role (`super_admin`, level 100) plus six per-organization system roles: `owner` 90, `admin` 80, `manager` 60, `creator` 40, `analyst` 20, `viewer` 10 (all `organization_id IS NULL`; `org_admin`/`member` no longer exist — the seed retires them). Rank comparisons use `roles.level`; only `owner`/`admin` have code-specific semantics. The rules — Owner is transferred never granted, Owner never demoted/removed, no self-change, actor must strictly outrank both the target and the granted role, at least one active Owner/Admin remains (BR-AUTH-030) — live in `src/services/orgs/role-policy.ts`, and **every** path that writes `organization_members.role_id` or removes/suspends a member goes through it (`assign-role`, `PATCH /members/:id`, `PATCH /users/:id`, both DELETEs). Add a new write path without it and you have re-opened F-07.
+- **Role hierarchy is DEC-039** — one platform role (`super_admin`, level 100) plus six per-organization system roles: `owner` 90, `admin` 80, `manager` 60, `creator` 40, `analyst` 20, `viewer` 10 (all `organization_id IS NULL`; `org_admin`/`member` no longer exist — the seed retires them). Rank comparisons use `roles.level`; only `owner`/`admin` have code-specific semantics. The rules — Owner is transferred never granted, Owner never demoted/removed, no self-change, actor must strictly outrank both the target and the granted role, at least one active Owner/Admin remains (BR-AUTH-030) — live in `src/services/orgs/role-policy.ts`, and **every** path that grants, writes, or clears `organization_members.role_id` or removes/suspends a member goes through it (`assign-role`, `PATCH /members/:id`, `PATCH /users/:id`, both DELETEs, and the invitation pair — `inviteMember` at grant time via `resolveAssignableRole` + `assertRoleGrantAllowed`, `acceptInvitation` activating what the invite was allowed to grant). Add a new write path without it and you have re-opened F-07.
+- **Invitation accept exists and is the only way members join** (F-08 / NWB-P0-016) —
+  `inviteMember` writes `organization_members` rows (`status='invited'`; `invited_email`
+  is the addressee of record, and dedup runs on (org, invited_email)) and emails a 7-day
+  single-use token; `GET /api/auth/invitations/:token` previews (org name, invited email,
+  account-setup flag) and `POST /api/auth/invitations/:token/accept` activates:
+  register-into-org via the shared `createUserRecord` (`src/services/auth/user-record.ts`
+  — never re-duplicate signup's user insert) or link an existing account. The token
+  claim is an atomic `UPDATE … WHERE accepted_at IS NULL`; the raw token is nulled, the
+  hash stays for the double-accept 409. D14's interim single-org answer is enforced: an
+  account with an active membership elsewhere gets a clear 409, never a silent re-home —
+  the multi-org branch is deliberately unbuilt until D14's final call.
 - **CASL for authorization** — `loadAbility()` queries the DB for the user's role permissions, builds a CASL ability scoped with `{ organizationId: orgId }`, and attaches it to the context. Routes use `requireAbility(action, subject)`.
 - **API response envelope** — success: `{ data: T, meta? }`; error: `{ error: { code, message, details? } }`.
 - **Every 500 is opaque by default** — `errorHandler` maps any non-`AppError` to a generic `INTERNAL_ERROR`, so the real cause never reaches the client. Run with `NWB_DEBUG_ERRORS=1` to have it log the underlying exception and stack first.

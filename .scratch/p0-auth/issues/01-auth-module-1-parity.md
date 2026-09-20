@@ -1,6 +1,6 @@
 # Auth Module 1 parity — spec & implementation tracker
 
-> **Status:** in-progress — 9/10 Module 1 FRs implemented; FR-AUTH-010 (API keys) unbuilt. DSAR export (AC8 of FR-AUTH-007) also outstanding.
+> **Status:** in-progress — 10/10 Module 1 FRs implemented as of 2026-09-20: FR-AUTH-010 (API keys) shipped in NWB-P0-001 (2026-09-13) and FR-AUTH-006's accept half shipped in NWB-P0-016 (2026-09-20, incl. the DEC-039 invite ladder — note the module spec's "Owner can invite with Owner role" table row is superseded by DEC-039). DSAR export (AC8 of FR-AUTH-007, ticket NWB-P0-002) remains the only outstanding FR-level gap.
 > **Priority:** high
 > **Source spec:** `docs/modules/Authentication & User Management.md`
 

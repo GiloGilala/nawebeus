@@ -12,6 +12,7 @@
     "build:start": "echo 'TanStack Start build: vinxi build'",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:drop": "drizzle-kit drop",
     "db:studio": "drizzle-kit studio",

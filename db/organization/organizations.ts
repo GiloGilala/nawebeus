@@ -505,9 +505,15 @@ export const organizations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
 
-    createdBy: uuid("created_by")
-      .notNull()
-      .references(() => users.id, { onDelete: "restrict" }),
+    // Nullable + `set null`, matching every other attribution column in the
+    // schema (25+ `*_by` FKs all use `onDelete: "set null"`): a purged user's
+    // id must not block their own erasure. With `restrict` here (as shipped),
+    // hard-deleting an organization's creator died on 23503 even after
+    // ownership had moved on — found while landing F-25 (NWB-P0-025). A NULL
+    // creator means "erased or not recorded". `owner_id` above stays
+    // NOT NULL + `restrict` on purpose: an organization must have an owner,
+    // and `deleteAccount` refuses current owners outright (D16).
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
 
     parentOrganizationId: uuid("parent_organization_id").references((): any => organizations.id, {
       onDelete: "set null",

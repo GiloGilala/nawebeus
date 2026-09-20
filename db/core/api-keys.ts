@@ -285,14 +285,18 @@ export const apiKeys = pgTable(
     // ============================================
     // AUDIT TRAIL
     // ============================================
-    createdBy: uuid("created_by").references(() => users.id),
-    updatedBy: uuid("updated_by").references(() => users.id),
+    // set null, matching every other attribution FK in the schema: a purged
+    // user must not block their own erasure (F-28 — these four had no
+    // onDelete, i.e. NO ACTION, so purging anyone who ever created, updated,
+    // revoked, or deleted an API key died on 23503).
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
 
     // ============================================
     // REVOCATION (Enhanced)
     // ============================================
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    revokedBy: uuid("revoked_by").references(() => users.id),
+    revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
     revokeReason: text("revoke_reason"),
     revocationType: revocationTypePgEnum("revocation_type").default("manual"), // NEW
 
@@ -300,7 +304,7 @@ export const apiKeys = pgTable(
     // SOFT DELETE & TIMESTAMPS
     // ============================================
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
-    deletedBy: uuid("deleted_by").references(() => users.id),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [

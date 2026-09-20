@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { getConfig, loadConfig } from "../../lib/config";
+import { createApiKey, revokeApiKey } from "../../services/auth/api-key";
 import { signAccessToken } from "../../services/auth/jwt";
 import { createSession } from "../../services/auth/session";
 import {
@@ -96,9 +97,13 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
     });
   });
 
+  // These two deletion-mechanics tests use a user who owns nothing: since D16
+  // (F-25), `deleteAccount` refuses an organization owner, and `signedInUser`
+  // creates a personal organization owned by the user. The owner path has its
+  // own tests further down.
   test("deleteAccount soft-deletes, schedules the purge 30 days out, revokes sessions and releases the email", async () => {
     await withTestDb(async ({ db }) => {
-      const { user } = await signedInUser(db);
+      const user = await createTestUser(db);
       await createSession(db, crypto.randomUUID(), user.id, "hash", false);
 
       const before = Date.now();
@@ -141,7 +146,7 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
 
   test("reactivateAccount clears the soft delete, the schedule and the suspension", async () => {
     await withTestDb(async ({ db }) => {
-      const { user } = await signedInUser(db);
+      const user = await createTestUser(db);
       await deleteAccount(db, user.id);
 
       await reactivateAccount(db, user.id);
@@ -185,23 +190,180 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
   });
 
   /**
-   * Known limitation, filed as F-25 rather than fixed here: `organizations.owner_id`
-   * is NOT NULL with a restrictive FK, so the hard DELETE cannot remove a user who
-   * still owns an organization — the purge dies on 23503. Resolving it is a product
-   * call (delete the owned orgs with the owner? refuse and report?) that belongs with
-   * NWB-P0-023 (organization deletion). This test exists so the gap is visible in the
-   * suite instead of discovered in production — flip it to `resolves` when given a
-   * decision.
+   * F-25 was decided as D16 (option 2 — refuse and report): `deleteAccount`
+   * rejects an organization owner before writing anything, so
+   * `purgeExpiredAccounts` is never reachable for an owner and the 23503 this
+   * suite used to assert cannot occur. The original known-limitation test
+   * asserted `rejects.toThrow(/foreign key constraint/i)`; it is flipped to the
+   * decided behaviour, not deleted — if the gate below ever stops throwing, the
+   * follow-on test's purge assertion can no longer prove what it claims.
    */
-  test("purgeExpiredAccounts currently fails for an organization owner (F-25 known limitation)", async () => {
+  test("deleteAccount refuses an organization owner and writes nothing (F-25 decided, D16)", async () => {
     await withTestDb(async ({ db }) => {
-      const { user } = await signedInUser(db);
+      const { user, org } = await signedInUser(db);
+      await createSession(db, crypto.randomUUID(), user.id, "hash", false);
+
+      const error = (await deleteAccount(db, user.id).then(
+        () => null,
+        (e) => e,
+      )) as (Error & { code?: string; statusCode?: number }) | null;
+      expect(error?.name).toBe("OwnershipTransferRequiredError");
+      expect(error?.code).toBe("OWNERSHIP_TRANSFER_REQUIRED");
+      expect(error?.statusCode).toBe(409);
+      expect(error?.message).toContain("Test Organization");
+      const details = (error as unknown as { details?: { organizations: { id: string }[] } })
+        ?.details;
+      expect(details?.organizations.map((o) => o.id)).toEqual([org.id]);
+
+      // Nothing was written: no soft delete, no schedule, the session is still
+      // live, the email is untouched.
+      const rows = await db.execute<{
+        status: string;
+        deleted_at: Date | null;
+        scheduled_deletion_at: Date | null;
+        email: string;
+        sessions: number;
+      }>(sql`
+        SELECT u.status, u.deleted_at, u.scheduled_deletion_at, u.email,
+               (SELECT count(*)::int FROM sessions s WHERE s.user_id = u.id AND s.is_revoked = false) AS sessions
+        FROM users u WHERE u.id = ${user.id}
+      `);
+      const row = (rows as unknown as { rows: Array<Record<string, unknown>> }).rows[0]!;
+      expect(row.status).toBe("active");
+      expect(row.deleted_at).toBeNull();
+      expect(row.scheduled_deletion_at).toBeNull();
+      expect(row.email).toBe(user.email);
+      expect(row.sessions).toBe(1);
+
+      const status = await getAccountDeletionStatus(db, user.id);
+      expect(status.deleted).toBe(false);
+      expect(status.scheduledDeletionAt).toBeNull();
+    });
+  });
+
+  test("DELETE /api/users/me answers 409 OWNERSHIP_TRANSFER_REQUIRED for an organization owner (F-25 decided)", async () => {
+    await withTestDb(async ({ db }) => {
+      const app = createTestApp(db);
+      const { org, cookie } = await signedInUser(db);
+
+      const res = await app.request("/api/users/me", {
+        method: "DELETE",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ confirmText: "DELETE" }),
+      });
+      expect(res.status).toBe(409);
+
+      const json = (await res.json()) as {
+        error: { code: string; details?: { organizations?: { id: string; name: string }[] } };
+      };
+      expect(json.error.code).toBe("OWNERSHIP_TRANSFER_REQUIRED");
+      expect(json.error.details?.organizations?.map((o) => o.id)).toContain(org.id);
+    });
+  });
+
+  /**
+   * The other half of the flip: once the organization has a new owner the
+   * decided flow unblocks end to end — deletion proceeds, and the purge (the
+   * statement that used to die on 23503) removes the former owner cleanly while
+   * the organization survives on its new owner. The raw UPDATE stands in for
+   * the ownership-transfer path NWB-P0-023 has yet to build (DEC-039: "Owner is
+   * transferred, never granted").
+   */
+  test("after ownership moves away, deleteAccount proceeds and the purge removes the former owner (F-25 decided)", async () => {
+    await withTestDb(async ({ db }) => {
+      const { user, org } = await signedInUser(db);
+      const newOwner = await createTestUser(db);
+      await addMemberWithRole(db, {
+        organizationId: org.id,
+        userId: newOwner.id,
+        roleCode: "owner",
+      });
+      await db.execute(
+        sql`UPDATE organizations SET owner_id = ${newOwner.id} WHERE id = ${org.id}`,
+      );
+
       await deleteAccount(db, user.id);
       await db.execute(
         sql`UPDATE users SET scheduled_deletion_at = now() - interval '1 day' WHERE id = ${user.id}`,
       );
 
-      await expect(purgeExpiredAccounts(db)).rejects.toThrow(/foreign key constraint/i);
+      const purged = await purgeExpiredAccounts(db);
+      expect(purged).toBe(1);
+
+      // The organization survives on its new owner; the creator attribution is
+      // set-nulled by the FK (the purged user's id must not outlive the erasure).
+      const survivors = await db.execute<{ owner_id: string; created_by: string | null }>(
+        sql`SELECT owner_id, created_by FROM organizations WHERE id = ${org.id}`,
+      );
+      const survivor = (
+        survivors as unknown as { rows: Array<{ owner_id: string; created_by: string | null }> }
+      ).rows[0]!;
+      expect(survivor.owner_id).toBe(newOwner.id);
+      expect(survivor.created_by).toBeNull();
+      const gone = await db.execute<{ id: string }>(
+        sql`SELECT id FROM users WHERE id = ${user.id}`,
+      );
+      expect((gone as unknown as { rows: Array<{ id: string }> }).rows).toHaveLength(0);
+    });
+  });
+
+  /**
+   * F-28: the same restrictive-FK class as F-25, one door down — until this fix
+   * `api_keys.created_by/updated_by/revoked_by/deleted_by` and `tokens.revoked_by`
+   * had no `onDelete` (NO ACTION ≈ restrict), so purging anyone who ever
+   * created or revoked an API key died on 23503 and the erasure stranded. Now
+   * they're `set null` like every other attribution FK: the purge completes and
+   * the surviving org-owned rows keep no trace of the purged user's id. (The
+   * class was already demonstrated red on `organizations.created_by` during
+   * NWB-P0-025; `api_keys.user_id` was always correctly `set null`.)
+   */
+  test("purge removes a user who created and revoked API keys; surviving keys lose the attribution (F-28)", async () => {
+    await withTestDb(async ({ db }) => {
+      const { org } = await signedInUser(db); // org owned by someone else — D16
+      const target = await createTestUser(db);
+
+      const created = await createApiKey(db, {
+        organizationId: org.id,
+        userId: target.id,
+        createdBy: target.id,
+        name: `key-${crypto.randomUUID().slice(0, 6)}`,
+        keyType: "admin",
+        environment: "development",
+        permissionLevel: "write",
+        securityLevel: "standard",
+        scopes: [],
+        expiresAt: null,
+        rotationStrategy: "manual",
+      });
+      await revokeApiKey(db, org.id, created.id, target.id, "cleanup", "user");
+
+      await deleteAccount(db, target.id);
+      await db.execute(
+        sql`UPDATE users SET scheduled_deletion_at = now() - interval '1 day' WHERE id = ${target.id}`,
+      );
+
+      const purged = await purgeExpiredAccounts(db);
+      expect(purged).toBe(1);
+
+      const keys = await db.execute<{
+        user_id: string | null;
+        created_by: string | null;
+        updated_by: string | null;
+        revoked_by: string | null;
+        deleted_by: string | null;
+      }>(
+        sql`SELECT user_id, created_by, updated_by, revoked_by, deleted_by FROM api_keys WHERE id = ${created.id}`,
+      );
+      const key = (keys as unknown as { rows: Array<Record<string, string | null>> }).rows[0]!;
+      // The org-owned key row survives; every pointer back to the purged user is nulled.
+      expect(key.created_by).toBeNull();
+      expect(key.revoked_by).toBeNull();
+      expect(key.user_id).toBeNull();
+
+      const gone = await db.execute<{ id: string }>(
+        sql`SELECT id FROM users WHERE id = ${target.id}`,
+      );
+      expect((gone as unknown as { rows: Array<{ id: string }> }).rows).toHaveLength(0);
     });
   });
 });

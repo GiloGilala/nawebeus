@@ -74,15 +74,33 @@ export interface RoleChangeCheck {
 }
 
 /**
- * Rules 1–4 for a role change. Pure — no database access — so the whole
- * matrix is unit-testable without fixtures.
+ * Rules 1 and 4 for *granting* a role, without acting on an existing member —
+ * the invitation case (NWB-P0-016), where there is no target member yet.
+ * Pure — no database access.
  */
-export function assertRoleChangeAllowed({ actor, target, newRole }: RoleChangeCheck): void {
+export function assertRoleGrantAllowed({
+  actor,
+  newRole,
+}: {
+  actor: RoleRank;
+  newRole: RoleRank;
+}): void {
   if (newRole.code === "owner") {
     throw new ForbiddenError(
       "The Owner role cannot be assigned — ownership is transferred, not granted (BR-AUTH-031)",
     );
   }
+  if (actor.level <= newRole.level) {
+    throw new ForbiddenError("You can only assign roles below your own role");
+  }
+}
+
+/**
+ * Rules 1–4 for a role change. Pure — no database access — so the whole
+ * matrix is unit-testable without fixtures.
+ */
+export function assertRoleChangeAllowed({ actor, target, newRole }: RoleChangeCheck): void {
+  assertRoleGrantAllowed({ actor, newRole });
   if (target.code === "owner") {
     throw new ForbiddenError("The Owner's role cannot be changed (BR-AUTH-031)");
   }
@@ -91,9 +109,6 @@ export function assertRoleChangeAllowed({ actor, target, newRole }: RoleChangeCh
   }
   if (actor.level <= target.level) {
     throw new ForbiddenError("You can only change the role of members below your own role");
-  }
-  if (actor.level <= newRole.level) {
-    throw new ForbiddenError("You can only assign roles below your own role");
   }
 }
 

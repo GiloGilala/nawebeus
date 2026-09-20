@@ -8,9 +8,9 @@ export const errorHandler: ErrorHandler = (e, c) => {
     console.error("[NWB_DEBUG_ERRORS]", e);
   }
   if (e instanceof AppError) {
-    c.status(e.statusCode as 400 | 401 | 403 | 404 | 409 | 422 | 423 | 429 | 500);
+    c.status(e.statusCode as 400 | 401 | 403 | 404 | 409 | 410 | 422 | 423 | 429 | 500);
     return c.json(err(e));
   }
-  c.status(500 as 400 | 401 | 403 | 404 | 409 | 422 | 423 | 429 | 500);
+  c.status(500 as 400 | 401 | 403 | 404 | 409 | 410 | 422 | 423 | 429 | 500);
   return c.json(err(new InternalError("An unexpected error occurred")));
 };
