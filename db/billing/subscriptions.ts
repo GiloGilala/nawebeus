@@ -141,7 +141,7 @@ export const subscriptions = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    id: uuid("id").notNull().primaryKey().default(sql`gen_random_uuid()`),
 
     // ============================================
     // OWNERSHIP

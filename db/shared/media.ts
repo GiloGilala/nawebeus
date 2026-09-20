@@ -173,7 +173,7 @@ import { mediaAssetTypeEnum, mediaAttachedToTypeEnum } from "../shared/enums";
 export const mediaAssets = pgTable(
   "media_assets",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Attachment Context ───────────────────────────────────────────────────

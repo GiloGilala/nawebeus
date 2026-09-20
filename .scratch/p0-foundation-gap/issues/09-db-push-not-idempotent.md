@@ -1,6 +1,7 @@
 # NWB-P0-009 — `db:push` cannot converge on an existing database
 
-**Status:** open — found 2026-09-13 while fixing the DB-gated suite
+**Status:** done — 2026-09-20 (verified locally: typecheck + lint + build + 249/249 `bun test`
+with a live database; fresh-DB push convergence verified; CI re-run pending)
 **Deps:** overlaps **NWB-P0-005** (migration baseline) — fix there, not here. **Size:** M.
 
 ## The bug
@@ -94,3 +95,79 @@ bleeding and makes local development sane; B is the durable answer and is alread
 - The error surfaces at `dropconstraint_internal`, i.e. only when push is diffing against an
   existing database — which is why a first-ever push into an empty database appears to work and
   the problem looks intermittent.
+
+## Answer (2026-09-20)
+
+Implemented **Option A** plus the config unification, and re-verified every clause of the
+original diagnosis against the current toolchain (drizzle-kit **0.28.1**, PostgreSQL **14.23**,
+Bun 1.4.0). Two findings below **supersede the ticket's original diagnosis**; the 42P16 as
+described did not reproduce, but the underlying complaint — push cannot converge — did, for
+three different reasons, two of which are now fixed in the schema and one of which is an
+upstream drizzle-kit defect that no schema change can fix.
+
+### Changes shipped
+
+1. **`.notNull()` on every `primaryKey()`** — all 81 column-level declarations across `db/`
+   are now `notNull().primaryKey()`; nothing else in the model changed. Mechanical, matches
+   what PostgreSQL stores.
+2. **`analytics_aggregates` composite PK got an explicit short name** — `pk_aag_natural_key`
+   (`db/shared/analytics.ts`). drizzle's generated name for that 8-column key is **120 chars**;
+   PostgreSQL truncates *every* identifier to 63 bytes, so the constraint came back named
+   `analytics_aggregates_organization_id_granularity_time_bucket_pl`, which never matched what
+   the model expected → drop + re-add on **every** push, forever. An explicit ≤63-char name
+   round-trips. (Existing databases converge after one renaming push.)
+3. **`api_keys.rate_limits` default is now a compact jsonb literal** (`db/core/api-keys.ts`).
+   PG deparses jsonb defaults canonically (`'{"limits": {}, "enabled": false, ...}'::jsonb` —
+   spaces, keys sorted by length then bytewise), drizzle-kit serializes a JS-object default as
+   `JSON.stringify` (`'{"enabled":false,...}'`), and it compares the two **as text** →
+   `SET DEFAULT` re-issued on every push. Kit's jsonb introspection strips whitespace before
+   comparing, so a compact literal converges. Same jsonb value either way.
+4. **`DATABASE_URL` is now the single source of truth for `db:push`** — `drizzle.config.ts`
+   delegates to `src/lib/db-config.ts` (pure, unit-tested): `DATABASE_URL` wins; the `DB_*`
+   variables are a fallback when the URL is unset; when **both** are present and any `DB_*`
+   disagrees with the URL, push exits with an error naming each conflict. The old
+   "silently targets `nawebeus`" footgun is impossible now. CI's `db:push` step no longer
+   needs the duplicated `DB_*` block.
+5. **22 unit tests** for the resolver in `src/tests/db-config.test.ts` (no DB required).
+
+### Verified against the definition of done
+
+| DoD clause | Result |
+| --- | --- |
+| Second push against an existing schema: clean no-op, exit 0 | **Partially met — see finding 1.** Push now exits 0 and emits **zero** column/constraint/default statements on re-push. It still emits 36 `DROP INDEX IF EXISTS` + 36 `CREATE INDEX IF NOT EXISTS` pairs, deterministic every run. |
+| Fresh database → full schema, one documented non-destructive command | **Met.** `bun run db:push -- --force` with `DATABASE_URL` set. The `--force` is load-bearing: `strict: true` prompts even on a fresh DB, and with a closed stdin drizzle-kit **aborts silently while exiting 0** — a green no-op that pushes zero tables. Documented in AGENTS.md; CI already used `--force`. |
+| `DATABASE_URL` and `DB_*` cannot disagree silently | **Met** — loud conflict error; unit-tested. |
+| typecheck clean; full suite green with a live database | **Met.** `tsc --noEmit` clean, `biome check .` clean (errors; warnings are the pre-existing baseline), `bun run build` clean, `bun test` **249 pass / 0 fail** (was 227) against a pushed + seeded PostgreSQL 14.23. |
+
+### Finding 1 — the desc/partial-index churn is an upstream drizzle-kit defect (open)
+
+Every push drops and recreates exactly the 36 indexes that have `desc()` columns or a
+`WHERE` predicate. Root cause, from the kit bundle and live queries:
+
+- `desc(col)` in drizzle-orm 0.36 is a raw **SQL expression**; kit's model side serializes it
+  as `expression="created_at" desc, isExpression=true`, while kit's introspection reports the
+  same thing as a sorted **plain column** (`expression=created_at, isExpression=false,
+  asc=false, nulls=first`, from `pg_index.indoption`). The two serialized forms can never be
+  equal → "altered" → drop + recreate.
+- `WHERE` predicates compare drizzle's rendered text
+  (`"unified_audit_log"."actor_type" = 'impersonation'`) against PG's normalized
+  `pg_get_expr` output (`(actor_type = 'impersonation'::audit_actor_type)`) — casts,
+  parenthesization, and qualification differ; never equal.
+
+**Spike: upgrading does not fix it.** drizzle-kit **0.31.10** (latest at the time of writing)
+against this same schema produces the identical churn (75 statements on second push, same
+three classes). Upgrading was therefore **not adopted** — it would change `db:generate`
+output for NWB-P0-005 without buying convergence. The statements that do run are
+semantically no-ops (identical index dropped and recreated), which is tolerable for a
+dev-only push against disposable databases — and is exactly the argument for NWB-P0-005 to
+replace push with a real migration baseline rather than keep polishing it.
+
+### Finding 2 — the original 42P16 diagnosis does not reproduce on drizzle-kit 0.28.1
+
+With 0.28.1 + PostgreSQL 14, a second push against the untouched original schema did **not**
+emit `ALTER COLUMN id DROP NOT NULL` and did not fail — the only re-push statements were the
+three churn classes above. The ticket's reproduction (2026-09-13, PostgreSQL 18) may have hit
+a PG-18 introspection difference or an older kit. The `.notNull()` change is still correct
+and kept: it makes the model state what the database enforces, and it costs nothing. The
+"partially applied statements" complaint stands on its own — push does not wrap statements in
+a transaction, so any mid-push failure still leaves the database between two schemas.

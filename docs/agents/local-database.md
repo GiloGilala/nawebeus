@@ -20,7 +20,7 @@ Then continue at [Configure and run](#configure-and-run).
 
 Use the [`embedded-postgres`](https://www.npmjs.com/package/embedded-postgres) npm package (MIT; ships real PostgreSQL binaries for Linux, macOS and Windows) from a **scratch directory outside the repository**. The repo's `package.json` stays untouched — Phase 1 forbids new dependencies, and this needs none.
 
-Verified 2026-09-20 in the Arena sandbox: install 3 s, start ~1 s, `db:push` 1.8 s, `bun test` 227 pass / 0 fail in 13.3 s.
+Verified 2026-09-20 in the Arena sandbox: install 3 s, start ~1 s, `db:push` 1.8 s, `bun test` 249 pass / 0 fail in 13.7 s (count includes the 22 `db-config` unit tests from NWB-P0-009).
 
 ```bash
 mkdir -p ~/nawebeus-db && cd ~/nawebeus-db
@@ -72,32 +72,29 @@ PGPORT=5433 node ~/nawebeus-db/start.mjs   # if 5432 is taken
 
 ```dotenv
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nawebeus_test
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=nawebeus_test
-DB_USER=postgres
-DB_PASSWORD=postgres
 JWT_ACCESS_SECRET=local-access-secret-at-least-32-chars-long-xx
 JWT_REFRESH_SECRET=local-refresh-secret-at-least-32-chars-long-x
 ```
 
-Both blocks of database variables are required: `drizzle.config.ts` reads `DB_*`, everything else reads `DATABASE_URL` (see NWB-P0-009). Then, from the repo root:
+`DATABASE_URL` is the single source of truth — the app, the seed script, the tests, **and** `bun run db:push` all read it (NWB-P0-009). The old `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` variables still work as a fallback when `DATABASE_URL` is unset, but if both are set and any `DB_*` disagrees with the URL, `db:push` refuses to run rather than silently picking a database. Then, from the repo root:
 
 ```bash
-bun run db:push -- --force   # schema (--force skips drizzle-kit's strict-mode prompt)
+bun run db:push -- --force   # schema (--force is required, see below)
 bun run seed                 # permissions, DEC-039 roles, bootstrap org + admin
 bun test                     # full suite
 ```
 
+Always pass `-- --force`: `strict: true` makes drizzle-kit prompt even on a fresh database, and with a closed stdin (scripts, CI) it aborts **silently while exiting 0** — a green no-op that pushes zero tables.
+
 | Command | Reads |
 | --- | --- |
-| `bun run db:push` | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` (`DB_PASSWORD` must be non-empty) |
+| `bun run db:push` | `DATABASE_URL` (with `DB_*` as a validated fallback — see above) |
 | `bun run seed`, `bun run dev` | `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` |
 | `bun test` | `DATABASE_URL` only — `src/tests/preload.ts` supplies placeholder JWT secrets |
 
 ### Resetting the database
 
-`db:push` is not idempotent (see the Database section of `AGENTS.md`); when it fails with `42P16`, start from an empty database. With Option 2, `Ctrl-C` and re-run `start.mjs`. With any server, recreate the database using the `pg` driver the repo already has:
+`db:push` is not a migration history (see the Database section of `AGENTS.md`). Re-pushing over an existing database now converges cleanly except for a known upstream drizzle-kit quirk (it drops and recreates the descending/partial indexes every run), but push remains a dev-only tool: when you want a guaranteed-clean start, recreate the database. With Option 2, `Ctrl-C` and re-run `start.mjs`. With any server, recreate the database using the `pg` driver the repo already has:
 
 ```bash
 bun -e 'const { Client } = await import("pg"); const c = new Client({ connectionString: process.env.DATABASE_URL.replace(/\/[^/]+$/, "/postgres") }); await c.connect(); await c.query("DROP DATABASE IF EXISTS nawebeus_test WITH (FORCE)"); await c.query("CREATE DATABASE nawebeus_test"); await c.end(); console.log("nawebeus_test recreated")'

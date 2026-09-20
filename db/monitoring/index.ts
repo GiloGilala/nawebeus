@@ -135,7 +135,7 @@ import {
 export const monitoringCampaigns = pgTable(
   "monitoring_campaigns",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Campaign Details ─────────────────────────────────────────────────────
@@ -444,7 +444,7 @@ export const monitoringCampaigns = pgTable(
 export const newsSources = pgTable(
   "news_sources",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // ─── Source Identity ───────────────────────────────────────────────────────
     name: varchar("name", { length: 500 }).notNull(),
@@ -833,7 +833,7 @@ export const newsSources = pgTable(
 export const socialMentions = pgTable(
   "social_mentions",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // Real FK to monitoring_campaigns — CASCADE on delete
@@ -1252,7 +1252,7 @@ export const socialMentions = pgTable(
 export const mediaArticles = pgTable(
   "media_articles",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // Real FK to monitoring_campaigns — SET NULL on delete
@@ -1678,7 +1678,7 @@ export const mediaArticles = pgTable(
 export const monitoringCompetitors = pgTable(
   "monitoring_competitors",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 100 }).notNull(),
@@ -1778,7 +1778,7 @@ export const monitoringCompetitors = pgTable(
 export const crisisIncidents = pgTable(
   "crisis_incidents",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     title: varchar("title", { length: 255 }).notNull(),

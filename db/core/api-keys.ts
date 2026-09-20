@@ -44,7 +44,7 @@ export const apiKeys = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
     externalId: varchar("external_id", { length: 100 }),
     version: integer("version").notNull().default(1),
     secretVersion: integer("secret_version").notNull().default(1), // NEW
@@ -162,11 +162,15 @@ export const apiKeys = pgTable(
         };
       }>()
       .notNull()
-      .default({
-        enabled: false,
-        strategy: "fixed_window",
-        limits: {},
-      }),
+      // The default is a compact literal rather than a JS object on purpose
+      // (NWB-P0-009): PostgreSQL deparses jsonb defaults in canonical form
+      // (spaces after ':' and ',', keys sorted by length then bytewise), while
+      // drizzle-kit serializes a JS-object default as JSON.stringify output and
+      // compares the two as text — so an object default re-issued SET DEFAULT
+      // on every push. drizzle-kit's jsonb introspection strips whitespace
+      // before comparing, so a compact literal converges. Same jsonb value
+      // either way — whitespace is insignificant in jsonb.
+      .default(sql`'{"limits":{},"enabled":false,"strategy":"fixed_window"}'::jsonb`),
 
     // Enhanced quotas
     dailyQuota: integer("daily_quota"),

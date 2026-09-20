@@ -52,7 +52,7 @@ export const sessions = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     // ============================================
     // OWNERSHIP & USER RELATIONSHIP

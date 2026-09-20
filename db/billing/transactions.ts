@@ -113,7 +113,7 @@ export const transactions = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     transactionNumber: varchar("transaction_number", { length: 50 }).notNull().unique(),
 

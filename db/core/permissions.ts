@@ -76,7 +76,7 @@ export const permissions = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     // ============================================
     // PERMISSION IDENTITY
@@ -243,7 +243,7 @@ export const permissionGroups = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     code: varchar("code", { length: 100 }).notNull().unique(),
     name: varchar("name", { length: 200 }).notNull(),

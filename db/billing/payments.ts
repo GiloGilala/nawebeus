@@ -108,7 +108,7 @@ export const payments = pgTable(
     // ============================================
     // CORE IDENTIFIERS
     // ============================================
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     // ============================================
     // RELATIONSHIPS

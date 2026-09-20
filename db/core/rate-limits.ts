@@ -15,7 +15,7 @@ import { timestamps } from "../shared/schema-utils";
 export const rateLimits = pgTable(
   "rate_limits",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     /**
      * Caller-defined bucket, e.g. `ip:203.0.113.7` or `user:<uuid>`.

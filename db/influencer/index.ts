@@ -124,6 +124,7 @@ export const influencers = pgTable(
   {
     // PK = FK to contacts.id (shared-PK inheritance)
     id: varchar("id", { length: 32 })
+      .notNull()
       .primaryKey()
       .references(() => contacts.id, { onDelete: "cascade" }),
 
@@ -298,7 +299,7 @@ export const influencers = pgTable(
 export const influencerPrograms = pgTable(
   "influencer_programs",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 200 }).notNull(),
@@ -390,7 +391,7 @@ export const influencerPrograms = pgTable(
 export const influencerProgramAssignments = pgTable(
   "influencer_program_assignments",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // Real FK to influencer_programs — CASCADE on delete
     programId: varchar("campaign_id", { length: 32 })
@@ -526,7 +527,7 @@ export const influencerProgramAssignments = pgTable(
 export const influencerContentSubmissions = pgTable(
   "influencer_content_submissions",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // Real FK to assignments — CASCADE on delete
     assignmentId: varchar("assignment_id", { length: 32 })
@@ -680,7 +681,7 @@ export const influencerContentSubmissions = pgTable(
 export const influencerPayments = pgTable(
   "influencer_payments",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // Real FK to assignment — RESTRICT on delete (financial records)
     assignmentId: varchar("assignment_id", { length: 32 })

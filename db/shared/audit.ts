@@ -90,7 +90,7 @@ export const auditLog = pgTable(
     // which silently broke the entire audit trail — the DB-backed audit test
     // passed only because it used short fake ids like "org-1". Widened to 64 so
     // the columns hold UUIDs and prefixed ids ("al_...", "sess_...") alike.
-    id: varchar("id", { length: 64 }).primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // ─── Scope ───────────────────────────────────────────────────────────────
     module: auditSourceModuleEnum("module").notNull(),

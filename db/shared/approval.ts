@@ -172,7 +172,7 @@ import {
 export const approvalRequests = pgTable(
   "approval_requests",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Entity Reference ────────────────────────────────────────────────────
@@ -433,7 +433,7 @@ export const approvalRequests = pgTable(
 export const approvalHistory = pgTable(
   "approval_history",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // FK to approval_requests — real FK (history row cannot outlive request)
     approvalRequestId: varchar("approval_request_id", { length: 32 })

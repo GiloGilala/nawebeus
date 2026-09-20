@@ -162,6 +162,7 @@ export const journalists = pgTable(
   {
     // PK = FK to contacts.id (shared-PK inheritance)
     id: varchar("id", { length: 32 })
+      .notNull()
       .primaryKey()
       .references(() => contacts.id, { onDelete: "cascade" }),
 
@@ -368,7 +369,7 @@ export const journalists = pgTable(
 export const pressReleases = pgTable(
   "press_releases",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // ─── Content ──────────────────────────────────────────────────────────────
@@ -594,7 +595,7 @@ export const pressReleases = pgTable(
 export const prDistributions = pgTable(
   "pr_distributions",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     pressReleaseId: varchar("press_release_id", { length: 32 })
@@ -737,7 +738,7 @@ export const prDistributions = pgTable(
 export const prInitiatives = pgTable(
   "pr_initiatives",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 200 }).notNull(),
@@ -910,7 +911,7 @@ export const prInitiatives = pgTable(
 export const prCoverageAttribution = pgTable(
   "pr_coverage_attribution",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     pressReleaseId: varchar("press_release_id", { length: 32 })
@@ -1051,7 +1052,7 @@ export const prCoverageAttribution = pgTable(
 export const mediaLists = pgTable(
   "media_lists",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 200 }).notNull(),
@@ -1128,7 +1129,7 @@ export const mediaLists = pgTable(
 export const pitchTemplates = pgTable(
   "pitch_templates",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 200 }).notNull(),
@@ -1188,7 +1189,7 @@ export const pitchTemplates = pgTable(
 export const prEvents = pgTable(
   "pr_events",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     name: varchar("name", { length: 200 }).notNull(),
@@ -1287,7 +1288,7 @@ export const prEvents = pgTable(
 export const awardSubmissions = pgTable(
   "award_submissions",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     awardName: varchar("award_name", { length: 200 }).notNull(),
@@ -1353,7 +1354,7 @@ export const awardSubmissions = pgTable(
 export const analystRelations = pgTable(
   "analyst_relations",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
 
     // Firm and analyst (denormalized)

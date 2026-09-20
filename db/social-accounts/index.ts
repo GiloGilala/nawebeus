@@ -148,7 +148,7 @@ import {
 export const socialAccounts = pgTable(
   "social_accounts",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // Not FK — social account may outlive the org (retention period)
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
@@ -409,7 +409,7 @@ export const oauthStates = pgTable(
   "oauth_states",
   {
     // The state parameter itself — 128-char random string
-    id: varchar("id", { length: 128 }).primaryKey(),
+    id: varchar("id", { length: 128 }).notNull().primaryKey(),
 
     // Not FK — state may outlive very briefly during a race condition
     organizationId: varchar("organization_id", { length: 32 }).notNull(),
@@ -497,7 +497,7 @@ export const oauthStates = pgTable(
 export const socialAccountHealthLog = pgTable(
   "social_account_health_log",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // FK to social_accounts — CASCADE on delete
     socialAccountId: varchar("social_account_id", { length: 32 })
@@ -621,7 +621,7 @@ export const socialAccountHealthLog = pgTable(
 export const tokenRefreshLog = pgTable(
   "token_refresh_log",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // FK to social_accounts — CASCADE on delete
     socialAccountId: varchar("social_account_id", { length: 32 })

@@ -109,7 +109,7 @@ import {
 export const impersonationSessions = pgTable(
   "impersonation_sessions",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // ─── Participants ─────────────────────────────────────────────────────────
     // Not FK — must survive user deletion
@@ -272,7 +272,7 @@ export const impersonationSessions = pgTable(
 export const dsarRequests = pgTable(
   "dsar_requests",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // Not FK — must survive user deletion
     userId: varchar("user_id", { length: 32 }).notNull(),
@@ -415,7 +415,7 @@ export const dsarRequests = pgTable(
 export const legalHolds = pgTable(
   "legal_holds",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // At least one of organizationId or userId must be set (CHECK below)
     organizationId: varchar("organization_id", { length: 32 }),
@@ -527,7 +527,7 @@ export const legalHolds = pgTable(
 export const dataRetentionPolicies = pgTable(
   "data_retention_policies",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // NULL = system-wide default policy
     organizationId: varchar("organization_id", { length: 32 }),
@@ -663,7 +663,7 @@ export const appConfig = pgTable(
   "app_config",
   {
     // ─── Core Identity ──────────────────────────────────────────────────────
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // NULL = system-wide default / global flag
     organizationId: varchar("organization_id", { length: 32 }),
@@ -829,7 +829,7 @@ export const appConfig = pgTable(
 export const backupRecords = pgTable(
   "backup_records",
   {
-    id: varchar("id", { length: 32 }).primaryKey(),
+    id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // NULL = system-wide backup
     organizationId: varchar("organization_id", { length: 32 }),

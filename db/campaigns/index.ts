@@ -218,7 +218,7 @@ import {
 export const campaigns = pgTable(
   "campaigns",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     // Not FK — campaign data has regulatory retention
     organizationId: uuid("organization_id").notNull(),
@@ -946,7 +946,7 @@ export const campaigns = pgTable(
 export const campaignEntries = pgTable(
   "campaign_entries",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     // Real FK to campaigns — CASCADE on delete
     // (Only invoked via legal/forensic campaign purge, not app layer)
@@ -1565,7 +1565,7 @@ export const campaignEntries = pgTable(
 export const campaignEntryMethods = pgTable(
   "campaign_entry_methods",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").notNull().primaryKey().defaultRandom(),
 
     // Real FK to campaigns — CASCADE on delete
     campaignId: uuid("campaign_id")
