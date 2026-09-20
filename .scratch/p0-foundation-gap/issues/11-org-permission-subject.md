@@ -59,3 +59,11 @@ and gitignored files like `.env` do not persist). Rebuild sequence that works:
    secrets, DB_HOST/DB_NAME/DB_USER/DB_PASSWORD=postgres for drizzle-kit)
 5. `bun install && bun run db:push -- --force && bun run seed` (from-zero build,
    same as CI; do NOT `db:push` an evolved DB — see NWB-P0-005)
+
+6. **Git state can be rewound between turns** (observed 2026-09-20: the local
+   branch was reset to the baseline commit while the remote kept the work; the
+   working tree kept the file contents). The **remote is the source of truth** —
+   before committing, `git fetch origin` and confirm local HEAD == remote tip
+   (`git log --oneline FETCH_HEAD -1`); if local diverged, back up the uncommitted
+   files to /tmp, `git reset --hard FETCH_HEAD`, restore the files, re-commit, and
+   push (fast-forward). Push at the end of every work session, never later.
