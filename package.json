@@ -12,6 +12,7 @@
     "db:push": "drizzle-kit push",
     "db:drop": "drizzle-kit drop",
     "db:studio": "drizzle-kit studio",
+    "db:reclaim-rate-limits": "bun src/scripts/reclaim-rate-limits.ts",
     "migrate": "drizzle-kit push",
     "seed": "bun run src/seed.ts",
     "test": "bun test",
