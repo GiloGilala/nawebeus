@@ -1,7 +1,6 @@
-import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { ForbiddenError, ValidationError } from "../../lib/errors";
+import { ValidationError } from "../../lib/errors";
 import { getOrgContext } from "../../lib/org-context";
 import { success } from "../../lib/response";
 import { authMiddleware } from "../../server/middleware/auth";
@@ -49,23 +48,11 @@ function parseJsonBody(c: { req: { json: () => Promise<unknown> } }): Promise<un
   });
 }
 
-// POST /orgs/:orgId/members/assign-role — change a member's role (with self-protection)
+// POST /orgs/:orgId/members/assign-role — change a member's role. The
+// hierarchy + self-protection rules live in the service (role-policy.ts).
 router.post("/orgs/:orgId/members/assign-role", requireAbility("update", "members"), async (c) => {
   const { userId: actingUserId, orgId } = await getOrgContext();
   const db = c.var.db;
-
-  const actingRows = await db.execute<{ role_code: string | null }>(
-    sql`
-      SELECT r.code AS role_code FROM organization_members om
-      LEFT JOIN roles r ON r.id = om.role_id
-      WHERE om.organization_id = ${orgId} AND om.user_id = ${actingUserId} AND om.deleted_at IS NULL LIMIT 1
-    `,
-  );
-  const actingRoleCode = ((actingRows as any).rows?.[0] as any)?.role_code ?? null;
-
-  if (!actingRoleCode) {
-    throw new ForbiddenError("You do not have a role in this organization");
-  }
 
   const body = await parseJsonBody(c);
   const parsed = assignRoleSchema.parse(body);

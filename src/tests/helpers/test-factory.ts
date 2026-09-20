@@ -129,3 +129,49 @@ export async function createTestMember(
   const id = ((rows as any).rows?.[0] as any)?.id as string;
   return { id };
 }
+
+/**
+ * Id of a seeded system role (`organization_id IS NULL`) by code — the
+ * DEC-039 set: super_admin, owner, admin, manager, creator, analyst, viewer.
+ * Requires a seeded database; throws with a clear message otherwise.
+ */
+export async function systemRoleId(db: Db, code: string): Promise<string> {
+  const rows = await db.execute<{ id: string }>(
+    sql`
+      SELECT id FROM roles
+      WHERE code = ${code} AND organization_id IS NULL
+        AND deleted_at IS NULL AND archived_at IS NULL
+      LIMIT 1
+    `,
+  );
+  const id = ((rows as any).rows?.[0] as any)?.id as string | undefined;
+  if (!id) throw new Error(`systemRoleId: role "${code}" is not seeded — run \`bun run seed\``);
+  return id;
+}
+
+/**
+ * Add an existing user to an organization with the given system role.
+ *
+ * Also re-homes `users.organization_id`: the JWT carries a single org
+ * (`users.organization_id`), and both `requireOrgMatch` and `loadAbility`
+ * key on it, so a member who is to *act* inside the org via HTTP must have
+ * it set. Returns the membership id.
+ */
+export async function addMemberWithRole(
+  db: Db,
+  overrides: { organizationId: string; userId: string; roleCode: string; status?: string },
+): Promise<{ id: string; roleId: string }> {
+  const roleId = await systemRoleId(db, overrides.roleCode);
+  await db.execute(
+    sql`UPDATE users SET organization_id = ${overrides.organizationId} WHERE id = ${overrides.userId}`,
+  );
+  const rows = await db.execute<{ id: string }>(
+    sql`
+      INSERT INTO organization_members (organization_id, user_id, role_id, status, is_active, accepted_at)
+      VALUES (${overrides.organizationId}, ${overrides.userId}, ${roleId}, ${overrides.status ?? "active"}, ${(overrides.status ?? "active") === "active"}, now())
+      RETURNING id
+    `,
+  );
+  const id = ((rows as any).rows?.[0] as any)?.id as string;
+  return { id, roleId };
+}

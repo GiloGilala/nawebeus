@@ -67,3 +67,7 @@ and gitignored files like `.env` do not persist). Rebuild sequence that works:
    (`git log --oneline FETCH_HEAD -1`); if local diverged, back up the uncommitted
    files to /tmp, `git reset --hard FETCH_HEAD`, restore the files, re-commit, and
    push (fast-forward). Push at the end of every work session, never later.
+
+## Comments
+
+- 2026-09-20 — NWB-P0-014 retired `org_admin`; the positive test now uses `admin` (which carries `org.update` under the DEC-039 matrix). Design-decision 4 above is superseded accordingly.

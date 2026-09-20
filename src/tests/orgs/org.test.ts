@@ -74,13 +74,12 @@ describe.skipIf(!hasDb())("Org routes — integration (F-02)", () => {
         privacyAccepted: true,
       } as any);
 
-      // Re-home the member into the owner's org with the org_admin role
-      // (carries org.update; org_admin is dropped in NWB-P0-014, owner is
-      // its D13 successor — both hold this permission today).
+      // Re-home the member into the owner's org with the admin role
+      // (carries org.update per the DEC-039 matrix; NWB-P0-014).
       const roleRows = await db.execute<{ id: string }>(
         sql`
           SELECT id FROM roles
-          WHERE code = 'org_admin' AND organization_id IS NULL
+          WHERE code = 'admin' AND organization_id IS NULL
             AND deleted_at IS NULL AND archived_at IS NULL
           LIMIT 1
         `,

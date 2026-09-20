@@ -18,7 +18,7 @@
 | Part | File | Sections | What it contains |
 |---|---|---|---|
 | 01 | [01-discovery.md](master-roadmap/01-discovery.md) | §2–§4 | Repository structure (as-built), documentation structure & authority, current-state assessment per subsystem + P0 re-verification |
-| 02 | [02-defects.md](master-roadmap/02-defects.md) | §5 | Defect register — 14 defects verified in the working tree 2026-09-20 (F-01…F-19, F-20; F-01/F-20 since fixed) + CASL v7 semantic verification |
+| 02 | [02-defects.md](master-roadmap/02-defects.md) | §5 | Defect register — 15 defects verified in the working tree 2026-09-20 (F-01…F-21; F-01/F-02/F-07/F-20/F-21 since fixed) + CASL v7 semantic verification |
 | 03 | [03-discrepancies.md](master-roadmap/03-discrepancies.md) | §6 | Doc ↔ code discrepancy register (D-01…D-16) with adjudications |
 | 04 | [04-gap-matrix.md](master-roadmap/04-gap-matrix.md) | §7 | Full gap matrix (area / current / required / gap / evidence / deps / priority / status) |
 | 05 | [05-target-architecture.md](master-roadmap/05-target-architecture.md) | §8–§9 | Target architecture (retained / modified / new / deprecated) + dependency graph & critical path |
@@ -63,7 +63,7 @@ The user-facing `/doc` directory referenced in the brief is `docs/` in this repo
 | Phase | Name | Status (2026-09-20) | Key tasks (IDs) | Dependencies | Blocking items | Evidence of state | Exit criteria (short) |
 |---|---|---|---|---|---|---|---|
 | 0 | Discovery / Baseline | ✅ **DONE** (this document) | — | — | — | §2–§7 (all verified against HEAD 249707c) | Current state + gaps + decisions established |
-| 1 | Foundation completion + defect remediation | 🟨 in progress — NWB-P0-010/011 done, D13 recorded (DEC-039) 2026-09-20 | NWB-P0-010 ✅, NWB-P0-011 ✅, NWB-P0-012…023 + NWB-P0-002, NWB-P0-005 | Phase 0 | **D13 ✅ (DEC-039)**; D12, D11, D15 (decide in-phase) | §4, §5 (14 defects), §11 | §11 exit criteria (1–7): E2E owner→invite→accept demo; migrations from zero; DSAR; 0 Critical/High open |
+| 1 | Foundation completion + defect remediation | 🟨 in progress — NWB-P0-010/011/014 done, D13 recorded (DEC-039) 2026-09-20 | NWB-P0-010 ✅, NWB-P0-011 ✅, NWB-P0-014 ✅, NWB-P0-012/013/015…023 + NWB-P0-002, NWB-P0-005 | Phase 0 | **D13 ✅ (DEC-039)**; D12, D11, D15 (decide in-phase) | §4, §5 (14 defects), §11 | §11 exit criteria (1–7): E2E owner→invite→accept demo; migrations from zero; DSAR; 0 Critical/High open |
 | 2 | Shared infrastructure (P1) | 🔴 not started | NWB-P1-001…012 | Phase 1; **D6** | pg-boss dep (justified by ADR-028); Resend/R2 credentials | plan §5 P1; §12 | §12 exit gate: worker loop, real email, approval queue, media, flags, observability, purge/reclamation scheduled |
 | 3 | Social accounts (P2, Mod 3) | 🔴 not started | NWB-P2-001…006 | Phase 2 | platform API credentials | plan §5 P2; §13 | 5 platforms connect/refresh/healthy; breaker trips+recovers |
 | 4 | Intelligence/engagement/growth (P4,P5,P6,P7,P11 [+P3,P8,P9,P10 if D12≠A]) | 🔴 not started | NWB-P4/P5/P6/P7/P11-xxx [+ P3/P8/P9/P10-xxx] | Phase 3; Phase 2; **D8, D9** (before P4 NLP/search tickets); **D12** (scope) | none after deps | plan §5; §14 | Each module at its plan exit gate; isolation suite extended; alerts delivered on real channels |
