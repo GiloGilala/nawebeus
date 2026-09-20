@@ -3,7 +3,8 @@
 **Status:** done — 2026-09-20 (verified locally: typecheck + lint + build + 342/342 `bun test`
 with a live database; red-first: with the old NO ACTION FKs the new test dies on 23503
 (`api_keys_created_by_users_id_fk`), with the fix it passes and all six affected constraints
-read `confdeltype = 'n'` (SET NULL) in the catalog; CI run on this branch's PR)
+read `confdeltype = 'n'` (SET NULL) in the catalog; **CI green on PR #13**, run
+[35531787892](https://github.com/GiloGilala/nawebeus/actions/runs/35531787892))
 **Deps:** none. The `organizations.created_by` half of this class shipped in NWB-P0-025.
 **Size:** S.
 **Found while:** landing NWB-P0-025 (F-25) — enumeration of every FK to `users(id)` in the
