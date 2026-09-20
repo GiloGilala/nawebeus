@@ -2,7 +2,14 @@
 
 **Feature slug:** `p0-auth`
 **Spec owner:** Engineering Lead
-**Status:** [in-progress](issues/01-auth-module-1-parity.md) — 9/10 Module 1 FRs implemented; FR-AUTH-010 (API keys) unbuilt. DSAR export (AC8 of FR-AUTH-007) also outstanding.
+**Status:** [done](issues/01-auth-module-1-parity.md) — **10/10 Module 1 FRs implemented (2026-09-20)**.
+The three items that kept this `in-progress` have all landed and were re-verified before this
+flip: FR-AUTH-010 API keys (NWB-P0-001, `src/services/auth/api-key.ts`), the MFA login flow
+(NWB-P0-012, `POST /api/auth/mfa/verify-login`), and DSAR export (NWB-P0-002,
+`src/services/users/dsar.service.ts` + `src/tests/users/dsar-export.test.ts`).
+FR-AUTH-006's accept half shipped in NWB-P0-016 with the DEC-039 invite ladder.
+**Read `.scratch/p0-foundation-gap/` for the current state of this code** — several defects in
+this surface (F-01…F-28) were found and fixed after the FRs were first called complete.
 
 ## Summary
 

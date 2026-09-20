@@ -227,11 +227,22 @@
 - **Risk:** medium (touching 81 schema files). **Rollback:** one revert; schema files are compile-checked and CI-tested.
 - **Note:** this is the single highest-leverage Phase 1 infrastructure task after the defect fixes — every later schema adoption depends on it.
 
-#### NWB-P0-019 — Close out P0 bookkeeping (documentation)
+#### NWB-P0-019 — Close out P0 bookkeeping (documentation) — **DONE**
 - **Objective:** the issue tracker tells the truth.
 - **Steps:** flip `p0-auth/spec.md` status (FR-AUTH-010 done; remaining: DSAR → P0-002, MFA login flow → P0-012, so keep `in-progress` with the accurate note until those land, then `done`); flip `foundation` spec to `done` (all 10 issues done — verify); record D13/D15 decisions + the D11 recommendation into `docs/business/Decision Log.md` as new DEC entries when made; update plan §1 (as-built baseline) with a "Last verified 2026-09-20" marker after Phase 1 lands.
 - **Acceptance:** no `in-progress` ticket without an accurate one-line outstanding note (tracker convention).
 - **Risk:** none.
+- **Outcome (2026-09-20):** done — `.scratch/p0-foundation-gap/issues/19-p0-bookkeeping.md`.
+  `p0-auth` flipped to **done** (10/10 FRs) after verifying API keys, MFA login and DSAR export
+  are all in the tree; `foundation` was already done (NWB-P0-006). **D15 → DEC-040 (Approved):
+  the MVP API ships unversioned**, closing discrepancy D-11 (doc rewrite stays in Phase 7).
+  **D11 → DEC-O009 (Open, with a written recommendation)** — premise re-verified live (0 RLS
+  policies, 0 tables with `relrowsecurity`, no RLS statement in the repo) and a defense-in-depth
+  Phase 8 recommendation recorded, but **not approved**: implement-vs-supersede-ADR-009 is an
+  architecture and procurement call. D12 remains a product call (memo written). Plan §1 marker
+  was refreshed by NWB-P0-020.
+  **Exit criterion 5 therefore reads "recorded" ✅ / "decided" ❌** — D11 and D12 still need a
+  human.
 
 #### NWB-P0-021 — Email link consistency (F-09, F-09b) — **DONE**
 - **Objective:** every emailed link uses one server-decided base URL; no client header in security emails.
@@ -292,7 +303,7 @@
 2. A fresh org owner can: invite a member → invitee accepts (new + existing user) → member acts with the invited role → role changes respect self-protection. **This end-to-end sequence is the Phase 1 demo.**
 3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`.
 4. DSAR export returns a valid machine-readable payload.
-5. D12, D13, D11, D15 recorded in the Decision Log with status.
+5. D12, D13, D11, D15 recorded in the Decision Log with status. — **Met as written (all four carry a status as of NWB-P0-019: D13 DEC-039 Approved, D15 DEC-040 Approved, D11 DEC-O009 Open+recommendation, D12 open+options memo). Note: two of the four are recorded-but-undecided; if the intent was "all four decided", D11 and D12 remain outstanding and need a human decision.**
 6. No Critical/High defect from §5 remains open (F-01…F-05, F-07, F-08, F-12 closed; F-06 closed by documentation+test; F-09/F-10/F-13 closed).
 7. AGENTS.md "Last verified" marker refreshed; plan §1 refreshed.
 

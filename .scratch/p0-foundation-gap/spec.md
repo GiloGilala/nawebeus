@@ -20,12 +20,24 @@ and 002 (DSAR data export, AC8 of FR-AUTH-007), plus 005 (migration baseline —
 `workflows` permission — see the ticket), and 018 (CASL scope cleanup, F-06 —
 the inert org condition removed, the real enforcement chain documented, and a
 route-invariant scan that fails any `:orgId` route missing `requireOrgMatch`).
-**Outstanding:** bookkeeping (019 — D11/D12/D15 into the Decision Log) and branch
-protection (022, a GitHub settings task needing repo-owner access). 020 (verification
-log re-run), 021 (email link consistency) and 023 (organization deletion) are **done**.
-No outstanding *code* ticket remains in this epic.
+**Outstanding: NWB-P0-022 only** (branch protection — a GitHub *settings* change needing
+repo-owner access), plus two decisions that require a human: **D11** (RLS, recorded as
+DEC-O009 with a recommendation) and **D12** (module-set scope, options memo written).
+019, 020, 021 and 023 are **done**. No code ticket remains in this epic.
 
-> **2026-09-20 (latest): the verification log is re-measured, not carried forward (NWB-P0-020).**
+> **2026-09-20 (latest): P0 bookkeeping closed (NWB-P0-019) — with two decisions
+> deliberately left open.** `p0-auth` flipped to `done` (10/10 Module 1 FRs) after checking
+> that all three blockers — API keys, MFA login, DSAR export — are really in the tree.
+> D15 became **DEC-040 (Approved): the MVP API ships unversioned**, which ratifies what is
+> already built and closes discrepancy D-11. D11 became **DEC-O009 (Open)**: I verified the
+> premise first (live database: **0 RLS policies, 0 tables with `relrowsecurity`**, no RLS
+> statement anywhere in the repo, against an ADR-009 that was Accepted in June) and recorded
+> a written recommendation — defense-in-depth in Phase 8, application layer stays primary —
+> but left it unapproved, because choosing between implementing RLS and superseding ADR-009
+> is an architecture and procurement call, not an implementation detail. D12 likewise stays
+> a product call. Recording a recommendation is not the same as taking the decision.
+>
+> **2026-09-20: the verification log is re-measured, not carried forward (NWB-P0-020).**
 > Every "last verified" number in the plan dated from 2026-09-13 at HEAD `049a837`, and the
 > sandbox that wrote the roadmap could not run Bun at all — so some figures had never been
 > executed anywhere. Re-run at HEAD `51c1a2d` against a **freshly created empty** PostgreSQL
@@ -135,6 +147,7 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-015 | Enforce user status at sign-in (F-05) | — | M | `issues/15-user-status-enforcement.md` — **done** |
 | NWB-P0-016 | Invitation accept flow (F-08; incl. invite role ladder + residual F-20) | D14 interim | M | `issues/16-invitation-accept.md` — **done** |
 | NWB-P0-018 | CASL scope cleanup — make the scoping decision explicit (F-06) | D11 (wording) | S/M | `issues/18-casl-scope-cleanup.md` — **done** |
+| NWB-P0-019 | Close out P0 bookkeeping (documentation) | — | S | `issues/19-p0-bookkeeping.md` — **done** |
 | NWB-P0-020 | Re-run the verification log (Appendix C) | — | S | `issues/20-rerun-verification-log.md` — **done** |
 | NWB-P0-021 | Email link consistency (F-09, F-09b) | — | S/M | `issues/21-email-link-consistency.md` — **done** |
 | NWB-P0-023 | Organization deletion (PRD 8.2.1 P0; D-14) | — | M | `issues/23-organization-deletion.md` — **done** |
@@ -144,9 +157,10 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 | NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **done** |
 
-> Tickets 19 and 22 are listed here but their files do not exist yet — the index
-> was written ahead of the tickets. Files present: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11,
-> 12, 13, 14, 15, 16, 17, 18, 20, 21, 23, 24, 25, 26, 27, 28. The Phase 1
+> Ticket 22 is listed here but its file does not exist yet — it is a GitHub *settings*
+> task (branch protection) requiring repo-owner access, not a code change. Files present:
+> 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+> 23, 24, 25, 26, 27, 28. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 

@@ -250,8 +250,10 @@ All lockout events are logged in `login_attempts` table and generate security al
 
 > **As-built, verified 2026-09-20 (NWB-P0-018, finding F-06).** The table below
 > describes the target design. What the code enforces today is the chain in
-> §4.3.1 — Layer 3 (RLS) is **not implemented** (decision D11 is open), and CASL
-> conditions are **not** part of the enforcement chain. Read §4.3.1 first.
+> §4.3.1 — Layer 3 (RLS) is **not implemented** (decision D11 is open, tracked as
+> **DEC-O009** in the Decision Log with an engineering recommendation; re-verified
+> 2026-09-20 against the live database: 0 policies, 0 tables with `relrowsecurity`),
+> and CASL conditions are **not** part of the enforcement chain. Read §4.3.1 first.
 
 Authorization is enforced at **three independent layers**:
 
@@ -259,7 +261,7 @@ Authorization is enforced at **three independent layers**:
 |-------|-----------|----------------|----------|
 | **API route layer (Layer 1)** | Hono `requirePermission()` middleware | Unauthenticated or wrong-role requests before reaching business logic | ✅ shipped as `requireAbility(action, subject)` (`src/server/middleware/rbac.ts`) |
 | **Service layer (Layer 2)** | CASL `ability.can()` checks before every state-changing operation | Bypassed API middleware; incorrect CASL configuration | ⚠️ partial — services enforce org predicates and the role-policy guards; `ability.can()` is checked at the route |
-| **Database layer (Layer 3)** | PostgreSQL Row-Level Security (RLS) policies | Application bugs that produce incorrect `organization_id`; raw database access | ❌ not implemented — pending decision D11 |
+| **Database layer (Layer 3)** | PostgreSQL Row-Level Security (RLS) policies | Application bugs that produce incorrect `organization_id`; raw database access | ❌ not implemented — pending decision D11 / **DEC-O009** (recommendation: defense-in-depth in Phase 8, application layer stays primary) |
 
 #### 4.3.1 The enforcement chain that actually runs
 

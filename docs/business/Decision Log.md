@@ -112,6 +112,7 @@ This log complements the technical Architecture Decision Records (ADRs), which c
 | DEC-036 | 2026-03-05 | Funding | Target seed round of ₦4,800,000,000 (~$3M USD equivalent) in Q1 2026 | Approved |
 | DEC-037 | 2026-03-10 | Funding | Target Series A of ₦16,000,000,000–₦24,000,000,000 (~$10–15M) in Q4 2026/Q1 2027 | Approved |
 | DEC-039 | 2026-09-20 | Infrastructure & Technical | Role hierarchy: platform `super_admin` + per-org `owner/admin/manager/creator/analyst/viewer`; drop `org_admin`/`member` pre-prod | Approved |
+| DEC-040 | 2026-09-20 | Infrastructure & Technical | API versioning: ship the MVP **unversioned** (`/api/...`); correct the docs that claim `/api/v1/...`; revisit when a public API is offered (P17) | Approved |
 
 ### 2.3 Deferred Decisions
 
@@ -134,6 +135,7 @@ This log complements the technical Architecture Decision Records (ADRs), which c
 | DEC-O006 | 2026-05-25 | Infrastructure | When to migrate from Coolify to Kubernetes | DevOps Lead |
 | DEC-O007 | 2026-06-01 | Product | Whether to acquire a competitor or build organically | Executive Team |
 | DEC-O008 | 2026-06-05 | Pricing | Exchange rate review trigger thresholds (beyond 10% CBN movement policy) | Finance Lead |
+| DEC-O009 | 2026-09-20 | Infrastructure | Whether to implement PostgreSQL row-level security as ADR-009 specifies, or formally supersede ADR-009 with application-layer tenant isolation (see §8 DEC-O009 for the engineering recommendation) | Engineering Lead, Security Lead |
 
 ---
 
@@ -1404,6 +1406,127 @@ Adopt the module-specification six-tier org model on top of the existing platfor
 - Changes `src/seed.ts` (4 → 7 roles), the role self-protection guards, the signup service (owner role assignment), and the role-management UI contract (P14.13) in one coordinated task set (NWB-P0-010, NWB-P0-014) — risk R-04 in the master roadmap.
 - Unblocks NWB-P0-010 (owner role at signup) and NWB-P0-014 (role model + guards) in Phase 1.
 - Mitigation: the full role × permission matrix is test-verified in the same tasks; no production data exists, so no migration is required.
+
+---
+
+### DEC-040: API Versioning — Ship the MVP Unversioned
+
+| Field | Detail |
+|-------|--------|
+| **Decision ID** | DEC-040 |
+| **Date** | 2026-09-20 |
+| **Category** | Infrastructure & Technical |
+| **Status** | Approved |
+| **Deciders** | Engineering Lead |
+| **Reversibility** | High — a `/v1` prefix can be added behind the existing router mount without touching handlers |
+
+**Context:**
+`docs/modules/Authentication & User Management.md` §7 documents the API surface as
+`/api/v1/auth/register`, `/api/v1/auth/login`, and so on. The code has never served a
+`v1` prefix: the routes are `/api/auth/signup`, `/api/auth/signin`, `/api/users/me`,
+`/api/orgs/...`. This is registered as discrepancy **D-11** and raised as open decision
+**D15** in the Phase 1 decision register. Two documents disagreed with the running code,
+and neither had been reconciled.
+
+**Decision:**
+**The MVP API stays unversioned.** The documentation is wrong, not the code. Rewrite the
+affected doc sections to the actual surface. Revisit versioning when a **public** API is
+offered to third parties (P17 / DEC-D001, "public API strategy and developer
+marketplace"), at which point a `/v1` prefix can be introduced for external consumers
+while internal callers keep the unprefixed paths.
+
+**Rationale:**
+- The only consumers today are first-party: the TanStack Start web app (in-process
+  Server Functions, which do not go through HTTP routing at all) and a future mobile
+  client. Versioning exists to let you break third-party consumers safely; with no third
+  parties, a version prefix is pure ceremony.
+- Adding `/v1` now means committing to a deprecation policy, parallel-route maintenance,
+  and a migration story before there is anything to migrate.
+- The prefix is cheap to add later — routes are mounted in one place
+  (`src/server/index.ts`), so the change is a mount-point edit, not a per-handler edit.
+- Choosing "code wins" also resolves D-11 in the direction that requires no code churn
+  during Phase 1, which is a defect-fix phase.
+
+**Alternatives Considered:**
+
+| Alternative | Reason Rejected |
+|-------------|----------------|
+| **Adopt `/api/v1/...` now, to match the docs** | Breaks every existing route and test for no consumer benefit; commits the team to a versioning policy before a public API exists; the module spec's paths also use different *verbs* (`register`/`login` vs `signup`/`signin`), so matching it would be a larger rewrite than a prefix |
+| **Header-based versioning (`Accept-Version`)** | More machinery than a pre-public API needs; harder to inspect in logs and curl; can still be adopted at P17 if preferred |
+| **Leave the contradiction unrecorded** | This is exactly the doc-drift failure mode tracked as risk R-14; an implementer reading the module spec would write clients against paths that 404 |
+
+**Impact:**
+- Closes decision **D15** and discrepancy **D-11**.
+- Documentation task: `docs/technical/API Reference.md` and the module spec §7 must be
+  rewritten to the real surface. Deliberately scheduled for **Phase 7**, when the web app
+  consumes the API and the reference can be generated from the routes rather than
+  hand-maintained — hand-editing it now would produce a second artefact to keep in sync.
+- No code change. No test change.
+
+---
+
+### DEC-O009: Row-Level Security — Open, With an Engineering Recommendation
+
+| Field | Detail |
+|-------|--------|
+| **Decision ID** | DEC-O009 |
+| **Date Raised** | 2026-09-20 |
+| **Category** | Infrastructure |
+| **Status** | **Open** — recommendation recorded, decision **not** taken |
+| **Owner** | Engineering Lead, Security Lead |
+| **Needed by** | Phase 8 (security hardening); does not block Phase 1 |
+
+**Context:**
+**ADR-009 ("Multi-Tenant Architecture with Row-Level Security", Accepted 2026-06-23)**
+specifies PostgreSQL row-level security as a tenant-isolation layer. **No RLS policy
+exists in the database** — verified against the live schema: zero policies, and
+`db:migrate` creates none. Tenant isolation today is entirely application-layer:
+
+1. `organizationId` is taken from the JWT or API key, never from client input;
+2. `assertActivePrincipal` confirms an active membership in that org;
+3. `requireOrgMatch()` rejects any `:orgId` path parameter that disagrees with the token;
+4. every org-scoped service query carries an explicit `organizationId` predicate.
+
+That chain is real, tested, and documented in Security Architecture §4.3.1. It was
+strengthened in NWB-P0-018, which also removed a CASL `organizationId` *condition* that
+looked like a fifth layer but was inert, and added `src/tests/route-invariants.test.ts`
+to mechanically fail any `:orgId` route that omits `requireOrgMatch`. This is tracked as
+security finding **S-12 (Medium)** and decision **D11**.
+
+**Engineering recommendation (not an approval):**
+Implement RLS as **defense in depth** in Phase 8 rather than superseding ADR-009 — but
+treat it as a second lock on the same door, not as the primary control. Specifically:
+
+- Keep the application-layer chain as the primary enforcement. It is what the tests
+  cover and what the route-invariant scan protects.
+- Add RLS policies on org-scoped tables driven by a session GUC (e.g.
+  `SET LOCAL app.current_org_id`) set by the same middleware that populates the org
+  context, so the two layers derive from one source and cannot silently diverge.
+- Budget for the parts that are genuinely hard rather than the policy DDL, which is the
+  easy part: the connection-pool interaction (a pooled connection must never leak a GUC
+  between requests), the migration/seed paths that legitimately cross tenants, and the
+  `purgeExpired*` maintenance functions.
+
+**Why this is being recorded as Open rather than resolved:**
+It is a genuine architecture trade-off with a real cost, and the honest options are not
+equivalent:
+
+| Option | Argument for | Argument against |
+|--------|-------------|-----------------|
+| **(a) Implement RLS in Phase 8** (recommended) | Honours ADR-009; a missed `organizationId` predicate in a future service stops being a cross-tenant breach; enterprise security reviews expect it | Real cost in pooling/GUC plumbing; every maintenance path needs an explicit bypass role; a false sense of safety if policies are written loosely |
+| **(b) Formally supersede ADR-009** with documented application-layer isolation | Matches what is actually built and tested; no new failure modes; the docs stop lying | Removes the backstop for exactly the failure mode F-06 warned about (a new `:orgId` route missing its predicate); weaker answer in enterprise procurement |
+| **(c) Leave ADR-009 unimplemented and unaddressed** | — | Status quo; the security architecture document describes a control that does not exist. **Not acceptable** — this is the condition S-12 flags |
+
+Options (a) and (b) are both defensible; (c) is not. The choice depends on Phase 8
+security-hardening budget and on enterprise procurement commitments, which are Product
+and Security calls rather than an implementation detail. **What must not continue is
+(c)**: until this is decided, `docs/technical/Security Architecture.md` should keep
+stating plainly that RLS is specified but unimplemented, which NWB-P0-018 made it do.
+
+**Impact of leaving it open:**
+- Phase 1 is unaffected — no Phase 1 exit criterion depends on RLS.
+- Security finding S-12 stays Medium and open, with the mitigation documented.
+- Phase 8 planning (P15-001) cannot be sized until this is resolved.
 
 ---
 
