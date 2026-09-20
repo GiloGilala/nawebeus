@@ -1,4 +1,4 @@
-# Decision register — D1 … D12
+# Decision register — D1 … D15
 
 Tracks the decisions raised in §4 of `docs/plan/IMPLEMENTATION EXECUTION PLAN.md`.
 
@@ -18,6 +18,9 @@ Verified against the repo on **2026-09-13** at HEAD `049a837`.
 | D10 | Decision Engine scope | 🔴 Open | `docs/modules/Nawebeus Decision Engine.md` supersedes the `new features/` docs and is unreferenced by PRD/Roadmap. Product call. |
 | D11 | Row-level security | 🔴 Open | ADR-009 specifies RLS; not implemented. Blocks P15-001. |
 | D12 | **Module-set scope** *(new — found during D1)* | 🔴 Open | **Must be resolved before P3, P8, P9, P10.** Options memo: [D12-scope-decision-memo.md](D12-scope-decision-memo.md). See below. |
+| D13 | **Role hierarchy** *(new — master roadmap audit 2026-09-20)* | ✅ **Resolved** | **DEC-039 (Approved, 2026-09-20), option (a):** platform `super_admin` + per-org `owner/admin/manager/creator/analyst/viewer`; drop `org_admin`/`member` pre-prod; guards reference real codes. Implementing via NWB-P0-010 + NWB-P0-014. See below. |
+| D14 | **Multi-org membership / org switching** *(new — master roadmap 2026-09-20)* | 🔴 Open | Phase 1 proceeds with single-org semantics (option (a)) as the conservative default for invitation-accept. Final call with D12's product session, **before Phase 7**. |
+| D15 | **API versioning** *(new — master roadmap 2026-09-20)* | 🔴 Open | Recommended: keep unversioned, correct docs (discrepancy D-11); revisit at P17 public API. Record in Phase 1 bookkeeping (NWB-P0-019). |
 
 ---
 
@@ -57,6 +60,30 @@ This matters because P3 is described as the first end-to-end product proof. If D
 DEC-D003/D004 stand, the critical path changes shape.
 
 **This is a product call, not an engineering one.** Do not resolve it in code. Options:
+
+---
+
+## D13 — Role hierarchy (new finding, master roadmap audit 2026-09-20)
+
+> **Resolution: DEC-039 (Approved, 2026-09-20) — option (a).** Full analysis in the master
+> roadmap decision log (`docs/plan/master-roadmap/18-risks-and-decisions.md`, §30 row D13);
+> approved decision record in `docs/business/Decision Log.md` (DEC-039).
+
+The master roadmap audit (2026-09-20) found three mutually inconsistent role models
+(module spec §6: six tiers; PRD §8.2.2: five tiers; `src/seed.ts`: four roles) and two
+defects caused by the drift:
+
+- **F-01 (Critical):** signup creates the owner membership **without a role**; `loadAbility`
+  derives permissions from `role_id`, so every new org owner has zero permissions.
+- **F-07 (High):** role self-protection guards reference role codes `owner`/`admin` that do
+  not exist in the seed — the guards can never fire.
+
+**Decision (option (a)):** platform `super_admin` + per-org `owner/admin/manager/creator/
+analyst/viewer`; drop `org_admin`/`member` pre-prod (no compatibility burden); all guards
+reference the real codes. Implemented in NWB-P0-010 (owner role at signup) and NWB-P0-014
+(role model + guard alignment), each with full role × permission matrix tests.
+
+---
 
 1. **DEC-005 governs** — MVP is five modules; P3/P8/P9/P10 move behind launch. Critical path becomes `P0 → P1 → P2 → P7 → P11 → P12 → P14 → P15`.
 2. **PRD governs** — MVP is ten modules; DEC-005 is superseded and must say so.
