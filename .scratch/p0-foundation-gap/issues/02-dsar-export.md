@@ -106,6 +106,7 @@ rate-limit 429 after 5/day.
 - Full suite `bun test` → **353 pass / 0 fail** (39 files; 342 baseline + 11 new).
 - `bunx tsc --noEmit` clean, `bunx biome check .` 0 errors (2 import-sort fixes
   applied, baseline 466 warnings unchanged), `bun run build` clean.
+- CI: PR #13 run 35536800202 — both jobs green (commit 34a308e).
 - Schema verified in-place: `data_export_requests` columns + FKs
   (`user_id` cascade, `requested_by` set-null) via information_schema.
 
