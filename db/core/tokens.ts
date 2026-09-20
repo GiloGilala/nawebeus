@@ -55,8 +55,10 @@ export const tokens = pgTable(
     // ============================================
     tokenType: tokenTypePgEnum("token_type").notNull(),
 
-    // For OTP/magic links
-    selector: varchar("selector", { length: 32 }).unique(),
+    // For OTP/magic links. 64 chars because `generateSecureToken()` emits a
+    // 64-hex-char value and `createToken` stores it here verbatim — at 32 every
+    // createToken call failed with 22001 (NWB-P0-012 prerequisite, F-22).
+    selector: varchar("selector", { length: 64 }).unique(),
     hashedValidator: text("hashed_validator"),
 
     status: tokenStatusPgEnum("status").notNull().default("active"),

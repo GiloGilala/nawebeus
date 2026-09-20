@@ -1,14 +1,22 @@
 import { Hono } from "hono";
-import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import { ValidationError } from "../../lib/errors";
 import { success } from "../../lib/response";
 import { signIn } from "../../services/auth/auth.service";
+import { setSessionCookies } from "./session-cookies";
 
 const signinSchema = z.object({
   email: z.string().email("Invalid email format"),
   password: z.string().min(1, "Password is required"),
-  mfaCode: z.string().length(6, "MFA code must be 6 digits").optional(),
+  // Single-shot second factor: 6-digit TOTP or 8-character backup code, same
+  // shapes POST /mfa/verify-login accepts.
+  mfaCode: z
+    .string()
+    .regex(
+      /^(\d{6}|[A-Za-z0-9]{8})$/,
+      "MFA code must be a 6-digit TOTP code or an 8-character backup code",
+    )
+    .optional(),
   rememberMe: z.boolean().optional().default(false),
 });
 
@@ -44,38 +52,21 @@ router.post("/signin", async (c) => {
   });
 
   if (result.requiresMfa) {
-    // Don't set cookies yet; client must submit MFA code in a follow-up request
+    // Don't set cookies yet; the client presents `mfaSessionId` plus the second
+    // factor to POST /mfa/verify-login in a follow-up request.
     return c.json(
       success({
         requiresMfa: true,
         mfaMethod: result.mfaMethod,
-        sessionId: result.sessionId,
+        mfaSessionId: result.mfaSessionId,
       }),
     );
   }
 
-  const isProduction = process.env.NODE_ENV === "production";
-
-  setCookie(c, "nawebeus_access", result.accessToken!, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: "Strict",
-    path: "/",
-    maxAge: 900,
-  });
-
-  // Refresh TTL: 7 days normal, 30 days with remember-me
-  const refreshMaxAge = parsed.data.rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24 * 7;
-  setCookie(c, "nawebeus_refresh", result.refreshToken!, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: "Strict",
-    path: "/api/auth",
-    maxAge: refreshMaxAge,
-    // CHIPS `Partitioned` is only legal alongside `Secure`; setting it
-    // unconditionally threw at runtime outside production, so sign-in worked in
-    // prod and 500'd in dev and test.
-    ...(isProduction ? { partitioned: true } : {}),
+  setSessionCookies(c, {
+    accessToken: result.accessToken!,
+    refreshToken: result.refreshToken!,
+    rememberMe: parsed.data.rememberMe,
   });
 
   return c.json(

@@ -33,6 +33,13 @@ export function err(error: AppError): ErrorEnvelope {
     envelope.error.details = {
       lockedUntil: (error as { lockedUntil: Date }).lockedUntil.toISOString(),
     };
+  } else if (
+    "retryAfter" in error &&
+    typeof (error as { retryAfter?: unknown }).retryAfter === "number"
+  ) {
+    envelope.error.details = {
+      retryAfter: (error as { retryAfter: number }).retryAfter,
+    };
   }
   return envelope;
 }
