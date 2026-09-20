@@ -31,7 +31,9 @@ type HandlerArgs = {
   signal?: AbortSignal | undefined;
 };
 
-type Validator = { parse: (raw: unknown) => unknown } | ((raw: unknown) => unknown | Promise<unknown>);
+type Validator =
+  | { parse: (raw: unknown) => unknown }
+  | ((raw: unknown) => unknown | Promise<unknown>);
 
 function runValidator(raw: unknown, validator?: Validator): unknown {
   if (!validator) return raw;
@@ -49,7 +51,11 @@ export function createServerFn(opts?: { method?: Method }) {
   return {
     validator: (validator: Validator) => ({
       handler: (handler: (args: HandlerArgs) => any) =>
-        (async (invocation?: { data?: unknown; context?: unknown; signal?: AbortSignal }): Promise<any> => {
+        (async (invocation?: {
+          data?: unknown;
+          context?: unknown;
+          signal?: AbortSignal;
+        }): Promise<any> => {
           const raw = invocation?.data;
           const data = await runValidator(raw, validator);
           return handler({ data, context: invocation?.context, signal: invocation?.signal });
@@ -57,7 +63,11 @@ export function createServerFn(opts?: { method?: Method }) {
     }),
 
     handler: (handler: (args: HandlerArgs) => any) =>
-      (async (invocation?: { data?: unknown; context?: unknown; signal?: AbortSignal }): Promise<any> => {
+      (async (invocation?: {
+        data?: unknown;
+        context?: unknown;
+        signal?: AbortSignal;
+      }): Promise<any> => {
         const data = invocation?.data;
         return handler({ data, context: invocation?.context, signal: invocation?.signal });
       }) as any,

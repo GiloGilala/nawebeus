@@ -18,8 +18,8 @@
  */
 
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start";
-import { createRouter } from "./router";
 import { createApp } from "@/server";
+import { createRouter } from "./router";
 
 /**
  * Hono app for the API entry point. In production the same `services/` are

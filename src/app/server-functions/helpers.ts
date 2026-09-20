@@ -20,10 +20,10 @@ import { getConfig } from "@/lib/config";
 import { type Db, getDb } from "@/lib/db";
 import { AuthError, ForbiddenError } from "@/lib/errors";
 import { runWithOrgContext } from "@/lib/org-context";
-import { loadAbility } from "@/services/auth/ability";
-import { resolveApiKey, apiKeyAbility, recordApiKeyUsage } from "@/services/auth/api-key";
-import { type AccessPayload, verifyToken } from "@/services/auth/jwt";
 import type { AppAbility } from "@/server/middleware/auth";
+import { loadAbility } from "@/services/auth/ability";
+import { apiKeyAbility, recordApiKeyUsage, resolveApiKey } from "@/services/auth/api-key";
+import { type AccessPayload, verifyToken } from "@/services/auth/jwt";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Test injection: server functions use the global pool in production, but tests
@@ -204,9 +204,7 @@ export async function getServerAuth(headers?: ServerRequestHeaders): Promise<Ser
  * Like `getServerAuth` but returns `null` instead of throwing, for routes that
  * are optionally authenticated (currently unused, but useful for SSR loaders).
  */
-export async function tryGetServerAuth(
-  headers?: ServerRequestHeaders,
-): Promise<ServerAuth | null> {
+export async function tryGetServerAuth(headers?: ServerRequestHeaders): Promise<ServerAuth | null> {
   try {
     return await getServerAuth(headers);
   } catch {
@@ -219,21 +217,14 @@ export async function tryGetServerAuth(
  * authMiddleware uses via `runWithOrgContext`, so any downstream `getOrgContext()`
  * call inside `services/` works identically for both entry points.
  */
-export async function withServerOrgContext<T>(
-  auth: ServerAuth,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withServerOrgContext<T>(auth: ServerAuth, fn: () => Promise<T>): Promise<T> {
   return runWithOrgContext({ orgId: auth.orgId, userId: auth.userId }, fn);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Ability helper — mirrors `requireAbility` middleware
 // ──────────────────────────────────────────────────────────────────────────────
-export function assertServerAbility(
-  auth: ServerAuth,
-  action: string,
-  subject: string,
-): void {
+export function assertServerAbility(auth: ServerAuth, action: string, subject: string): void {
   if (!auth.ability.can(action as never, subject as never)) {
     throw new ForbiddenError(`Missing permission: ${action} ${subject}`);
   }

@@ -1,8 +1,8 @@
 // @ts-nocheck
 
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { getMeServerFn } from "@/app/server-functions/users";
 import { listOrgsServerFn } from "@/app/server-functions/orgs";
+import { getMeServerFn } from "@/app/server-functions/users";
 
 export const Route = createFileRoute("/dashboard/")({
   // SSR loader: fetches directly via Server Functions — no HTTP hop.
@@ -33,7 +33,9 @@ function DashboardPage() {
       <h2>Your organizations</h2>
       <ul>
         {data.orgs.orgs.map((o) => (
-          <li key={o.slug}>{o.name} — {o.slug}</li>
+          <li key={o.slug}>
+            {o.name} — {o.slug}
+          </li>
         ))}
       </ul>
     </main>

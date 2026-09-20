@@ -17,16 +17,20 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 
 import {
-  signupServerFn,
-  signinServerFn,
+  createApiKeyServerFn,
   getMeServerFn,
   listOrgsServerFn,
-  createApiKeyServerFn,
+  signinServerFn,
+  signupServerFn,
 } from "@/app/server-functions";
-import { clearServerDbForTest, clearServerHeadersForTest, setServerDbForTest } from "@/app/server-functions/helpers";
-import { signAccessToken } from "@/services/auth/jwt";
+import {
+  clearServerDbForTest,
+  clearServerHeadersForTest,
+  setServerDbForTest,
+} from "@/app/server-functions/helpers";
 import { getConfig } from "@/lib/config";
 import { createTestDb } from "@/lib/db";
+import { signAccessToken } from "@/services/auth/jwt";
 
 const hasDb = () => !!process.env.DATABASE_URL;
 
@@ -41,7 +45,16 @@ function randomEmail() {
 describe("Server Functions — validation (no DB)", () => {
   test("signupServerFn with invalid email throws ValidationError", async () => {
     try {
-      await signupServerFn({ data: { email: "not-an-email", password: "ValidPass123!", fullName: "Ada", organizationName: "Org", termsAccepted: true, privacyAccepted: true } as never });
+      await signupServerFn({
+        data: {
+          email: "not-an-email",
+          password: "ValidPass123!",
+          fullName: "Ada",
+          organizationName: "Org",
+          termsAccepted: true,
+          privacyAccepted: true,
+        } as never,
+      });
       expect(true).toBe(false); // should not reach
     } catch (e) {
       expect((e as Error).message).toContain("Invalid email");
@@ -50,7 +63,16 @@ describe("Server Functions — validation (no DB)", () => {
 
   test("signupServerFn with weak password throws", async () => {
     try {
-      await signupServerFn({ data: { email: randomEmail(), password: "short", fullName: "Ada", organizationName: "Org", termsAccepted: true, privacyAccepted: true } as never });
+      await signupServerFn({
+        data: {
+          email: randomEmail(),
+          password: "short",
+          fullName: "Ada",
+          organizationName: "Org",
+          termsAccepted: true,
+          privacyAccepted: true,
+        } as never,
+      });
       expect(true).toBe(false);
     } catch (e) {
       expect((e as Error).message).toMatch(/complexity|Validation/i);
@@ -114,12 +136,22 @@ describe.skipIf(!hasDb())("Server Functions — integration (with DB)", () => {
       const email = randomEmail();
       const password = "ValidPass123!";
       const signup = await signupServerFn({
-        data: { email, password, fullName: "Auth Test", organizationName: `AuthOrg-${crypto.randomUUID().slice(0, 6)}`, termsAccepted: true, privacyAccepted: true },
+        data: {
+          email,
+          password,
+          fullName: "Auth Test",
+          organizationName: `AuthOrg-${crypto.randomUUID().slice(0, 6)}`,
+          termsAccepted: true,
+          privacyAccepted: true,
+        },
       });
       const userId = signup.user.id;
       // The user's org is the one just created — fetch it
-      const orgRows = await db.execute<{ organization_id: string }>(sql`SELECT organization_id FROM users WHERE id = ${userId} LIMIT 1`);
-      const orgId = (orgRows as unknown as { rows: Array<{ organization_id: string }> }).rows[0]!.organization_id;
+      const orgRows = await db.execute<{ organization_id: string }>(
+        sql`SELECT organization_id FROM users WHERE id = ${userId} LIMIT 1`,
+      );
+      const orgId = (orgRows as unknown as { rows: Array<{ organization_id: string }> }).rows[0]!
+        .organization_id;
 
       // Ensure the user is active and has a membership (signup already created it)
       // Mint a valid access token exactly as sign-in does
@@ -147,11 +179,21 @@ describe.skipIf(!hasDb())("Server Functions — integration (with DB)", () => {
     try {
       const email = randomEmail();
       const signup = await signupServerFn({
-        data: { email, password: "ValidPass123!", fullName: "Key Owner", organizationName: `KeyOrg-${crypto.randomUUID().slice(0, 6)}`, termsAccepted: true, privacyAccepted: true },
+        data: {
+          email,
+          password: "ValidPass123!",
+          fullName: "Key Owner",
+          organizationName: `KeyOrg-${crypto.randomUUID().slice(0, 6)}`,
+          termsAccepted: true,
+          privacyAccepted: true,
+        },
       });
       const userId = signup.user.id;
-      const orgRows = await db.execute<{ organization_id: string }>(sql`SELECT organization_id FROM users WHERE id = ${userId} LIMIT 1`);
-      const orgId = (orgRows as unknown as { rows: Array<{ organization_id: string }> }).rows[0]!.organization_id;
+      const orgRows = await db.execute<{ organization_id: string }>(
+        sql`SELECT organization_id FROM users WHERE id = ${userId} LIMIT 1`,
+      );
+      const orgId = (orgRows as unknown as { rows: Array<{ organization_id: string }> }).rows[0]!
+        .organization_id;
       const token = await signAccessToken(userId, orgId, getConfig().JWT_ACCESS_SECRET);
       const { setServerHeadersForTest } = await import("@/app/server-functions/helpers");
       setServerHeadersForTest({ cookie: `nawebeus_access=${encodeURIComponent(token)}` });
@@ -161,7 +203,9 @@ describe.skipIf(!hasDb())("Server Functions — integration (with DB)", () => {
         // by directly checking ability; if missing, this will throw Forbidden, which is expected without seed perms.
         // We therefore only assert that the Server Function at least reaches the service layer (not a 404 or fetch).
         try {
-          const created = await createApiKeyServerFn({ data: { name: `key-${crypto.randomUUID().slice(0, 6)}`, scopes: [] } });
+          const created = await createApiKeyServerFn({
+            data: { name: `key-${crypto.randomUUID().slice(0, 6)}`, scopes: [] },
+          });
           // If permissions allow, we get a plaintext key exactly once
           expect(created.apiKey.key).toBeDefined();
           expect(created.warning).toContain("Store this key now");

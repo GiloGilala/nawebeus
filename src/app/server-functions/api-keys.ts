@@ -6,13 +6,14 @@
  * returned exactly once — the DB keeps only a hash.
  */
 
-import { createServerFn } from "../lib/createServerFn";
 import { z } from "zod";
-
-import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
 import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey } from "@/services/auth/api-key";
+import { createServerFn } from "../lib/createServerFn";
+import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
 
-const uuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Must be a UUID");
+const uuidSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Must be a UUID");
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(255),
@@ -36,7 +37,9 @@ export const createApiKeyServerFn = createServerFn({ method: "POST" })
     const auth = await getServerAuth();
     assertServerAbility(auth, "create", "apikeys");
     const db = getServerDb();
-    const expiresAt = data.expiresInDays ? new Date(Date.now() + data.expiresInDays * 24 * 60 * 60 * 1000) : null;
+    const expiresAt = data.expiresInDays
+      ? new Date(Date.now() + data.expiresInDays * 24 * 60 * 60 * 1000)
+      : null;
 
     const created = await withServerOrgContext(auth, () =>
       createApiKey(db, {
@@ -66,7 +69,9 @@ export const listApiKeysServerFn = createServerFn({ method: "GET" })
     const auth = await getServerAuth();
     assertServerAbility(auth, "read", "apikeys");
     const db = getServerDb();
-    const apiKeys = await withServerOrgContext(auth, () => listApiKeys(db, auth.orgId, data.status as never));
+    const apiKeys = await withServerOrgContext(auth, () =>
+      listApiKeys(db, auth.orgId, data.status as never),
+    );
     return { apiKeys };
   });
 
@@ -86,7 +91,9 @@ export const rotateApiKeyServerFn = createServerFn({ method: "POST" })
     const auth = await getServerAuth();
     assertServerAbility(auth, "update", "apikeys");
     const db = getServerDb();
-    const rotated = await withServerOrgContext(auth, () => rotateApiKey(db, auth.orgId, data.id, auth.userId));
+    const rotated = await withServerOrgContext(auth, () =>
+      rotateApiKey(db, auth.orgId, data.id, auth.userId),
+    );
     return {
       apiKey: rotated,
       warning: "Store this key now. It cannot be retrieved again — only its prefix is kept.",
