@@ -135,7 +135,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
   async function signinChallenge(f: Fixture, ip = "10.0.0.1"): Promise<string> {
     const res = await f.app.request("/api/auth/signin", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": ip },
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
       body: JSON.stringify({ email: f.email, password: f.password }),
     });
     expect(res.status).toBe(200);
@@ -152,7 +152,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
   ): Promise<Response> {
     return f.app.request("/api/auth/mfa/verify-login", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": ip },
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
       body: JSON.stringify({ mfaSessionId, code }),
     });
   }
@@ -178,7 +178,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
 
       const challengeRes = await f.app.request("/api/auth/signin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "10.0.1.1" },
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.0.1.1" },
         body: JSON.stringify({ email: f.email, password: f.password }),
       });
       expect(challengeRes.status).toBe(200);
@@ -396,7 +396,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
 
       const ok = await f.app.request("/api/auth/signin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "10.0.8.1" },
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.0.8.1" },
         body: JSON.stringify({
           email: f.email,
           password: f.password,
@@ -411,7 +411,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
       // code was accepted. A wrong code must fail.
       const bad = await f.app.request("/api/auth/signin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "10.0.8.2" },
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.0.8.2" },
         body: JSON.stringify({
           email: f.email,
           password: f.password,
@@ -430,7 +430,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
       const attempt = (mfaCode: string) =>
         f.app.request("/api/auth/signin", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "10.0.9.1" },
+          headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.0.9.1" },
           body: JSON.stringify({ email: f.email, password: f.password, mfaCode }),
         });
 
@@ -445,7 +445,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
       // From a fresh IP the backup code completes the login in one request.
       const freshIp = await f.app.request("/api/auth/signin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "10.0.9.2" },
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.0.9.2" },
         body: JSON.stringify({ email: f.email, password: f.password, mfaCode: backupCodes[0]! }),
       });
       expect(freshIp.status).toBe(200);
@@ -457,7 +457,7 @@ describe.skipIf(!hasDb())("MFA login flow (integration)", () => {
       const f = await makeFixture(db);
       const res = await f.app.request("/api/auth/signin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Cf-Connecting-Ip": "10.0.10.1" },
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.0.10.1" },
         body: JSON.stringify({ email: f.email, password: f.password }),
       });
       expect(res.status).toBe(200);

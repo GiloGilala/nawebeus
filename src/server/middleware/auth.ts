@@ -1,11 +1,11 @@
 import type { Ability } from "@casl/ability";
 import { sql } from "drizzle-orm";
-import type { Context, MiddlewareHandler } from "hono";
+import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { getConfig } from "../../lib/config";
 import type { Db } from "../../lib/db";
 import { AuthError, ForbiddenError } from "../../lib/errors";
-import { normaliseIp } from "../../lib/ip";
+import { getClientIp } from "../../lib/ip";
 import { runWithOrgContext } from "../../lib/org-context";
 import { type Actions, loadAbility, type Subjects } from "../../services/auth/ability";
 import { apiKeyAbility, recordApiKeyUsage, resolveApiKey } from "../../services/auth/api-key";
@@ -56,12 +56,6 @@ async function assertActiveMembership(db: Db, userId: string, orgId: string): Pr
   }
 }
 
-function clientIp(c: Context): string | null {
-  const forwarded = c.req.header("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]?.trim() ?? null;
-  return c.req.header("x-real-ip") ?? null;
-}
-
 export const authMiddleware: MiddlewareHandler = async (c, next) => {
   const config = getConfig();
   const db = c.var.db;
@@ -88,7 +82,7 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     c.set("ability", apiKeyAbility(base, resolved.permissionLevel, resolved.scopes));
 
     await recordApiKeyUsage(db, resolved.id, {
-      ip: normaliseIp(clientIp(c)),
+      ip: getClientIp(c, config),
       userAgent: c.req.header("user-agent") ?? null,
     });
 

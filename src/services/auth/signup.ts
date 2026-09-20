@@ -266,7 +266,8 @@ export async function signup(
     return { userId: user.id, orgId: org.id };
   });
 
-  const verificationLink = `${config.CORS_ORIGIN}/verify-email?token=${rawToken}`;
+  // Primary allowed origin doubles as the link base until NWB-P0-021 introduces APP_BASE_URL.
+  const verificationLink = `${config.CORS_ORIGIN[0]}/verify-email?token=${rawToken}`;
 
   await emailService.send({
     to: email,

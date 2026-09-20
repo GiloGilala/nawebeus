@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { getConfig } from "../../lib/config";
 import { ValidationError } from "../../lib/errors";
+import { getClientIp } from "../../lib/ip";
 import { success } from "../../lib/response";
 import { signIn } from "../../services/auth/auth.service";
 import { setSessionCookies } from "./session-cookies";
@@ -40,10 +42,10 @@ router.post("/signin", async (c) => {
   }
 
   const db = c.var.db;
-  // Deliberately left undefined when no forwarding header is present. Do not
-  // substitute a placeholder: "unknown" is not a valid `inet` and 500s the
+  // Null when no forwarding header carries a usable address. Deliberately left
+  // undefined in that case: "unknown" is not a valid `inet` and 500s the
   // sign-in, and "0.0.0.0" would record a fabricated address.
-  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("X-Forwarded-For");
+  const ip = getClientIp(c, getConfig());
 
   const result = await signIn(db, parsed.data.email, parsed.data.password, {
     ...(ip ? { ip } : {}),
