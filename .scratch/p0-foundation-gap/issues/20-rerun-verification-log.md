@@ -95,14 +95,20 @@ Re-running the numbers surfaced doc drift that had nothing to do with test count
 |---|---|---|
 | 1 | Full suite green with a live DB incl. the 11 named suites | **Met** — all 11 exist and run; 395/0 locally and on CI |
 | 2 | Invite → accept → act → self-protection demo | **Met** — `invitation-accept.test.ts` (14 tests) covers both branches: "new user registers into the org" (L68) and "existing org-less account is linked and activated" (L220), plus the role ladder and self-protection guards (L319, L377) |
-| 3 | Migrations take a clean DB to current; re-run no-op; CI uses `db:migrate` | **Met — evidenced by this run** |
+| 3 | Migrations take a clean DB to current; re-run no-op; CI uses `db:migrate` | **Partly** — the first two clauses are evidenced by this run; **CI still runs `db:push -- --force`** (`.github/workflows/ci.yml`), so the third is not met. Corrected after NWB-P0-022 checked the workflow; blocked on the `workflows` permission (NWB-P0-005) |
 | 4 | DSAR export returns a valid payload | **Met** — `users/dsar-export.test.ts` |
 | 5 | D11, D12, D13, D15 recorded in the Decision Log | **Not met** — only D13 is there (DEC-039). D11/D12/D15 outstanding → NWB-P0-019 |
 | 6 | No Critical/High §5 defect open | **Met** — F-09 closed by NWB-P0-021; F-01…F-08, F-10, F-12, F-13 previously closed |
 | 7 | AGENTS.md + plan §1 markers refreshed | **Met by this ticket** (the branch-protection half is NWB-P0-022) |
 
-Criterion 5 is the only real gap, and it belongs to NWB-P0-019 (plus NWB-P0-022
-for the branch-protection half of 7). I am recording that here rather than
+Criteria 5 and 3 are the real gaps. 5 belongs to NWB-P0-019; 3's CI clause and the
+branch-protection half of 7 belong to NWB-P0-005/022.
+
+> **Correction (2026-09-20, same day):** I first scored criterion 3 **Met**. That was
+> right about the migration path and wrong about CI — the workflow still runs
+> `db:push -- --force`, which NWB-P0-022 caught when it read the file rather than the
+> roadmap's description of it. Fixed above. The lesson is the same one this ticket exists
+> to enforce: verify the artefact, not the sentence describing it. I am recording that here rather than
 quietly marking the phase green.
 
 I first scored criterion 2 as only partly met, having grepped

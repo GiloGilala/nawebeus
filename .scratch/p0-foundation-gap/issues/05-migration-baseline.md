@@ -3,6 +3,13 @@
 **Status:** blocked on CI wiring — implementation + local proof complete;
 the `.github/workflows/ci.yml` edit cannot be pushed by the Arena GitHub App
 (lacks the `workflows` permission — see "CI wiring" below). Claimed 2026-09-20.
+**Re-verified 2026-09-20 (NWB-P0-022):** still blocked. A one-line edit to the
+workflow was committed and pushed as a probe; the remote rejected it with
+`refusing to allow a GitHub App to create or update workflow .github/workflows/ci.yml
+without workflows permission`, and the probe commit was reverted. Consequence worth
+naming: **CI still runs `bun run db:push -- --force`, not `db:migrate`**, so Phase 1
+exit criterion 3's third clause is unmet even though the migration path itself is
+proven (NWB-P0-020).
 **Source:** `docs/plan/master-roadmap/06-phase-1-foundation.md` §NWB-P0-005;
 `issues/09-db-push-not-idempotent.md` (option B). **Size:** M.
 

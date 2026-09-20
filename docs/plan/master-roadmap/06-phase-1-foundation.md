@@ -197,9 +197,10 @@
   (including 28 → **30** tables and three stale `src/app/*` route paths deleted in NWB-P0-026).
   **Deviation:** the ticket's `db:push -- --force` step was deliberately not used — NWB-P0-005/009
   replaced it with `db:migrate` as the evolution path; `db:push` is dev-convenience only.
-  Exit criteria re-scored against evidence: 1, 2, 3, 4, 6, 7 met; **5 not met** (only D13 is in
-  the Decision Log as DEC-039 — D11, D12, D15 outstanding, → NWB-P0-019), and 7's
-  branch-protection half is NWB-P0-022.
+  Exit criteria re-scored against evidence: 1, 2, 4, 6 met; **3 partly** (migration path proven,
+  but CI still runs `db:push` — corrected after NWB-P0-022 read the workflow); **5 addressed by
+  NWB-P0-019** (all four decisions now carry a status; D11/D12 recorded-but-undecided); **7 open**
+  (branch protection, NWB-P0-022).
 
 #### NWB-P0-002 — DSAR data export (plan ticket, open)
 - **Objective:** any authenticated user (and admin on behalf) can request a machine-readable export of all personal data in their org; delivered within the NDPR window (PRD: 24h; Module 1 spec AC8).
@@ -261,12 +262,20 @@
   the Server Functions emitted relative links. `src/tests/email-links.test.ts`: 12 tests, verified
   red against the pre-fix service.
 
-#### NWB-P0-022 — Branch protection + CI as a real gate
+#### NWB-P0-022 — Branch protection + CI as a real gate — **BLOCKED (ops, needs repo admin)**
 - **Objective:** merge to `main` requires green CI.
 - **Current state:** workflow exists; "Branch protection on main is not yet configured, so CI currently reports without blocking" (AGENTS.md).
 - **Steps:** configure GitHub branch protection (settings — not code): require status checks `quality` + `test` before merge on `main`; require PR (no direct push); record in AGENTS.md. (If the repo owner lacks settings access, file as an ops task with exact settings.)
 - **Acceptance:** a red PR cannot merge.
 - **Risk:** none.
+- **Outcome (2026-09-20):** filed as an ops task with exact settings —
+  `.scratch/p0-foundation-gap/issues/22-branch-protection.md`. Verified, not assumed: the agent
+  token (`arena-ai-coding-agent[bot]`) reports `admin:false` and **403s on both reading and
+  writing** branch protection; `rulesets` is empty, so `main` has **no protection of any kind**.
+  The ticket records the click-through settings and the equivalent `gh api` call. **Use the check
+  *names* `Typecheck, lint, build` and `Test (PostgreSQL)`, not the job ids `quality`/`test`** —
+  GitHub matches required checks by reported name, so the ids would create a rule that can never
+  be satisfied and would block every merge instead of gating on CI.
 
 #### NWB-P0-023 — Organization deletion (PRD 8.2.1 P0; discrepancy D-14) — **DONE 2026-09-20**
 - **Shipped:** `src/services/orgs/org-deletion.service.ts` (delete / reactivate / purge / status), `DELETE /api/orgs/:orgId` + `POST /api/orgs/:orgId/reactivate`, 20 tests. Cascades: memberships deactivated (not soft-deleted, so reactivation can tell them from an admin's own suspension), API keys revoked, all members' sessions revoked (and deliberately **not** restored on reactivation). Ownership checked against `organizations.owner_id`, not a role row (DEC-039). Billing block stubbed as `findBillingBlocker()` + `TODO(P13)`.
@@ -296,12 +305,14 @@
 > a database; `biome check .` 0 errors; typecheck and build clean.** Earlier counts in this
 > document (96, 162, 325 …) are historical. CI is green on both jobs for PR #14 on the pinned
 > `postgres:14` floor, so exit criterion 1 is met in CI and not merely locally. Criterion 3 is
-> now evidenced directly: `db:migrate` was run against a freshly created empty database and then
-> re-run as a no-op. **Criterion 7 remains open** — branch protection (NWB-P0-022) is a GitHub
+> now evidenced **in part**: `db:migrate` was run against a freshly created empty database and then
+> re-run as a no-op — but **CI still runs `db:push -- --force`**, so criterion 3's third clause is
+> not met (NWB-P0-005's remaining step, blocked on the GitHub App's `workflows` permission —
+> re-verified 2026-09-20 by a push that was remote-rejected). **Criterion 7 remains open** — branch protection (NWB-P0-022) is a GitHub
 > *settings* change requiring repo-owner access, so CI still reports without blocking merges.
 1. `bun test` green with a live DB, **including** the new suites: signup-owner-role, org-update positive+negative, MFA full flow, rate-limit windows, role-matrix self-protection, status enforcement, invitation accept, CORS/IP, route-invariant scan, DSAR, org deletion. (NWB-P0-020 re-run recorded.)
 2. A fresh org owner can: invite a member → invitee accepts (new + existing user) → member acts with the invited role → role changes respect self-protection. **This end-to-end sequence is the Phase 1 demo.**
-3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`.
+3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`. — **Partly met:** the first two clauses are evidenced (NWB-P0-020, against a freshly created database); **CI still runs `db:push -- --force`** — NWB-P0-005's last step, blocked on the GitHub App's `workflows` permission.
 4. DSAR export returns a valid machine-readable payload.
 5. D12, D13, D11, D15 recorded in the Decision Log with status. — **Met as written (all four carry a status as of NWB-P0-019: D13 DEC-039 Approved, D15 DEC-040 Approved, D11 DEC-O009 Open+recommendation, D12 open+options memo). Note: two of the four are recorded-but-undecided; if the intent was "all four decided", D11 and D12 remain outstanding and need a human decision.**
 6. No Critical/High defect from §5 remains open (F-01…F-05, F-07, F-08, F-12 closed; F-06 closed by documentation+test; F-09/F-10/F-13 closed).

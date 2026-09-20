@@ -20,12 +20,27 @@ and 002 (DSAR data export, AC8 of FR-AUTH-007), plus 005 (migration baseline —
 `workflows` permission — see the ticket), and 018 (CASL scope cleanup, F-06 —
 the inert org condition removed, the real enforcement chain documented, and a
 route-invariant scan that fails any `:orgId` route missing `requireOrgMatch`).
-**Outstanding: NWB-P0-022 only** (branch protection — a GitHub *settings* change needing
-repo-owner access), plus two decisions that require a human: **D11** (RLS, recorded as
-DEC-O009 with a recommendation) and **D12** (module-set scope, options memo written).
-019, 020, 021 and 023 are **done**. No code ticket remains in this epic.
+**Outstanding — all of it needs someone with repo-owner access or a product call:**
+**NWB-P0-022** (branch protection; settings change, exact values specified in its ticket),
+**NWB-P0-005's last step** (CI still runs `db:push`, not `db:migrate` — blocked on the
+GitHub App's `workflows` permission), and two decisions that are not an agent's to take:
+**D11** (RLS — recorded as DEC-O009 with a written recommendation) and **D12**
+(module-set scope — options memo written). Every other ticket, 01–28, is **done**.
 
-> **2026-09-20 (latest): P0 bookkeeping closed (NWB-P0-019) — with two decisions
+> **2026-09-20 (latest): the last two blockers were re-tested, not assumed (NWB-P0-022).**
+> Both are credential limits, and both are now proven with the exact failure. Branch
+> protection: the agent token reports `admin:false` and **403s on even reading**
+> `/branches/main/protection`; `rulesets` is empty, so `main` has **no protection of any
+> kind** and a red PR can still merge. The ops ticket carries the click-through settings and
+> the `gh api` equivalent, and flags the trap that the required checks must be the job
+> *names* (`Typecheck, lint, build`, `Test (PostgreSQL)`) — entering the roadmap's job ids
+> `quality`/`test` would create a rule nothing can ever satisfy, blocking every merge.
+> Reading the workflow also caught an overstatement of mine: **CI still runs
+> `db:push -- --force`, not `db:migrate`**, so Phase 1 exit criterion 3 is only *partly* met
+> — NWB-P0-020 had scored it green on the strength of the migration path alone. Corrected
+> there and in the roadmap.
+>
+> **2026-09-20: P0 bookkeeping closed (NWB-P0-019) — with two decisions
 > deliberately left open.** `p0-auth` flipped to `done` (10/10 Module 1 FRs) after checking
 > that all three blockers — API keys, MFA login, DSAR export — are really in the tree.
 > D15 became **DEC-040 (Approved): the MVP API ships unversioned**, which ratifies what is
@@ -150,6 +165,7 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-019 | Close out P0 bookkeeping (documentation) | — | S | `issues/19-p0-bookkeeping.md` — **done** |
 | NWB-P0-020 | Re-run the verification log (Appendix C) | — | S | `issues/20-rerun-verification-log.md` — **done** |
 | NWB-P0-021 | Email link consistency (F-09, F-09b) | — | S/M | `issues/21-email-link-consistency.md` — **done** |
+| NWB-P0-022 | Branch protection + CI as a real gate | — | S | `issues/22-branch-protection.md` — **blocked (ops: needs repo admin)** |
 | NWB-P0-023 | Organization deletion (PRD 8.2.1 P0; D-14) | — | M | `issues/23-organization-deletion.md` — **done** |
 | NWB-P0-024 | Account deletion referenced a missing column (F-24) | — | S | `issues/24-scheduled-deletion-column.md` — **done** |
 | NWB-P0-025 | `purgeExpiredAccounts` cannot delete an org owner (F-25) | NWB-P0-023 | S/M | `issues/25-org-owner-purge-fk.md` — **done** |
@@ -157,10 +173,11 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 | NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **done** |
 
-> Ticket 22 is listed here but its file does not exist yet — it is a GitHub *settings*
-> task (branch protection) requiring repo-owner access, not a code change. Files present:
-> 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-> 23, 24, 25, 26, 27, 28. The Phase 1
+> **Every ticket now has a file: 01–28.** All are `done` except **05** (code complete,
+> blocked on the GitHub App's missing `workflows` permission) and **22** (a GitHub
+> *settings* change needing repo admin). Both blockers were re-verified by experiment on
+> 2026-09-20 rather than assumed — see those two tickets for the exact 403s and the
+> remote-rejection message. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 
