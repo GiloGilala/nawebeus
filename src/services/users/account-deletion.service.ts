@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { NotFoundError } from "../../lib/errors";
+import { NotFoundError, OwnershipTransferRequiredError } from "../../lib/errors";
 import { writeAuditLog } from "../audit";
 import { revokeAllSessionsForUser } from "../auth/session";
 
@@ -20,6 +20,31 @@ export async function deleteAccount(
   userId: string,
   options?: AccountDeletionOptions,
 ): Promise<{ scheduledDeletionAt: string }> {
+  // F-25 / D16 (option 2 — refuse and report). `organizations.owner_id` is a
+  // restrictive NOT NULL FK to `users(id)`, so the hard purge could never remove
+  // someone who still owns an organization — it could only die on 23503, thirty
+  // days after the user was told their erasure was scheduled. Ownership is
+  // checked here instead, before anything is written, and the request is
+  // refused with the names of the blocking organizations. This gate is also
+  // what keeps `purgeExpiredAccounts` unreachable for an owner: nothing reaches
+  // the purge without passing it. Until NWB-P0-023 (organization deletion /
+  // ownership transfer) ships, a user whose signup created their personal
+  // organization cannot complete account deletion — an accepted trade-off,
+  // recorded in the decision register as D16.
+  const owned = await db.execute<{ id: string; name: string }>(
+    sql`SELECT id, name FROM organizations WHERE owner_id = ${userId} ORDER BY created_at, name LIMIT 100`,
+  );
+  const ownedRows = ((owned as any).rows ?? []) as { id: string; name: string }[];
+  if (ownedRows.length > 0) {
+    const names = ownedRows.map((o) => `"${o.name}"`).join(", ");
+    throw new OwnershipTransferRequiredError(
+      `Account deletion is unavailable while you own ${
+        ownedRows.length === 1 ? "an organization" : `${ownedRows.length} organizations`
+      } (${names}). Transfer ownership of each organization before deleting your account.`,
+      { organizations: ownedRows },
+    );
+  }
+
   const scheduledDeletionAt = new Date(Date.now() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
 
   const rows = await db.execute<{ id: string; deleted_at: string | null }>(
@@ -98,6 +123,13 @@ export async function reactivateAccount(
 /**
  * Permanently deletes accounts whose grace period has expired.
  * Returns the number of purged accounts. Intended for a scheduled job.
+ *
+ * An organization owner can never be in this set — `deleteAccount` refuses them
+ * up front (F-25 / D16). If that invariant is ever broken from the outside (e.g.
+ * a future ownership-transfer path reparents an organization onto an
+ * already-scheduled account), the restrictive FK on `organizations.owner_id`
+ * makes this DELETE fail loudly rather than silently stranding the erasure.
+ * The loudness is deliberate — do not convert it to a silent skip.
  */
 export async function purgeExpiredAccounts(
   db: NodePgDatabase<Record<string, any>>,

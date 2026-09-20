@@ -167,8 +167,15 @@ directory you care about) for the complete set.
   `purgeExpiredAccounts` / `getAccountDeletionStatus`. The column was missing until NWB-P0-024,
   which meant every one of those functions failed with 42703. Read instants back with
   `extract(epoch …)::bigint`, not `timestamptz`: node-postgres returns the latter as
-  `2026-10-20 17:24:06.801+00`, which JS `Date` rejects. The purge still cannot remove an
-  org owner (F-25 / NWB-P0-025 — open decision).
+  `2026-10-20 17:24:06.801+00`, which JS `Date` rejects. **`deleteAccount` refuses an
+  organization owner** (F-25 / D16, option 2 — refuse and report): 409
+  `OWNERSHIP_TRANSFER_REQUIRED`, naming the owned organizations, before anything is
+  written, so the purge is never reachable for an owner. `organizations.created_by` is
+  nullable + `set null` so a *former* owner erases cleanly once ownership has moved on —
+  `owner_id` itself stays NOT NULL + `restrict` on purpose. The same restrictive-FK
+  class on `api_keys.*_by` / `tokens.revoked_by` is still open (F-28 / NWB-P0-028).
+  Until NWB-P0-023 ships an ownership-transfer path, a user whose signup created their
+  personal organization cannot complete account deletion.
 - **Session rotation on every refresh** — the old session is revoked and a new one created. Reusing a refresh token after rotation is detected and rejected.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.

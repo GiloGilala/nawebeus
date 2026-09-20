@@ -79,6 +79,27 @@ export class ConflictError extends AppError {
   readonly code = "CONFLICT";
 }
 
+/**
+ * The caller asked to delete their account while still owning one or more
+ * organizations. D16 (F-25, option 2 — refuse and report): `organizations.owner_id`
+ * is a restrictive NOT NULL FK to `users(id)`, so the scheduled purge could never
+ * remove an owner — it could only die on 23503 thirty days after promising erasure.
+ * `deleteAccount` therefore refuses up front, before anything is written, naming
+ * the blocking organizations so the caller can transfer ownership first. That gate
+ * is what keeps `purgeExpiredAccounts` unreachable for an organization owner.
+ */
+export class OwnershipTransferRequiredError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "OWNERSHIP_TRANSFER_REQUIRED";
+
+  constructor(
+    message: string,
+    readonly details?: { organizations: { id: string; name: string }[] },
+  ) {
+    super(message);
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

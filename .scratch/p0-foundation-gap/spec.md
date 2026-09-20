@@ -6,13 +6,15 @@
 **Done:** NWB-P0-001 (API keys), 003 (CI), 004 (linter), 007 (adopt decisions), 008 (concurrent
 lockout), 009 (`db:push` convergence + `DATABASE_URL` unification), 010 (owner at signup),
 011 (org subject), 012 (MFA login flow), 013 (rate limiter), 014 (role model + self-protection),
-015 (status enforcement), 017 (CORS + IP policy), and the four findings raised while landing
-them — 024 (missing `users.scheduled_deletion_at`), 026 (duplicate route mirror), 027 (lint gate
-red at HEAD); 016 is the next product-critical ticket (invitation accept, F-08).
+015 (status enforcement), 017 (CORS + IP policy), and the findings raised while landing
+them — 024 (missing `users.scheduled_deletion_at`), 025 (org-owner purge refused at delete
+time, F-25 / D16), 026 (duplicate route mirror), 027 (lint gate red at HEAD);
+016 is the next product-critical ticket (invitation accept, F-08).
 **Outstanding:** DSAR export (02), migration baseline (05), foundation issue-07 reconciliation
 (06 — the API-key half is `done`; the role-assignment half shipped and its boxes are still
 unticked), invitation accept (016), CASL scope cleanup (018), bookkeeping/verification/email
-base/branch protection/org deletion (019–023), and **NWB-P0-025 (F-25, needs a decision)**.
+base/branch protection/org deletion (019–023), and **NWB-P0-028 (purge attribution FKs,
+F-28 — filed while landing 025)**.
 
 > **2026-09-20 (latest):** the merged tree was red — one test
 > (`Server Functions — integration (with DB)`) failed on a **missing `users.scheduled_deletion_at`
@@ -70,13 +72,14 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-014 | Role model (DEC-039) + real self-protection guards (F-07, F-21) | D13 | M | `issues/14-role-model-and-self-protection.md` — **done** |
 | NWB-P0-015 | Enforce user status at sign-in (F-05) | — | M | `issues/15-user-status-enforcement.md` — **done** |
 | NWB-P0-024 | Account deletion referenced a missing column (F-24) | — | S | `issues/24-scheduled-deletion-column.md` — **done** |
-| NWB-P0-025 | `purgeExpiredAccounts` cannot delete an org owner (F-25) | NWB-P0-023 | S/M | `issues/25-org-owner-purge-fk.md` — **ready-for-agent, needs a decision** |
+| NWB-P0-025 | `purgeExpiredAccounts` cannot delete an org owner (F-25) | NWB-P0-023 | S/M | `issues/25-org-owner-purge-fk.md` — **done** |
 | NWB-P0-026 | Duplicate Hono route mirror under `src/app/**` (F-26) | — | S | `issues/26-duplicate-route-mirror.md` — **done** |
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
+| NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **ready-for-agent** |
 
 > Tickets 02, 05, 06, 16, 18–23 are listed here but their files do not exist yet — the index
 > was written ahead of the tickets. Files present: 01, 03, 04, 07, 08, 09, 10, 11, 12, 13, 14,
-> 15, 17, 24, 25, 26, 27. The Phase 1
+> 15, 17, 24, 25, 26, 27, 28. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 
