@@ -27,7 +27,7 @@
 | `src/app/orgs/org.route.ts` or seed strings | Single source of truth for the `org` vs `organization` subject | F-02 |
 | `src/server/index.ts` | `cors({ origin: config.CORS_ORIGIN })`; single trusted-IP policy | F-13, F-10 |
 | `src/server/middleware/rbac.ts` + `ability.ts` | Either pass condition objects for object-level checks or drop the decorative condition; document the real enforcement chain (F-06); add a regression test pinning CASL v7 behavior | F-06 |
-| `src/app/users/index.ts` | Remove shadowing (mount admin routes under explicit `/users/admin/…`) | F-11 |
+| `src/server/api/users/index.ts` (the `src/app/` mirror was deleted in NWB-P0-026) | ~~Remove shadowing (mount admin routes under explicit `/users/admin/…`)~~ — **done, NWB-P0-029**: `userRouter.route("/users/admin", adminRouter)` | F-11 **closed** |
 | `src/server/index.ts` | Delete dead `createApp()` factory (after confirming test usage) | F-17 |
 | `db/schema.ts` + `tsconfig.json` | Per-module adoption as phases land (ground rule 7) | plan P2–P13 |
 | `drizzle.config.ts` / CI | Migrate to `drizzle/` migration history (also covers pg-boss schema) | NWB-P0-005 |

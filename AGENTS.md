@@ -42,7 +42,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (184 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (196 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
@@ -81,7 +81,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Layers (current)
 
-> **Last verified against HEAD `51c1a2d` on 2026-09-20 (NWB-P0-020 re-run).** If the
+> **Last verified against HEAD `c2a2453` on 2026-09-20 (NWB-P0-020 re-run; counts refreshed by NWB-P0-029).** If the
 > tree below looks older than the working copy, re-verify before trusting it —
 > `src/` is always the source of truth.
 
@@ -98,7 +98,8 @@ src/server/index.ts       ← Hono app factory (CORS, error handler, route mount
   api/                    ← Hono route handlers, mounted at /api (thin: validate + delegate)
     auth/   signin, signup, signout, refresh, sessions, mfa, verification,
             password-reset, invitations (public validate + accept), session-cookies helper
-    users/  /me, /admin
+    users/  /me (self-service), /admin (admin surface — mounted on the literal
+            `/users/admin` prefix so it can never shadow `/users/me*`; F-11/NWB-P0-029)
     orgs/   /orgs (incl. DELETE + /reactivate), /members, /roles
     api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
   auth/types/             ← auth request/response types
@@ -195,7 +196,7 @@ directory you care about) for the complete set.
   `compliance.dsar.requested` event is written BEFORE the build so the request
   self-cites inside its own export — and its module is `core`, not `compliance`:
   `unified_audit_log` requires a hash-chain `checksum` for modules admin/compliance/system
-  and nothing computes the chain yet. Admin-on-behalf is `POST /api/users/:userId/data-export`
+  and nothing computes the chain yet. Admin-on-behalf is `POST /api/users/admin/:userId/data-export`
   (org-scoped, 404 cross-tenant with no request row created) and returns the receipt
   only — the payload only ever travels the subject's own channel
   (`GET /api/users/me/data-export/:requestId`). Self-service POST is rate-limited
@@ -204,6 +205,7 @@ directory you care about) for the complete set.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.
 - **`runWithOrgContext()` must be awaited inside middleware** — Hono's `compose()` checks `context.finalized` as soon as a handler's promise settles. Calling `next()` without awaiting it resolves the chain before the route handler writes its response, and Hono throws "Context is not finalized" → a blanket 500 on every protected route.
+- **Path params that are uuids must go through `uuidParam`** (`src/server/api/route-params.ts`). An unvalidated segment lands in a `WHERE id = $1` against a `uuid` column and Postgres answers `22P02`, which surfaces as a **500** instead of a 422 — four route families did exactly that until NWB-P0-029. `uuidParam(c, "userId", "user id")` throws `ValidationError` before the query runs. Pinned by `src/tests/route-params.test.ts`.
 - **Role hierarchy is DEC-039** — one platform role (`super_admin`, level 100) plus six per-organization system roles: `owner` 90, `admin` 80, `manager` 60, `creator` 40, `analyst` 20, `viewer` 10 (all `organization_id IS NULL`; `org_admin`/`member` no longer exist — the seed retires them). Rank comparisons use `roles.level`; only `owner`/`admin` have code-specific semantics. The rules — Owner is transferred never granted, Owner never demoted/removed, no self-change, actor must strictly outrank both the target and the granted role, at least one active Owner/Admin remains (BR-AUTH-030) — live in `src/services/orgs/role-policy.ts`, and **every** path that grants, writes, or clears `organization_members.role_id` or removes/suspends a member goes through it (`assign-role`, `PATCH /members/:id`, `PATCH /users/:id`, both DELETEs, and the invitation pair — `inviteMember` at grant time via `resolveAssignableRole` + `assertRoleGrantAllowed`, `acceptInvitation` activating what the invite was allowed to grant). Add a new write path without it and you have re-opened F-07.
 - **Invitation accept exists and is the only way members join** (F-08 / NWB-P0-016) —
   `inviteMember` writes `organization_members` rows (`status='invited'`; `invited_email`

@@ -6,6 +6,7 @@ import { getClientIp } from "@/lib/ip";
 import { validatePassword } from "@/lib/password";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { success } from "@/lib/response";
+import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { changePassword } from "@/services/auth/auth.service";
 import { confirmEmailChange, requestEmailChange } from "@/services/auth/email-change";
@@ -200,7 +201,7 @@ router.post("/me/data-export", authMiddleware, async (c) => {
 router.get("/me/data-export/:requestId", authMiddleware, async (c) => {
   const { userId } = c.var.user;
   const db = c.var.db;
-  const payload = await getDataExport(db, userId, c.req.param("requestId"));
+  const payload = await getDataExport(db, userId, uuidParam(c, "requestId", "export request id"));
   return c.json(success(payload));
 });
 

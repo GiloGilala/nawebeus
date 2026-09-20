@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { NotFoundError } from "@/lib/errors";
 import { success } from "@/lib/response";
+import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { writeAuditLog } from "@/services/audit";
 import { getSessionDetail, listUserSessions, revokeSession } from "@/services/auth/session";
@@ -22,7 +23,7 @@ router.get("/sessions", async (c) => {
 router.get("/sessions/:sessionId", async (c) => {
   const { userId } = c.var.user;
   const db = c.var.db;
-  const sessionId = c.req.param("sessionId");
+  const sessionId = uuidParam(c, "sessionId", "session id");
   const detail = await getSessionDetail(db, sessionId, userId);
   if (!detail) throw new NotFoundError("Session not found");
   return c.json(success({ session: detail }));
@@ -71,7 +72,7 @@ router.delete("/sessions/revoke-others", async (c) => {
 router.delete("/sessions/:sessionId", async (c) => {
   const { userId } = c.var.user;
   const db = c.var.db;
-  const sessionId = c.req.param("sessionId");
+  const sessionId = uuidParam(c, "sessionId", "session id");
 
   const detail = await getSessionDetail(db, sessionId, userId);
   if (!detail) throw new NotFoundError("Session not found");

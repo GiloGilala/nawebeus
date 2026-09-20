@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getOrgContext } from "@/lib/org-context";
 import { success } from "@/lib/response";
+import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireOrgMatch } from "@/server/middleware/org-match";
 import { requireAbility } from "@/server/middleware/rbac";
@@ -26,7 +27,7 @@ router.get("/orgs/:orgId/members", authMiddleware, requireOrgMatch(), async (c) 
 router.get("/orgs/:orgId/members/:memberId", authMiddleware, requireOrgMatch(), async (c) => {
   const db = c.var.db;
   const orgId = c.req.param("orgId");
-  const memberId = c.req.param("memberId");
+  const memberId = uuidParam(c, "memberId", "member id");
   const member = await getMember(db, orgId, memberId);
   return c.json(success({ member }));
 });
@@ -39,7 +40,7 @@ router.patch(
   async (c) => {
     const db = c.var.db;
     const orgId = c.req.param("orgId");
-    const memberId = c.req.param("memberId");
+    const memberId = uuidParam(c, "memberId", "member id");
     let body: unknown;
     try {
       body = await c.req.json();
@@ -61,7 +62,7 @@ router.delete(
   async (c) => {
     const db = c.var.db;
     const orgId = c.req.param("orgId");
-    const memberId = c.req.param("memberId");
+    const memberId = uuidParam(c, "memberId", "member id");
     const { userId: actingUserId } = await getOrgContext();
     await removeMember(db, orgId, memberId, actingUserId);
     c.status(204);

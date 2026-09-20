@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { getClientIp } from "@/lib/ip";
 import { success } from "@/lib/response";
+import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireAbility } from "@/server/middleware/rbac";
 import {
@@ -33,7 +34,7 @@ router.get("/", authMiddleware, requireAbility("read", "users"), async (c) => {
 router.get("/:userId", authMiddleware, requireAbility("read", "users"), async (c) => {
   const { orgId } = c.var.user;
   const db = c.var.db;
-  const userId = c.req.param("userId");
+  const userId = uuidParam(c, "userId", "user id");
   const user = await getUserById(db, orgId, userId);
   return c.json(success({ user }));
 });
@@ -41,7 +42,7 @@ router.get("/:userId", authMiddleware, requireAbility("read", "users"), async (c
 router.patch("/:userId", authMiddleware, requireAbility("update", "users"), async (c) => {
   const { orgId, userId: actingUserId } = c.var.user;
   const db = c.var.db;
-  const userId = c.req.param("userId");
+  const userId = uuidParam(c, "userId", "user id");
   let body: unknown;
   try {
     body = await c.req.json();
@@ -56,7 +57,7 @@ router.patch("/:userId", authMiddleware, requireAbility("update", "users"), asyn
 router.delete("/:userId", authMiddleware, requireAbility("delete", "users"), async (c) => {
   const { orgId, userId: actingUserId } = c.var.user;
   const db = c.var.db;
-  const userId = c.req.param("userId");
+  const userId = uuidParam(c, "userId", "user id");
   await deleteUser(db, orgId, userId, actingUserId);
   c.status(204);
   return c.body(null);
@@ -70,7 +71,7 @@ router.delete("/:userId", authMiddleware, requireAbility("delete", "users"), asy
 router.post("/:userId/data-export", authMiddleware, requireAbility("read", "users"), async (c) => {
   const { orgId, userId: actingUserId } = c.var.user;
   const db = c.var.db;
-  const userId = c.req.param("userId");
+  const userId = uuidParam(c, "userId", "user id");
   await getUserById(db, orgId, userId);
   const ip = getClientIp(c, getConfig());
   const userAgent = c.req.header("user-agent");

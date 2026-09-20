@@ -445,11 +445,11 @@ describe.skipIf(!hasDb())("Role assignment — hierarchy & self-protection (DEC-
     });
   });
 
-  test("PATCH /users/:userId (admin) with roleId goes through the same guards (no bypass)", async () => {
+  test("PATCH /users/admin/:userId with roleId goes through the same guards (no bypass)", async () => {
     await withTestDb(async ({ db }) => {
       const f = await buildOrg(db, ["manager", "admin"]);
       // manager holds users.update, but cannot grant admin
-      const res = await f.app.request(`/api/users/${f.u("admin").id}`, {
+      const res = await f.app.request(`/api/users/admin/${f.u("admin").id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -466,7 +466,7 @@ describe.skipIf(!hasDb())("Role assignment — hierarchy & self-protection (DEC-
     await withTestDb(async ({ db }) => {
       const f = await buildOrg(db, ["admin", "manager", "creator"]);
       const patchStatus = async (actorEmail: string, userId: string, status: string) =>
-        f.app.request(`/api/users/${userId}`, {
+        f.app.request(`/api/users/admin/${userId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", cookie: await f.cookiesFor(actorEmail) },
           body: JSON.stringify({ status }),
@@ -573,12 +573,12 @@ describe.skipIf(!hasDb())(
       });
     });
 
-    test("DELETE /users/:userId (account deletion by admin) is guarded the same way and no longer 500s", async () => {
+    test("DELETE /users/admin/:userId (account deletion by admin) is guarded the same way and no longer 500s", async () => {
       await withTestDb(async ({ db }) => {
         const f = await buildOrg(db, ["admin", "creator"]);
         const del = async (actorEmail: string, userId: string) =>
           (
-            await f.app.request(`/api/users/${userId}`, {
+            await f.app.request(`/api/users/admin/${userId}`, {
               method: "DELETE",
               headers: { cookie: await f.cookiesFor(actorEmail) },
             })

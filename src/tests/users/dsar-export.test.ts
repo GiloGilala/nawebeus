@@ -49,9 +49,9 @@ describe("DSAR export routes — no DB (auth required)", () => {
     expect(res.status).toBe(401);
   });
 
-  test("POST /api/users/:userId/data-export without auth returns 401", async () => {
+  test("POST /api/users/admin/:userId/data-export without auth returns 401", async () => {
     const app = createTestApp();
-    const res = await app.request(`/api/users/${crypto.randomUUID()}/data-export`, {
+    const res = await app.request(`/api/users/admin/${crypto.randomUUID()}/data-export`, {
       method: "POST",
     });
     expect(res.status).toBe(401);
@@ -224,7 +224,7 @@ describe.skipIf(!hasDb())("DSAR data export — service + routes (with DB)", () 
       const admin = await signedInUser(db); // tenant A
       const outsider = await signedInUser(db); // tenant B
 
-      const res = await app.request(`/api/users/${outsider.user.id}/data-export`, {
+      const res = await app.request(`/api/users/admin/${outsider.user.id}/data-export`, {
         method: "POST",
         headers: { cookie: admin.cookie },
       });
@@ -257,7 +257,7 @@ describe.skipIf(!hasDb())("DSAR data export — service + routes (with DB)", () 
       );
       const subjectCookie = `nawebeus_access=${encodeURIComponent(subjectToken)}`;
 
-      const res = await app.request(`/api/users/${subject.id}/data-export`, {
+      const res = await app.request(`/api/users/admin/${subject.id}/data-export`, {
         method: "POST",
         headers: { cookie: admin.cookie },
       });

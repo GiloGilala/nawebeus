@@ -27,7 +27,20 @@ GitHub App's `workflows` permission), and two decisions that are not an agent's 
 **D11** (RLS — recorded as DEC-O009 with a written recommendation) and **D12**
 (module-set scope — options memo written). Every other ticket, 01–28, is **done**.
 
-> **2026-09-20 (latest): the last two blockers were re-tested, not assumed (NWB-P0-022).**
+> **2026-09-20 (latest): F-11 closed, and it was not the Low-severity paper cut the register
+> claimed (NWB-P0-029).** Both user routers mounted on `/users`, so `GET /api/users/admin` —
+> the path every doc advertises — matched the admin `/:userId` handler with `userId="admin"`
+> and returned **500** (`22P02 invalid input syntax for type uuid`), reproduced live. The
+> remount to a literal `/users/admin` prefix fixes the shadowing, but the 500 pointed at
+> something wider: path params reached `uuid` columns unvalidated, so *any* malformed id
+> 500'd. Probed every route family that passes a raw param to a service — **4 of 5 were
+> affected**; only api-keys was safe, because it validated inline. That inline check became
+> the shared `uuidParam` helper. +29 tests (383 → 412), both halves verified red by reverting
+> the mount and the guard separately. Auditing the neighbouring rows also found **six defects
+> already fixed but never marked closed**, now recorded — and one (F-17) that is *overtaken,
+> not fixed*, which I left open rather than tidy away.
+>
+> **2026-09-20: the last two blockers were re-tested, not assumed (NWB-P0-022).**
 > Both are credential limits, and both are now proven with the exact failure. Branch
 > protection: the agent token reports `admin:false` and **403s on even reading**
 > `/branches/main/protection`; `rulesets` is empty, so `main` has **no protection of any
@@ -172,6 +185,7 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-026 | Duplicate Hono route mirror under `src/app/**` (F-26) | — | S | `issues/26-duplicate-route-mirror.md` — **done** |
 | NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 | NWB-P0-028 | Purge 23503s on `api_keys.*_by` / `tokens.revoked_by` (F-28) | — | S | `issues/28-purge-attribution-fks.md` — **done** |
+| NWB-P0-029 | Route shadowing (F-11) + the malformed-uuid 500 class it exposed | — | S/M | `issues/29-route-shadowing-and-uuid-params.md` — **done** |
 
 > **Every ticket now has a file: 01–28.** All are `done` except **05** (code complete,
 > blocked on the GitHub App's missing `workflows` permission) and **22** (a GitHub
