@@ -2,8 +2,8 @@
 
 `bun run dev`, `bun run seed`, and the integration suites need a PostgreSQL 14+ database. Nothing else does:
 
-- **Without `DATABASE_URL`** `bun test` runs the pure suites (145 tests, ~0.2 s) and cleanly **skips the 88 database-gated tests** (`describe.skipIf(!hasDb())`). It never goes red for lack of a database.
-- **With `DATABASE_URL`** pointing at a pushed and seeded database, the full suite runs (227 tests, ~13 s).
+- **Without `DATABASE_URL`** `bun test` runs the pure suites (208 pass, ~0.3 s) and cleanly **skips the 123 database-gated tests** (`describe.skipIf(!hasDb())`). It never goes red for lack of a database.
+- **With `DATABASE_URL`** pointing at a pushed and seeded database, the full suite runs (325 tests across 37 files, ~18 s).
 - **CI** always runs the full suite against a `postgres:14` service container (`.github/workflows/ci.yml`). That is the source of truth; anything below is for reproducing it locally.
 
 ## Option 1 — a PostgreSQL you already have
@@ -20,7 +20,7 @@ Then continue at [Configure and run](#configure-and-run).
 
 Use the [`embedded-postgres`](https://www.npmjs.com/package/embedded-postgres) npm package (MIT; ships real PostgreSQL binaries for Linux, macOS and Windows) from a **scratch directory outside the repository**. The repo's `package.json` stays untouched — Phase 1 forbids new dependencies, and this needs none.
 
-Verified 2026-09-20 in the Arena sandbox: install 3 s, start ~1 s, `db:push` 1.8 s, `bun test` 249 pass / 0 fail in 13.7 s (count includes the 22 `db-config` unit tests from NWB-P0-009).
+Verified 2026-09-20 in the Arena sandbox: install 3 s, start ~1 s, `db:push` 1.8 s, `bun test` 325 pass / 0 fail in ~18 s (first verified at 249 tests; the count grows with every ticket, so read the *current* numbers off your own run rather than this line).
 
 ```bash
 mkdir -p ~/nawebeus-db && cd ~/nawebeus-db

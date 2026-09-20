@@ -117,6 +117,15 @@
 - **Risk:** medium (RBAC data). **Rollback:** pre-prod — re-seed; no customer data.
 
 #### NWB-P0-015 — Enforce user status at sign-in (F-05)
+> **Status: done — 2026-09-20.** Ticket: `.scratch/p0-foundation-gap/issues/15-user-status-enforcement.md`.
+> Delivered as specified, with two deviations recorded there: the new error class is
+> `AccountSuspendedError` (symmetry with `AccountLockedError`, so a client can tell a human
+> decision from a self-clearing lockout), and `emailVerified` was added to the verify-login
+> and Server-Function responses too, not only signin. The re-check is stronger than asked —
+> `authMiddleware` re-reads the account on every request for both the cookie and API-key
+> paths (one statement, no extra round trip), so a suspension lands at the next request
+> rather than within 15 minutes. `pending_verification` stays allowed until Phase 2 ships
+> real email delivery, as the ticket's two-step plan requires.
 - **Objective:** `suspended` users cannot authenticate; `pending_verification` users can authenticate but only into a verification-limited session (see decision note); `deleted` remains excluded.
 - **Why:** a suspended account (admin action) currently retains full access (F-05); PRD requires verified-for-access.
 - **Current state:** `status` selected but unused (`auth.service.ts:73`).
@@ -227,7 +236,7 @@
 #### NWB-P0-023 — Organization deletion (PRD 8.2.1 P0; discrepancy D-14)
 - **Objective:** org owner/admin can delete their organization: soft-delete (30-day grace), sessions of all members revoked, memberships deactivated, audit, and a purge path when Phase 2's scheduler lands.
 - **Why:** PRD P0 requirement absent from both code and the execution plan.
-- **Required change:** mirror the proven account-deletion pattern (`src/services/users/account-deletion.service.ts` — soft delete + `scheduled_deletion_at` + reactivate + `purgeExpired*` function) for organizations: `deleteOrganization`, `reactivateOrganization`, `purgeExpiredOrganizations` (unscheduled until Phase 2, same as F-18). Guards: only `owner` role (per D13); blocked while the org has active subscriptions (Phase 6 concern — stub the check as a no-op hook with a TODO referenced to P13, do not invent billing state); cascades: members deactivated, API keys revoked, sessions revoked.
+- **Required change:** mirror the account-deletion pattern (`src/services/users/account-deletion.service.ts` — soft delete + `scheduled_deletion_at` + reactivate + `purgeExpired*` function) for organizations: `deleteOrganization`, `reactivateOrganization`, `purgeExpiredOrganizations` (unscheduled until Phase 2, same as F-18). **Read F-24/F-25 first:** the pattern this ticket tells you to copy referenced a `users.scheduled_deletion_at` column that did not exist until NWB-P0-024, and its purge still cannot delete an organization owner (NWB-P0-025) — decide the ownership semantics here rather than inheriting them. Guards: only `owner` role (per D13); blocked while the org has active subscriptions (Phase 6 concern — stub the check as a no-op hook with a TODO referenced to P13, do not invent billing state); cascades: members deactivated, API keys revoked, sessions revoked.
 - **Tests:** owner deletes → members 403 everywhere, org hidden from `listUserOrgs`; reactivate within grace works; purge function removes only expired; non-owner 403.
 - **Acceptance:** PRD 8.2.1 AC (30-day grace, NDPR purge schedule honored by the purge function).
 - **Risk:** medium (destructive surface) — soft-delete-only in Phase 1. **Rollback:** reactivate path.
@@ -243,6 +252,12 @@
 **Phase 1 infrastructure changes:** branch protection; CI step swap `db:push → db:migrate`.
 
 **Phase 1 exit criteria (all must be evidenced):**
+> Suite counts quoted in this document are dated; the live numbers as of the NWB-P0-015/024
+> work (2026-09-20) are **325 pass / 0 fail** with a database, 208 pass / 123 skip / 0 fail
+> without one, and `biome check .` clean. **CI is green on PR #12** for both jobs — the first
+> green run since PR #11's merge, and the runtime proof the workflow was missing: the suite
+> passes on the pinned `postgres:14` floor. Exit criterion 1 is therefore met in CI, not just
+> locally; criterion 7 (branch protection, NWB-P0-022) is not.
 1. `bun test` green with a live DB, **including** the new suites: signup-owner-role, org-update positive+negative, MFA full flow, rate-limit windows, role-matrix self-protection, status enforcement, invitation accept, CORS/IP, route-invariant scan, DSAR, org deletion. (NWB-P0-020 re-run recorded.)
 2. A fresh org owner can: invite a member → invitee accepts (new + existing user) → member acts with the invited role → role changes respect self-protection. **This end-to-end sequence is the Phase 1 demo.**
 3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`.

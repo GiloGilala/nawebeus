@@ -43,14 +43,40 @@ function SignUpPage() {
       <p style={{ color: "#666" }}>
         Calls <code>signupServerFn</code> → <code>signup(db, input)</code> directly (no HTTP).
       </p>
-      <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-        <input placeholder="Full name" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} required />
-        <input placeholder="Organization name" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} required />
-        <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-        <input placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+      <form
+        onSubmit={onSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}
+      >
+        <input
+          placeholder="Full name"
+          value={form.fullName}
+          onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+          required
+        />
+        <input
+          placeholder="Organization name"
+          value={form.organizationName}
+          onChange={(e) => setForm({ ...form, organizationName: e.target.value })}
+          required
+        />
+        <input
+          placeholder="Email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+        />
+        <input
+          placeholder="Password"
+          type="password"
+          value={form.password}
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
+          required
+        />
         <button type="submit">Create account</button>
       </form>
-      {message && <p style={{ marginTop: "1rem", background: "#f6f6f6", padding: "0.75rem" }}>{message}</p>}
+      {message && (
+        <p style={{ marginTop: "1rem", background: "#f6f6f6", padding: "0.75rem" }}>{message}</p>
+      )}
     </main>
   );
 }

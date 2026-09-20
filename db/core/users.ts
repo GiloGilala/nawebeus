@@ -286,6 +286,16 @@ export const users = pgTable(
       onDelete: "set null",
     }),
     deletionReason: varchar("deletion_reason", { length: 500 }),
+    /**
+     * End of the 30-day grace window for a soft-deleted account, written by
+     * `deleteAccount` and read by `reactivateAccount` / `purgeExpiredAccounts`
+     * (`src/services/users/account-deletion.service.ts`). Mirrors
+     * `organizations.scheduled_deletion_at`, which the same pattern uses.
+     */
+    scheduledDeletionAt: timestamp("scheduled_deletion_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     updatedBy: varchar("updated_by", { length: 255 }),
 
     // Timestamps
@@ -315,6 +325,10 @@ export const users = pgTable(
     index(`${tablePrefix}users_last_active_at_idx`).on(table.lastActiveAt),
     index(`${tablePrefix}users_created_at_idx`).on(table.createdAt),
     index(`${tablePrefix}users_deleted_at_idx`).on(table.deletedAt),
+    // Deliberately a plain index, not a partial one: the purge sweeps by this
+    // column, and partial predicates make `db:push` drop/recreate the index on
+    // every run (AGENTS.md, Database section).
+    index(`${tablePrefix}users_scheduled_deletion_idx`).on(table.scheduledDeletionAt),
     index(`${tablePrefix}users_organization_idx`).on(table.organizationId),
     index(`${tablePrefix}users_role_idx`).on(table.roleId),
     index(`${tablePrefix}users_last_login_ip_idx`).on(table.lastLoginIp), // NEW

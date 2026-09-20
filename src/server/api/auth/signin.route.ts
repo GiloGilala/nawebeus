@@ -61,6 +61,10 @@ router.post("/signin", async (c) => {
         requiresMfa: true,
         mfaMethod: result.mfaMethod,
         mfaSessionId: result.mfaSessionId,
+        // Surfaced here too: the client decides whether to route to the
+        // verification screen before or after the second factor, and
+        // `pending_verification` accounts may hold a session (F-05).
+        emailVerified: result.emailVerified ?? false,
       }),
     );
   }
@@ -73,7 +77,11 @@ router.post("/signin", async (c) => {
 
   return c.json(
     success({
-      user: { id: result.userId, orgId: result.orgId },
+      user: {
+        id: result.userId,
+        orgId: result.orgId,
+        emailVerified: result.emailVerified ?? false,
+      },
     }),
   );
 });

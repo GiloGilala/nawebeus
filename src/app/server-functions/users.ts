@@ -2,12 +2,9 @@
  * TanStack Start Server Functions — Users domain
  */
 
-import { createServerFn } from "../lib/createServerFn";
 import { z } from "zod";
-
 import { ValidationError } from "@/lib/errors";
 import { validatePassword } from "@/lib/password";
-import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
 import { changePassword } from "@/services/auth/auth.service";
 import { confirmEmailChange, requestEmailChange } from "@/services/auth/email-change";
 import {
@@ -15,8 +12,15 @@ import {
   getAccountDeletionStatus,
   reactivateAccount,
 } from "@/services/users/account-deletion.service";
-import { deleteUser, getUserById, listUsers, updateUserAsAdmin } from "@/services/users/admin.service";
+import {
+  deleteUser,
+  getUserById,
+  listUsers,
+  updateUserAsAdmin,
+} from "@/services/users/admin.service";
 import { getUser, updateUser } from "@/services/users/user.service";
+import { createServerFn } from "../lib/createServerFn";
+import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
 
 const updateMeSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -68,10 +72,15 @@ export const changePasswordServerFn = createServerFn({ method: "POST" })
     const auth = await getServerAuth();
     const complexity = validatePassword(data.newPassword, { email: "" });
     if (!complexity.valid) {
-      throw new ValidationError("New password does not meet complexity requirements", complexity.errors.map((msg) => ({ field: "newPassword", message: msg })));
+      throw new ValidationError(
+        "New password does not meet complexity requirements",
+        complexity.errors.map((msg) => ({ field: "newPassword", message: msg })),
+      );
     }
     const db = getServerDb();
-    await withServerOrgContext(auth, () => changePassword(db, auth.userId, data.currentPassword, data.newPassword));
+    await withServerOrgContext(auth, () =>
+      changePassword(db, auth.userId, data.currentPassword, data.newPassword),
+    );
     return { changed: true as const };
   });
 
@@ -79,7 +88,9 @@ export const deleteAccountServerFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
       reason: z.string().max(500).optional(),
-      confirmText: z.string().refine((v) => v === "DELETE", { message: 'Type "DELETE" to confirm' }),
+      confirmText: z
+        .string()
+        .refine((v) => v === "DELETE", { message: 'Type "DELETE" to confirm' }),
     }),
   )
   .handler(async ({ data }) => {
@@ -103,7 +114,9 @@ export const requestEmailChangeServerFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
     const db = getServerDb();
-    const result = await withServerOrgContext(auth, () => requestEmailChange(db, auth.userId, { newEmail: data.newEmail }));
+    const result = await withServerOrgContext(auth, () =>
+      requestEmailChange(db, auth.userId, { newEmail: data.newEmail }),
+    );
     return result;
   });
 

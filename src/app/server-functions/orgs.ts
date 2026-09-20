@@ -7,15 +7,14 @@
  * `authMiddleware + requireOrgMatch + requireAbility` but without an HTTP hop.
  */
 
-import { createServerFn } from "../lib/createServerFn";
 import { z } from "zod";
-
 import { ValidationError } from "@/lib/errors";
-import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
 import { bulkInviteMembers, inviteMember } from "@/services/orgs/invitation.service";
 import { getMember, listMembers, removeMember, updateMember } from "@/services/orgs/member.service";
 import { getOrg, isOrgMember, listUserOrgs, updateOrg } from "@/services/orgs/org.service";
 import { assignRole } from "@/services/orgs/role-assignment.service";
+import { createServerFn } from "../lib/createServerFn";
+import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
 
 const updateOrgSchema = z.object({
   orgId: z.string().min(1, "orgId is required"),
@@ -75,7 +74,8 @@ export const getOrgServerFn = createServerFn({ method: "GET" })
   .validator(z.object({ orgId: z.string().min(1) }))
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     const db = getServerDb();
     const member = await isOrgMember(db, auth.userId, data.orgId);
     if (!member) throw new ValidationError("You are not a member of this organization");
@@ -87,7 +87,8 @@ export const updateOrgServerFn = createServerFn({ method: "POST" })
   .validator(updateOrgSchema)
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "update", "org");
     const db = getServerDb();
     const org = await withServerOrgContext(auth, () =>
@@ -105,7 +106,8 @@ export const listMembersServerFn = createServerFn({ method: "GET" })
   .validator(z.object({ orgId: z.string().min(1) }))
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     const db = getServerDb();
     const members = await withServerOrgContext(auth, () => listMembers(db, data.orgId));
     return { members };
@@ -115,7 +117,8 @@ export const getMemberServerFn = createServerFn({ method: "GET" })
   .validator(z.object({ orgId: z.string().min(1), memberId: z.string().min(1) }))
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     const db = getServerDb();
     const member = await withServerOrgContext(auth, () => getMember(db, data.orgId, data.memberId));
     return { member };
@@ -125,7 +128,8 @@ export const updateMemberServerFn = createServerFn({ method: "POST" })
   .validator(updateMemberSchema)
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "update", "members");
     const db = getServerDb();
     const member = await withServerOrgContext(auth, () =>
@@ -149,10 +153,13 @@ export const removeMemberServerFn = createServerFn({ method: "POST" })
   .validator(z.object({ orgId: z.string().min(1), memberId: z.string().min(1) }))
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "delete", "members");
     const db = getServerDb();
-    await withServerOrgContext(auth, () => removeMember(db, data.orgId, data.memberId, auth.userId));
+    await withServerOrgContext(auth, () =>
+      removeMember(db, data.orgId, data.memberId, auth.userId),
+    );
     return { removed: true as const };
   });
 
@@ -160,7 +167,8 @@ export const assignRoleServerFn = createServerFn({ method: "POST" })
   .validator(assignRoleSchema)
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "update", "members");
     const db = getServerDb();
     const member = await withServerOrgContext(auth, () =>
@@ -177,7 +185,8 @@ export const inviteMemberServerFn = createServerFn({ method: "POST" })
   .validator(inviteSchema)
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "create", "members");
     const db = getServerDb();
     const result = await withServerOrgContext(auth, () =>
@@ -198,7 +207,8 @@ export const bulkInviteServerFn = createServerFn({ method: "POST" })
   .validator(bulkInviteSchema)
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId) throw new ValidationError("You do not have access to this organization");
+    if (data.orgId !== auth.orgId)
+      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "create", "members");
     const db = getServerDb();
     const result = await withServerOrgContext(auth, () =>

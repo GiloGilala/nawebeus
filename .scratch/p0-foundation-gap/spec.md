@@ -2,13 +2,27 @@
 
 **Feature slug:** `p0-foundation-gap`
 **Spec owner:** Engineering Lead
-**Status:** in-progress — 5/7 done. Done: NWB-P0-001 (API keys), NWB-P0-003 (CI), NWB-P0-004
-(linter), NWB-P0-007 (adopt decisions), NWB-P0-008 (concurrent lockout lost update, 2026-09-13),
-**NWB-P0-009 (`db:push` convergence + `DATABASE_URL` unification, 2026-09-20)**, and the Phase 1
-tickets NWB-P0-010 / 011 / 014. Outstanding: DSAR export (02), migration baseline (05),
-foundation issue-07 reconciliation (06 — the API-key half is now `done`; the role-assignment
-half was already shipped and its boxes are still unticked).
-Two findings raised during NWB-P0-001's verification are filed as NWB-P0-008 and NWB-P0-009.
+**Status:** in-progress — the MVP defect set is closed; the infrastructure pair is not.
+**Done:** NWB-P0-001 (API keys), 003 (CI), 004 (linter), 007 (adopt decisions), 008 (concurrent
+lockout), 009 (`db:push` convergence + `DATABASE_URL` unification), 010 (owner at signup),
+011 (org subject), 012 (MFA login flow), 013 (rate limiter), 014 (role model + self-protection),
+015 (status enforcement), 017 (CORS + IP policy), and the four findings raised while landing
+them — 024 (missing `users.scheduled_deletion_at`), 026 (duplicate route mirror), 027 (lint gate
+red at HEAD); 016 is the next product-critical ticket (invitation accept, F-08).
+**Outstanding:** DSAR export (02), migration baseline (05), foundation issue-07 reconciliation
+(06 — the API-key half is `done`; the role-assignment half shipped and its boxes are still
+unticked), invitation accept (016), CASL scope cleanup (018), bookkeeping/verification/email
+base/branch protection/org deletion (019–023), and **NWB-P0-025 (F-25, needs a decision)**.
+
+> **2026-09-20 (latest):** the merged tree was red — one test
+> (`Server Functions — integration (with DB)`) failed on a **missing `users.scheduled_deletion_at`
+> column** (F-24), which also 500'd `GET /api/users/me` for every authenticated user. Fixed in
+> NWB-P0-024. Suite now **325 pass / 0 fail** with a live database and 208 pass / 123 skip /
+> 0 fail without one; `biome check .` is clean (F-27). NWB-P0-015 landed on top: `users.status`
+> is enforced at sign-in and on every request. **CI has been running all along** (this spec's
+> "first run pending" note was wrong) and is **green on PR #12** for both jobs — the first green
+> run since PR #11's merge, which failed on those 18 lint errors. `main` can still merge red:
+> branch protection is unset (NWB-P0-022).
 
 > **2026-09-13:** the suite half of the exit gate is met — `bun test` is **159 pass / 0 fail**
 > with a live database (was 146/12), and `.github/workflows/ci.yml` now runs typecheck, lint,
@@ -54,9 +68,15 @@ tested; migrations reproducible from zero; foundation `.scratch` set fully `done
 | NWB-P0-010 | Assign the Owner role atomically at signup (F-01) | D13 | M | `issues/10-owner-role-at-signup.md` — **done** |
 | NWB-P0-011 | Org permission subject `org` vs `organization` (F-02) | D13 | S | `issues/11-org-permission-subject.md` — **done** |
 | NWB-P0-014 | Role model (DEC-039) + real self-protection guards (F-07, F-21) | D13 | M | `issues/14-role-model-and-self-protection.md` — **done** |
+| NWB-P0-015 | Enforce user status at sign-in (F-05) | — | M | `issues/15-user-status-enforcement.md` — **done** |
+| NWB-P0-024 | Account deletion referenced a missing column (F-24) | — | S | `issues/24-scheduled-deletion-column.md` — **done** |
+| NWB-P0-025 | `purgeExpiredAccounts` cannot delete an org owner (F-25) | NWB-P0-023 | S/M | `issues/25-org-owner-purge-fk.md` — **ready-for-agent, needs a decision** |
+| NWB-P0-026 | Duplicate Hono route mirror under `src/app/**` (F-26) | — | S | `issues/26-duplicate-route-mirror.md` — **done** |
+| NWB-P0-027 | `bun run lint` red at HEAD — CI quality job could never pass (F-27) | NWB-P0-004 | S | `issues/27-lint-gate-red-at-head.md` — **done** |
 
-> Tickets 02, 05, and 06 are listed here but their files do not exist yet — the index was
-> written ahead of the tickets. Files present: 01, 03, 04, 07, 08, 09, 10, 11, 14. The Phase 1
+> Tickets 02, 05, 06, 16, 18–23 are listed here but their files do not exist yet — the index
+> was written ahead of the tickets. Files present: 01, 03, 04, 07, 08, 09, 10, 11, 12, 13, 14,
+> 15, 17, 24, 25, 26, 27. The Phase 1
 > task list (012…023) is in `docs/plan/master-roadmap/06-phase-1-foundation.md`; tickets are
 > filed here as they are picked up.
 

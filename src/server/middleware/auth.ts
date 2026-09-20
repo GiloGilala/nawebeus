@@ -9,6 +9,7 @@ import { getClientIp } from "../../lib/ip";
 import { runWithOrgContext } from "../../lib/org-context";
 import { type Actions, loadAbility, type Subjects } from "../../services/auth/ability";
 import { apiKeyAbility, recordApiKeyUsage, resolveApiKey } from "../../services/auth/api-key";
+import { assertAccountCanAuthenticate } from "../../services/auth/auth.service";
 import { type AccessPayload, verifyToken } from "../../services/auth/jwt";
 
 export type AppAbility = Ability<[Actions, Subjects]>;
@@ -38,20 +39,45 @@ declare module "hono" {
 const BEARER_PREFIX = "Bearer ";
 
 /**
- * The key's owner must still be an active member of the key's organization.
- * Without this, removing someone from an org would leave their keys working —
- * the key row would still say `active`.
+ * Everything that must still be true about the principal behind a session cookie
+ * or an API key, checked on **every** request:
+ *
+ * - the account exists and has not been soft-deleted;
+ * - `users.status` still permits access (F-05 / NWB-P0-015) — a suspension must
+ *   take effect at the next request, not at the next sign-in, and a 15-minute
+ *   access token must not outlive an administrator's decision;
+ * - the membership row for the token's org is still active. Without this,
+ *   removing someone from an org would leave their keys working — the key row
+ *   would still say `active`.
+ *
+ * One statement, three answers, so the extra guard costs no extra round trip.
  */
-async function assertActiveMembership(db: Db, userId: string, orgId: string): Promise<void> {
-  const memberRows = await db.execute<{ id: string }>(
-    sql`SELECT id FROM organization_members
-        WHERE user_id = ${userId}
-          AND organization_id = ${orgId}
-          AND status = 'active'
-          AND deleted_at IS NULL
+async function assertActivePrincipal(db: Db, userId: string, orgId: string): Promise<void> {
+  const rows = await db.execute<{
+    member_id: string | null;
+    status: string;
+    deleted_at: string | null;
+  }>(
+    sql`SELECT
+          (SELECT om.id FROM organization_members om
+            WHERE om.user_id = u.id
+              AND om.organization_id = ${orgId}
+              AND om.status = 'active'
+              AND om.deleted_at IS NULL
+            LIMIT 1) AS member_id,
+          u.status,
+          u.deleted_at
+        FROM users u
+        WHERE u.id = ${userId}
         LIMIT 1`,
   );
-  if (((memberRows as any).rows?.length ?? 0) === 0) {
+  const row = (rows as any).rows?.[0] as
+    | { member_id: string | null; status: string; deleted_at: string | null }
+    | undefined;
+
+  if (!row || row.deleted_at !== null) throw new AuthError("Account is no longer active");
+  assertAccountCanAuthenticate(row.status);
+  if (row.member_id === null) {
     throw new ForbiddenError("You are not a member of this organization");
   }
 }
@@ -72,7 +98,7 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     const resolved = await resolveApiKey(db, presented);
     if (!resolved) throw new AuthError("Invalid or revoked API key");
 
-    await assertActiveMembership(db, resolved.userId, resolved.organizationId);
+    await assertActivePrincipal(db, resolved.userId, resolved.organizationId);
 
     c.set("user", { userId: resolved.userId, orgId: resolved.organizationId });
     c.set("authMethod", "api_key");
@@ -109,7 +135,7 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
   }
 
   // Verify membership — the JWT's orgId must match a real membership row
-  await assertActiveMembership(db, payload.userId, payload.orgId);
+  await assertActivePrincipal(db, payload.userId, payload.orgId);
 
   c.set("user", { userId: payload.userId, orgId: payload.orgId });
   c.set("authMethod", "session");

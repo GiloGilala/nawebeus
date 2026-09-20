@@ -5,12 +5,7 @@ import { success } from "@/lib/response";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireOrgMatch } from "@/server/middleware/org-match";
 import { requireAbility } from "@/server/middleware/rbac";
-import {
-  getMember,
-  listMembers,
-  removeMember,
-  updateMember,
-} from "@/services/orgs/member.service";
+import { getMember, listMembers, removeMember, updateMember } from "@/services/orgs/member.service";
 
 const updateMemberSchema = z.object({
   roleId: z.string().uuid().optional(),

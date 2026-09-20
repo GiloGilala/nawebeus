@@ -14,75 +14,71 @@
  * Usage (mobile): `POST /api/auth/signin` via Hono — same service, different entry point.
  */
 
-// Auth — public
-export {
-  signupServerFn,
-  signinServerFn,
-  verifyMfaLoginServerFn,
-  refreshServerFn,
-  signoutServerFn,
-  forgotPasswordServerFn,
-  resetPasswordServerFn,
-  resendVerificationServerFn,
-  verifyEmailServerFn,
-  // Auth — protected
-  getMfaStatusServerFn,
-  initiateMfaSetupServerFn,
-  confirmMfaSetupServerFn,
-  disableMfaServerFn,
-  listSessionsServerFn,
-  getSessionDetailServerFn,
-  revokeSessionServerFn,
-  revokeOthersServerFn,
-  changePasswordServerFn,
-} from "./auth";
-
-export {
-  listOrgsServerFn,
-  getOrgServerFn,
-  updateOrgServerFn,
-  listMembersServerFn,
-  getMemberServerFn,
-  updateMemberServerFn,
-  removeMemberServerFn,
-  assignRoleServerFn,
-  inviteMemberServerFn,
-  bulkInviteServerFn,
-} from "./orgs";
-
-export {
-  getMeServerFn,
-  updateMeServerFn,
-  changePasswordServerFn as changeMyPasswordServerFn,
-  deleteAccountServerFn,
-  reactivateAccountServerFn,
-  requestEmailChangeServerFn,
-  confirmEmailChangeServerFn,
-  listUsersServerFn,
-  getUserByIdServerFn,
-  updateUserAsAdminServerFn,
-  deleteUserServerFn,
-} from "./users";
-
 export {
   createApiKeyServerFn,
   listApiKeysServerFn,
   revokeApiKeyServerFn,
   rotateApiKeyServerFn,
 } from "./api-keys";
-
+// Auth — public
+export {
+  changePasswordServerFn,
+  confirmMfaSetupServerFn,
+  disableMfaServerFn,
+  forgotPasswordServerFn,
+  // Auth — protected
+  getMfaStatusServerFn,
+  getSessionDetailServerFn,
+  initiateMfaSetupServerFn,
+  listSessionsServerFn,
+  refreshServerFn,
+  resendVerificationServerFn,
+  resetPasswordServerFn,
+  revokeOthersServerFn,
+  revokeSessionServerFn,
+  signinServerFn,
+  signoutServerFn,
+  signupServerFn,
+  verifyEmailServerFn,
+  verifyMfaLoginServerFn,
+} from "./auth";
 // Helpers for tests and advanced usage (injecting a transactional DB, headers)
 export {
-  getServerDb,
-  getServerAuth,
-  tryGetServerAuth,
-  withServerOrgContext,
-  setServerDbForTest,
-  clearServerDbForTest,
-  setServerHeadersForTest,
-  clearServerHeadersForTest,
-  setServerAuthCookies,
   clearServerAuthCookies,
+  clearServerDbForTest,
+  clearServerHeadersForTest,
+  getServerAuth,
+  getServerDb,
   type ServerAuth,
   type ServerRequestHeaders,
+  setServerAuthCookies,
+  setServerDbForTest,
+  setServerHeadersForTest,
+  tryGetServerAuth,
+  withServerOrgContext,
 } from "./helpers";
+export {
+  assignRoleServerFn,
+  bulkInviteServerFn,
+  getMemberServerFn,
+  getOrgServerFn,
+  inviteMemberServerFn,
+  listMembersServerFn,
+  listOrgsServerFn,
+  removeMemberServerFn,
+  updateMemberServerFn,
+  updateOrgServerFn,
+} from "./orgs";
+export {
+  changePasswordServerFn as changeMyPasswordServerFn,
+  confirmEmailChangeServerFn,
+  deleteAccountServerFn,
+  deleteUserServerFn,
+  getMeServerFn,
+  getUserByIdServerFn,
+  listUsersServerFn,
+  reactivateAccountServerFn,
+  requestEmailChangeServerFn,
+  updateMeServerFn,
+  updateUserAsAdminServerFn,
+} from "./users";
