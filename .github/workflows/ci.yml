@@ -111,21 +111,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # drizzle.config.ts reads DB_* rather than DATABASE_URL (see NWB-P0-009), so
-      # the connection has to be supplied twice. `--force` suppresses the prompt that
-      # `strict: true` would otherwise raise on a non-interactive runner.
+      # DATABASE_URL is the single source of truth for the connection (NWB-P0-009);
+      # the DB_* variables are gone. `--force` suppresses the prompt that
+      # `strict: true` raises even on a fresh database — without it, and with no
+      # TTY, drizzle-kit aborts silently while exiting 0, which would leave this
+      # step "green" with zero tables pushed.
       #
-      # This works only because the service container starts empty. It is NOT
-      # idempotent — a second push against the same database fails with 42P16 — which
-      # is why NWB-P0-005 must eventually replace this step with `db:migrate`.
+      # This works only because the service container starts empty. The step is
+      # not a migration history — NWB-P0-005 must eventually replace it with
+      # `db:migrate`.
       - name: Push schema
         run: bun run db:push -- --force
-        env:
-          DB_HOST: localhost
-          DB_PORT: "5432"
-          DB_NAME: nawebeus_test
-          DB_USER: postgres
-          DB_PASSWORD: postgres
 
       # The suite depends on seeded permissions and roles. Without them the RBAC and
       # signin suites fail — 7 tests. Verified by running the suite against an
