@@ -2,7 +2,8 @@
 
 **Status:** done — 2026-09-20 (decision D16, option 2; verified locally: typecheck + lint +
 build + 327/327 `bun test` with a live database, 2 pass / 7 skip / 0 fail without one in this
-file; CI run on this branch's PR)
+file; **CI green on PR #13**, run
+[35528428246](https://github.com/GiloGilala/nawebeus/actions/runs/35528428246))
 **Deps:** NWB-P0-023 (organization deletion) — this is the account-side half of it. **Size:** S/M.
 **Found while:** writing the NWB-P0-024 lifecycle tests.
 
