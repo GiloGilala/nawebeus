@@ -74,6 +74,7 @@
 - **Scope note:** AC6 ("trust this device") and AC7 (Owner/Admin MFA enforcement + 7-day grace) are **post-MVP recommended** (P14.13 can gate on org policy via Phase 2 feature flags). Do not expand this task.
 
 #### NWB-P0-013 — Fix the sliding-window rate limiter (F-12)
+> **Status: done — 2026-09-20.** Ticket: `.scratch/p0-foundation-gap/issues/13-rate-limiter.md`. The upsert half landed in NWB-P0-012 (adopted verbatim as the MFA AC8 prerequisite); this ticket added `reclaimRateLimits` + the manual `bun run db:reclaim-rate-limits` script (Phase 2 / NWB-P1-001 wires it to the scheduler), 5 dedicated tests in `src/tests/rate-limit.test.ts` (verified red against the pre-P0-012 statement recovered from git history, green against the new), and doc updates. The P0-012 note about using the normalized-IP helper for the rate-limit key needed no change — NWB-P0-017's route conversions already feed `getClientIp` into both `checkRateLimit` call sites.
 - **Objective:** `checkRateLimit` counts correctly across window boundaries forever, and expired buckets are reclaimed.
 - **Why:** the IP brute-force block currently dies permanently per IP after the first window (F-12) — a security control that silently stops working.
 - **Current state:** `src/lib/rate-limit.ts` upsert skips reset when `window_start` is stale; no reclamation; no tests exist for this module at all.

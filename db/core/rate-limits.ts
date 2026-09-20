@@ -1,6 +1,8 @@
 // db/core/rate-limits.ts
 //
-// Backing store for the sliding-window limiter in `src/lib/rate-limit.ts`.
+// Backing store for the fixed-window (clock-anchored) limiter in
+// `src/lib/rate-limit.ts`. Expired buckets are removed by `reclaimRateLimits`
+// (manual `bun run db:reclaim-rate-limits` in Phase 1).
 //
 // This table was referenced by `checkRateLimit()` from the day it was written
 // but never actually defined, so the limiter failed on every call. That made

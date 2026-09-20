@@ -10,6 +10,15 @@ export interface RateLimitConfig {
 let warnedAboutFailure = false;
 
 /**
+ * Default reclamation grace: buckets expire at their window end, but are only
+ * deleted once they have been expired for this long (roadmap's specified
+ * `interval '1 hour'`). The grace is belt-and-braces — deleting a
+ * just-expired bucket would be harmless (the upsert recreates it on next use),
+ * but it keeps recently-active keys observable for debugging.
+ */
+export const RATE_LIMIT_RECLAIM_GRACE_MS = 3_600_000;
+
+/**
  * Fixed-window rate limit backed by the `rate_limits` table.
  * Returns true when the caller has exceeded the allowed number of attempts.
  *
@@ -27,9 +36,14 @@ let warnedAboutFailure = false;
  * That is the roadmap's specified semantic; brute-forcing any current budget
  * (IP 20/30 min, MFA 3/15 min) stays infeasible even doubled.
  *
- * NWB-P0-013 retains: the reclamation path for expired rows, dedicated limiter
- * tests (window rollover, reclamation), and doc updates. The MFA AC8 tests
- * cover this statement behaviorally (3 allowed, 4th blocked in-window).
+ * Expired buckets are removed by `reclaimRateLimits` (manual
+ * `bun run db:reclaim-rate-limits` in Phase 1; the Phase 2 scheduler wires it
+ * to run nightly). Buckets whose window rolled but which were never touched
+ * again would otherwise accumulate one row per key forever.
+ *
+ * Dedicated limiter tests live in `src/tests/rate-limit.test.ts`; the MFA AC8
+ * tests additionally cover this statement behaviorally (3 allowed, 4th blocked
+ * in-window).
  */
 export async function checkRateLimit(
   db: NodePgDatabase<Record<string, any>>,
@@ -84,4 +98,23 @@ export async function checkRateLimit(
     }
     return false;
   }
+}
+
+/**
+ * Delete buckets whose window expired more than `graceMs` ago (default
+ * {@link RATE_LIMIT_RECLAIM_GRACE_MS}). Returns the number of rows deleted.
+ *
+ * Unlike `checkRateLimit`, failures here throw: this runs as an operator-
+ * invoked script (`bun run db:reclaim-rate-limits`), where a loud failure
+ * beats silent accumulation.
+ */
+export async function reclaimRateLimits(
+  db: NodePgDatabase<Record<string, any>>,
+  graceMs: number = RATE_LIMIT_RECLAIM_GRACE_MS,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - graceMs);
+  const result = await db.execute(
+    sql`DELETE FROM rate_limits WHERE expires_at < ${cutoff.toISOString()}`,
+  );
+  return (result as unknown as { rowCount?: number }).rowCount ?? 0;
 }
