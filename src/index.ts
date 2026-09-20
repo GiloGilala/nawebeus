@@ -2,12 +2,10 @@ import { loadConfig } from "./lib/config";
 import { closeDb, createDb } from "./lib/db";
 import { createAppWithDb } from "./server";
 
-loadConfig();
+const config = loadConfig();
 
 const db = createDb();
-const app = createAppWithDb({ db });
-
-const config = loadConfig();
+const app = createAppWithDb({ db, corsOrigins: config.CORS_ORIGIN });
 
 const server = Bun.serve({
   fetch: app.fetch,

@@ -25,7 +25,8 @@ export function createNoopDb(): Db {
 /**
  * Thin alias of the production app factory. Tests run the exact same
  * assembly as production — CORS, errorHandler, notFound, and all routes.
+ * `corsOrigins` overrides the dev-default allow-list (CORS tests use this).
  */
-export function createTestApp(db: Db = createNoopDb()) {
-  return createAppWithDb({ db });
+export function createTestApp(db: Db = createNoopDb(), corsOrigins?: string[]) {
+  return createAppWithDb({ db, ...(corsOrigins ? { corsOrigins } : {}) });
 }

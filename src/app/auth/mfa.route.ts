@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { getConfig } from "../../lib/config";
 import { ValidationError } from "../../lib/errors";
+import { getClientIp } from "../../lib/ip";
 import { success } from "../../lib/response";
 import { authMiddleware } from "../../server/middleware/auth";
 import { verifyMfaChallengeLogin } from "../../services/auth/auth.service";
@@ -54,9 +56,7 @@ router.post("/mfa/verify-login", async (c) => {
   }
 
   const db = c.var.db;
-  // Same header read as signin.route.ts. There is one canonical client-IP
-  // helper coming in NWB-P0-017 (F-10); both call sites switch to it there.
-  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("X-Forwarded-For");
+  const ip = getClientIp(c, getConfig());
 
   const result = await verifyMfaChallengeLogin(db, {
     challengeToken: parsed.data.mfaSessionId,

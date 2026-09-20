@@ -1,6 +1,8 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
+import { getConfig } from "../../lib/config";
 import { ConflictError, NotFoundError, ValidationError } from "../../lib/errors";
+import { getClientIp } from "../../lib/ip";
 import { success } from "../../lib/response";
 import type { ApiKeyStatus } from "../../server/auth/types/api-key-types";
 import { authMiddleware } from "../../server/middleware/auth";
@@ -81,7 +83,7 @@ router.post("/api-keys", requireAbility("create", "apikeys"), async (c) => {
     : null;
 
   // Hoisted so the truthiness check narrows the type for the spread below.
-  const forwardedFor = c.req.header("x-forwarded-for");
+  const createdIp = getClientIp(c, getConfig());
   const userAgent = c.req.header("user-agent");
 
   const created = await createApiKey(db, {
@@ -97,7 +99,7 @@ router.post("/api-keys", requireAbility("create", "apikeys"), async (c) => {
     scopes: input.scopes,
     expiresAt,
     rotationStrategy: input.rotationStrategy,
-    ...(forwardedFor ? { createdIp: forwardedFor } : {}),
+    ...(createdIp ? { createdIp } : {}),
     ...(userAgent ? { createdUserAgent: userAgent } : {}),
   });
 

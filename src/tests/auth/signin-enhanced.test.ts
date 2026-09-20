@@ -90,7 +90,7 @@ describe.skipIf(!hasDb())("POST /api/auth/signin — lockout + MFA (integration)
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Cf-Connecting-Ip": "1.2.3.4",
+            "X-Forwarded-For": "1.2.3.4",
           },
           body: JSON.stringify({
             email: "locktest@example.com",
@@ -121,7 +121,7 @@ describe.skipIf(!hasDb())("POST /api/auth/signin — lockout + MFA (integration)
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Cf-Connecting-Ip": "1.2.3.4",
+          "X-Forwarded-For": "1.2.3.4",
         },
         body: JSON.stringify({ email: "locktest@example.com", password }),
       });

@@ -115,7 +115,8 @@ export async function inviteMember(
 
   // If the user doesn't exist yet, send the invite email with the token
   if (!existingUser) {
-    const inviteLink = `${config.CORS_ORIGIN}/invite?token=${rawToken}`;
+    // Primary allowed origin doubles as the link base until NWB-P0-021 introduces APP_BASE_URL.
+    const inviteLink = `${config.CORS_ORIGIN[0]}/invite?token=${rawToken}`;
     await emailService.send({
       to: input.email,
       subject: "You've been invited to join a Nawebeus organization",

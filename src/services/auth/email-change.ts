@@ -55,7 +55,8 @@ export async function requestEmailChange(
   });
 
   const config = getConfig();
-  const confirmLink = `${config.CORS_ORIGIN}/change-email/confirm?token=${rawToken}`;
+  // Primary allowed origin doubles as the link base until NWB-P0-021 introduces APP_BASE_URL.
+  const confirmLink = `${config.CORS_ORIGIN[0]}/change-email/confirm?token=${rawToken}`;
 
   await emailService.send({
     to: input.newEmail,
