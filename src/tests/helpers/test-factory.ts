@@ -39,14 +39,20 @@ export async function createTestUser(
   // Store a real bcrypt digest, exactly as the signup path does. Inserting the
   // plaintext made sign-in throw rather than fail cleanly: Bun.password.verify()
   // raises "UnsupportedAlgorithm" for a non-bcrypt value instead of returning false.
+  //
+  // `password_history` is seeded with that same digest because `createUserRecord`
+  // (the real signup insert, `src/services/auth/user-record.ts`) does. A factory
+  // user that starts with an empty history silently exempts every test from
+  // BR-AUTH-022, which is part of why F-28 went unnoticed.
   const passwordHash = await hashPassword(password);
 
   const rows = await db.execute<{ id: string }>(
     sql`
-      INSERT INTO users (email, password, username, first_name, last_name, status)
+      INSERT INTO users (email, password, password_history, username, first_name, last_name, status)
       VALUES (
         ${email},
         ${passwordHash},
+        ${JSON.stringify([passwordHash])}::jsonb,
         ${username},
         ${overrides?.firstName ?? "Test"},
         ${overrides?.lastName ?? "User"},
