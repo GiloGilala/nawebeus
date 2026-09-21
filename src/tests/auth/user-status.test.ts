@@ -170,6 +170,7 @@ describe.skipIf(!hasDb())("User status on every request (F-05)", () => {
         organizationId: org.id,
         userId: user.id,
         createdBy: user.id,
+        actorType: "user",
         name: `key-${crypto.randomUUID().slice(0, 6)}`,
         keyType: "admin",
         environment: "development",

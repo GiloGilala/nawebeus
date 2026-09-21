@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { DEFAULT_CORS_ORIGIN } from "../lib/config";
 import { success } from "../lib/response";
+import { apiKeyRootRouter } from "./api/api-keys";
 // Canonical Hono API — mounted at `/api/*` for mobile, webhooks and
 // third-party integrations. The web app's entry point is TanStack Start
 // Server Functions in `src/app/server-functions/*` which call `src/services/*`
@@ -11,11 +12,27 @@ import { success } from "../lib/response";
 // `src/app/*` previously held these Hono routes; they remain as deprecated
 // re-exports for backward compatibility and will be removed once all imports
 // are updated.
-import { apiKeyRootRouter } from "./api/api-keys";
+import { auditRootRouter } from "./api/audit";
 import { authRouter } from "./api/auth";
 import { orgRootRouter } from "./api/orgs";
 import { userRouter } from "./api/users";
 import { errorHandler } from "./middleware/error-handler";
+
+/**
+ * Every API area in one place.
+ *
+ * Both app builders below used to repeat these four lines, which is a bug waiting to be half-fixed:
+ * an area mounted in `createApp` (production) and not in `createAppWithDb` (what the tests build)
+ * would ship untested, and the reverse would ship a route no test could reach. `NWB-P1-002`'s audit
+ * surface is the fifth area, so the list is shared now rather than duplicated a fifth time.
+ */
+function mountApiRouters(app: Hono): void {
+  app.route("/api", authRouter);
+  app.route("/api", userRouter);
+  app.route("/api", orgRootRouter);
+  app.route("/api", apiKeyRootRouter);
+  app.route("/api", auditRootRouter);
+}
 
 export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {
   const app = new Hono();
@@ -27,10 +44,7 @@ export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {
     return c.json(success({ status: "ok" }));
   });
 
-  app.route("/api", authRouter);
-  app.route("/api", userRouter);
-  app.route("/api", orgRootRouter);
-  app.route("/api", apiKeyRootRouter);
+  mountApiRouters(app);
 
   app.notFound((c) => {
     c.status(404);
@@ -63,10 +77,7 @@ export function createAppWithDb(deps: { db: import("../lib/db").Db; corsOrigins?
     return c.json(success({ status: "ok" }));
   });
 
-  app.route("/api", authRouter);
-  app.route("/api", userRouter);
-  app.route("/api", orgRootRouter);
-  app.route("/api", apiKeyRootRouter);
+  mountApiRouters(app);
 
   app.notFound((c) => {
     c.status(404);

@@ -250,7 +250,9 @@ export async function verifyMFAForLogin(
     return true;
   }
 
-  await writeAuditLog({ ...auditBase, action: "auth.mfa.failed", severity: "warning" });
+  // No severity: `warning` is what the registry says this action is, and repeating it here would
+  // let the two disagree silently the first time the registry changes.
+  await writeAuditLog({ ...auditBase, action: "auth.mfa.failed" });
   throw new AuthError("Invalid MFA code");
 }
 

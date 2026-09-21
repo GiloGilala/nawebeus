@@ -8,7 +8,6 @@ import { success } from "@/lib/response";
 import type { ApiKeyStatus } from "@/server/auth/types/api-key-types";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireAbility } from "@/server/middleware/rbac";
-import { writeAuditLog } from "@/services/audit";
 import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey } from "@/services/auth/api-key";
 
 const router = new Hono();
@@ -91,6 +90,9 @@ router.post("/api-keys", requireAbility("create", "apikeys"), async (c) => {
     organizationId: orgId,
     userId,
     createdBy: userId,
+    // The audit row is written inside the service now; the route contributes only what it knows and
+    // the service cannot derive — whether this caller arrived with a session cookie or a machine key.
+    actorType: actorOf(c).actorType,
     name: input.name,
     ...(input.description !== undefined ? { description: input.description } : {}),
     keyType: input.keyType,
@@ -102,26 +104,6 @@ router.post("/api-keys", requireAbility("create", "apikeys"), async (c) => {
     rotationStrategy: input.rotationStrategy,
     ...(createdIp ? { createdIp } : {}),
     ...(userAgent ? { createdUserAgent: userAgent } : {}),
-  });
-
-  await writeAuditLog({
-    db,
-    module: "core",
-    organizationId: orgId,
-    ...actorOf(c),
-    action: "apikeys.created",
-    category: "security",
-    resourceType: "api_key",
-    resourceId: created.id,
-    // Metadata only — the key value must never reach the audit log.
-    afterState: {
-      name: created.name,
-      keyType: created.keyType,
-      environment: created.environment,
-      permissionLevel: created.permissionLevel,
-      scopes: created.scopes,
-      expiresAt: created.expiresAt?.toISOString() ?? null,
-    },
   });
 
   return c.json(success({ apiKey: created, warning: STORE_ONCE_WARNING }), 201);
@@ -150,7 +132,7 @@ router.get("/api-keys", requireAbility("read", "apikeys"), async (c) => {
 
 // ── POST /api/api-keys/:id/rotate — mint a replacement ──────────────────────
 router.post("/api-keys/:id/rotate", requireAbility("update", "apikeys"), async (c) => {
-  const { userId, orgId } = c.var.user;
+  const { orgId } = c.var.user;
   const db = c.var.db;
 
   const id = uuidSchema.safeParse(c.req.param("id"));
@@ -158,28 +140,16 @@ router.post("/api-keys/:id/rotate", requireAbility("update", "apikeys"), async (
     throw new ValidationError("Invalid API key id", validationDetails(id.error));
   }
 
-  const result = await rotateApiKey(db, orgId, id.data, userId);
+  const result = await rotateApiKey(db, orgId, id.data, {
+    ...actorOf(c),
+    organizationId: orgId,
+  });
   if (result.outcome === "not_found") throw new NotFoundError("API key not found");
   if (result.outcome === "already_revoked") {
     throw new ConflictError("Cannot rotate a revoked API key");
   }
 
-  await writeAuditLog({
-    db,
-    module: "core",
-    organizationId: orgId,
-    ...actorOf(c),
-    action: "apikeys.rotated",
-    category: "security",
-    resourceType: "api_key",
-    resourceId: result.key.id,
-    metadata: { rotatedFromId: id.data },
-    afterState: {
-      name: result.key.name,
-      expiresAt: result.key.expiresAt?.toISOString() ?? null,
-    },
-  });
-
+  // No audit block here: `rotateApiKey` writes the event, so the server-function path cannot skip it.
   return c.json(success({ apiKey: result.key, warning: STORE_ONCE_WARNING }), 201);
 });
 
@@ -187,7 +157,7 @@ router.post("/api-keys/:id/rotate", requireAbility("update", "apikeys"), async (
 // Revoking keeps the row so the key stays in history and can never be
 // resurrected; it is not a soft delete.
 router.delete("/api-keys/:id", requireAbility("delete", "apikeys"), async (c) => {
-  const { userId, orgId } = c.var.user;
+  const { orgId } = c.var.user;
   const db = c.var.db;
 
   const id = uuidSchema.safeParse(c.req.param("id"));
@@ -195,24 +165,14 @@ router.delete("/api-keys/:id", requireAbility("delete", "apikeys"), async (c) =>
     throw new ValidationError("Invalid API key id", validationDetails(id.error));
   }
 
-  const result = await revokeApiKey(db, orgId, id.data, userId);
+  const result = await revokeApiKey(db, orgId, id.data, {
+    ...actorOf(c),
+    organizationId: orgId,
+  });
   if (result.outcome === "not_found") throw new NotFoundError("API key not found");
   if (result.outcome === "already_revoked") {
     throw new ConflictError("API key is already revoked");
   }
-
-  await writeAuditLog({
-    db,
-    module: "core",
-    organizationId: orgId,
-    ...actorOf(c),
-    action: "apikeys.revoked",
-    category: "security",
-    resourceType: "api_key",
-    resourceId: id.data,
-    beforeState: { status: "active" },
-    afterState: { status: "revoked" },
-  });
 
   return c.json(success({ revoked: true, id: id.data }));
 });

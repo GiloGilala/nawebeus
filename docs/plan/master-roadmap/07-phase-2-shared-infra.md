@@ -15,7 +15,7 @@
 | ID | Ticket | Verified current state | Notes added by this audit |
 |---|---|---|---|
 | NWB-P1-001 | Queue + scheduler + worker base (pg-boss) | ✅ **DONE 2026-09-21** — §12.1 for what landed and the verification log. Was: nothing in `src/lib/`; ADR-028 accepted; `package.json` had no pg-boss | Add pg-boss dep with the ADR-028 rationale in the PR (AGENTS.md dependency rule). Workers must write audit events (success+failure) and be idempotent (ground rule 4). **Wire here:** rate-limit reclamation (NWB-P0-013's manual script), `purgeExpiredAccounts` (F-18), `purgeExpiredOrganizations` (NWB-P0-023). pg-boss schema bootstrap recorded per NWB-P0-005(5). |
-| NWB-P1-002 | Audit service formalization | `writeAuditLog` exists; no reads; 5-module enum too small for 14 domains | Extend `AuditModule` taxonomy to cover PRD modules 3–10 + non-PRD domains; add query service (by actor/subject/org/category/date-range, paginated — fixes F-19 first half); retention + legal-hold hook in P1-010. |
+| NWB-P1-002 | Audit service formalization | ✅ **DONE 2026-09-21** — §12.2 for what landed and the verification log. Was: `writeAuditLog` exists; no reads; TS `AuditModule` had 5 values against a 15-value database enum | Extend `AuditModule` taxonomy to cover PRD modules 3–10 + non-PRD domains; add query service (by actor/subject/org/category/date-range, paginated — fixes F-19 first half); retention + legal-hold hook in P1-010. **As delivered:** the taxonomy fix is TS-side only — the schema enum already had all 15 values, so no migration was needed and none was written; the chain moved to NWB-P1-014 and anonymization to NWB-P1-015 by the ticket's Q1/Q4 answers. |
 | NWB-P1-003 | Approval service | `db/shared/approval.ts` active (2 tables), unused | Gates responses (P7), releases (PR phase), content (Publishing if D12=B/C). |
 | NWB-P1-004 | Email transport: Resend adapter | console-only; DEC-028 approved | Also flips the Phase 1 "verification hard-block" checkbox (NWB-P0-015 note) — add the gate for `pending_verification` once real delivery exists. |
 | NWB-P1-005 | Media/storage service | none; `media_assets` table active-ready; D6 open | Interface mirrors `EmailTransport`; R2 adapter prod / local-disk dev per docs; signed URLs; soft delete. Avatars (PRD `/me/avatar`) and report exports (P12) consume this. |
@@ -89,5 +89,93 @@ corrected against the library rather than fudged — see its Comments. **Follow-
 (per-row batching in `purgeExpiredAccounts` — one org-owner FK violation aborts a whole night's
 erasures).
 
----
+### 12.2 What NWB-P1-002 actually landed (2026-09-21)
 
+New: `src/services/audit/` (`types.ts` — the vocabularies, derived from the schema enums; `actions.ts`
+— the action registry; `write.ts` — the insert; `query.service.ts` — list + detail + tenant scope;
+`index.ts` as the only import path), `src/server/api/audit/` (the two read routes + `index.ts`),
+`src/tests/audit/` (registry / query / api). Deleted: `src/services/audit.ts`. Changed:
+`src/lib/pagination.ts` (cursor id-shape), `src/lib/worker.ts` (`JobDefinition.audit.action` is now a
+registry name), `src/server/index.ts` (one shared `mountApiRouters`, so `createApp` and
+`createAppWithDb` can no longer drift), the api-key trio (`api-key.ts`, `api-key-types.ts`,
+`api-keys.route.ts`, `server-functions/api-keys.ts`), the session trio (`session.ts`,
+`sessions.route.ts`, plus `auth.service.ts` / `server-functions/auth.ts`), `mfa.ts`,
+`org-deletion.service.ts`, `dsar.service.ts`, `db/shared/audit.ts` (a comment that described an
+enforcement which never existed), and eight test files whose invented action names stopped compiling.
+
+**As-built, in one paragraph.** The old `src/services/audit.ts` hand-mirrored a 5-value union against a
+15-value database enum, so the type rejected writes the schema accepted and the schema accepted rows the
+type could not name; the union is now *derived* (`(typeof auditSourceModuleEnum.enumValues)[number]`),
+which makes the mismatch impossible and cost no migration because the enum already had all fifteen
+values. Action names went from free text to `AUDIT_ACTIONS`, a registry of 34 entries each filing its own
+`category` / `resourceType` / `severity`, so a writer stops repeating what the vocabulary already says
+(`mfa.ts`, `org-deletion.service.ts` and `dsar.service.ts` lost their static `severity` for exactly that
+reason) and inventing a name becomes a compile error instead of a row nobody can find. Five audit writes
+lived in *routes* (api-keys ×3, sessions ×2) and moved into the services, because a route-level write is
+invisible to every other caller — the Server Function layer, and any worker that reuses the service, would
+mutate silently. `revokeSession` took the actor as a required `AuditActor | null` argument while it was
+open, which surfaced five more call sites and turned "was this audited?" from an assumption into a
+decision at each one.
+
+**The interesting defect, in `src/lib/pagination.ts`.** `decodeCursor` required its tiebreaker `id` to be
+a uuid — correct for the four uuid-keyed lists it was written for, wrong for audit rows, whose `id` is
+`varchar(64)` with an `al_` prefix. The consequence was a page-1-perfect, page-2-422 read API: the shape
+of bug a single-page test cannot see. Fixed by giving `decodeCursor`/`parsePagination` an optional
+`{ idPattern }` and having the audit route pass the same pattern its `:id` validator uses, rather than by
+weakening the default (garbage must never reach the driver) or hand-rolling a second cursor encoder. The
+`createdAt` inside that cursor is `to_char(... 'USOF')` text, never `toISOString()`: `timestamptz` keeps
+microseconds and bulk writes tie on the timestamp, so truncating is a row-skipping bug (F-14's class), and
+`withTestDb`'s single-`now()` transaction reproduces the tie rather than simulating it.
+
+**Two decisions to keep in view.** (1) Job and DSAR writes still carry `module: "core"`:
+`chk_ual_*_requires_checksum` requires a checksum for `admin`/`system`/`compliance` rows and
+`chk_ual_checksum_pairing` gives a *genesis* row (no previous checksum) no legal representation, so those
+three modules are unwriteable until the chain exists. Both call sites name NWB-P1-014 as the ticket that
+flips them, and the removed mutation-state CHECK is deliberately not re-added. (2) The five legacy action
+spellings (`apikeys.*`, `auth.sessions.revoked_others`, `security.password_changed`) are grandfathered
+verbatim — all five already satisfy the format rule; what they fail is the naming *convention*, and
+renaming them would break saved filters and any future retention rule keyed on `action`.
+
+**Found, not fixed.** Four paginated list services attach a synthetic `_cursorV` property to their mapped
+rows and hand it back to callers — `users/admin.service.ts`, `orgs/member.service.ts`,
+`services/auth/api-key.ts`, `services/auth/session.ts` — an internal cursor value leaking into API output.
+(The line numbers are deliberately not quoted: they moved twice during this ticket.) Audit avoids the
+pattern by reusing `created_at`, which is already in the payload. Candidate **F-30**; not folded in here,
+because it changes four response bodies and their tests, and that belongs in its own review.
+
+**A second harness smell, fixed where this ticket could not avoid it.** Thirteen test files restore the
+environment they stubbed with `if (process.env[k] === v) delete process.env[k]` — "only remove what we
+set", the comment says, but the code removes *whatever equals what it would have set*. A `.env` that
+happens to carry the same dev placeholder therefore loses its `JWT_*_SECRET` mid-run, and every later file
+in the same `bun test` process dies inside `loadConfig()` looking like a database failure: six suites lost
+44 tests that way in this sandbox, for a reason no single file showed. `src/tests/audit/api.test.ts`
+copies that idiom from `users/admin.test.ts`, so both now save what they actually changed and restore
+that. The remaining twelve are unchanged — same one-line shape, but they are not this ticket's files, and
+a sweep that touches thirteen test suites deserves its own review. Candidate **F-31**.
+
+**Verification.** `bun test src/tests/audit/` → **29 pass** in three files: `registry` (11, **no DB** —
+every `writeAuditLog` call and every job `audit:` block in the tree names a registered action; the 15-value
+module list is pinned verbatim; the format rule and the exact legacy set are pinned; job definitions agree
+with the registry on `category`/`resourceType`), `query` (10, DB-gated — per-tenant isolation, each filter,
+`includeOrgless` reachable only as a *scope*, tied-timestamp paging that neither repeats nor drops,
+microsecond cursor precision, a known foreign id reading as absent), `api` (8 — 401 before validation with
+no DB, 200 + `meta.pagination`, `?limit=1` walked twice through the real cursor path, filter narrowing with
+422 `details` naming the legal values, `viewer` → 403, another tenant's row → 404, snapshots on detail and
+never on the list, malformed `:id` → 422). Gates: `bun test` **531 pass / 0 fail** (502 before); with no
+`DATABASE_URL` at all, **287 pass / 258 skip / 0 fail in 0.37s** and nothing attempts a connection;
+`bun run typecheck` clean; `bunx biome check --diagnostic-level=error` clean on the touched trees;
+`bun run build` clean, with `Invalid audit query` present in `dist/index.js` as proof the mount reached the
+bundle; `coverage:check` green (`src/services` 90.7%, `src/lib` 96.6%).
+
+**One sandbox-rebuild artefact, recorded rather than hidden.** After the environment was re-provisioned
+(a fresh embedded **PostgreSQL 18.4** where the branch had been verified against an earlier server),
+`src/tests/orgs/org-deletion.test.ts:627` — the F-25 negative control that asserts the thrown FK error
+carries `code: "23503"` — fails on `toMatchObject`. It fails **identically at the parent commit `c7f7a73`**
+(verified in a throwaway worktree against the same server), and it touches no audit code, so it is a
+server-version difference in how the error object is shaped, not a regression from this ticket. 530/531
+under that server; 531/531 under the one the branch was built against. Documented in
+**API Reference §19**, which also records that the admin console's planned
+`GET /api/v1/admin/audit-log` (System Administration §6) is still to be built *on top of* this surface,
+not as a second read API.
+
+---

@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-Blocked by: NWB-P1-001 ✅ (the queue base this job rides on), NWB-P1-002 (typed actions — the chain
+Blocked by: NWB-P1-001 ✅ (the queue base this job rides on), NWB-P1-002 ✅ (typed actions — the chain
 hashes a stable payload; wiring it to loose strings first means re-hashing later)
 Phase: P1 (roadmap Phase 2) · split out of NWB-P1-002 on 2026-09-21
 Size: M

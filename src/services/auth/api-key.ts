@@ -30,6 +30,7 @@ import {
   type RevokeOutcome,
   type RotateOutcome,
 } from "../../server/auth/types/api-key-types";
+import { type AuditActor, writeAuditLog } from "../audit";
 import type { Actions, Subjects } from "./ability";
 
 type Db = NodePgDatabase<Record<string, any>>;
@@ -180,6 +181,34 @@ export async function createApiKey(db: Db, input: CreateApiKeyInput): Promise<Cr
   }
 
   const row = (rows as any).rows?.[0] as any;
+
+  // Audited here rather than at the caller. Two of this file's mutators were audited from
+  // `api-keys.route.ts`, which meant the same operation through `src/app/server-functions/api-keys.ts`
+  // — the TanStack side of the same feature — mutated with no audit row at all. A service that owns its
+  // event cannot be bypassed by choosing a different entrypoint, and `unified_audit_log`'s promise is
+  // "100% write operation coverage" (PRD §8.10.2), not "100% coverage of the HTTP path".
+  await writeAuditLog({
+    db,
+    module: "core",
+    organizationId: input.organizationId,
+    actorId: input.createdBy,
+    actorType: input.actorType,
+    actorIp: input.createdIp ?? undefined,
+    actorUserAgent: input.createdUserAgent ?? undefined,
+    action: "apikeys.created",
+    resourceId: row.id,
+    // Metadata only — the key value must never reach the audit log. `name`/`scopes`/`expiresAt` are
+    // what makes "which key was abused" answerable; the prefix and hash are not needed to say that.
+    afterState: {
+      name: input.name,
+      keyType: input.keyType,
+      environment: input.environment,
+      permissionLevel: input.permissionLevel,
+      scopes: input.scopes,
+      expiresAt: input.expiresAt?.toISOString() ?? null,
+    },
+  });
+
   return {
     id: row.id,
     name: input.name,
@@ -277,7 +306,8 @@ export async function revokeApiKey(
   db: Db,
   organizationId: string,
   id: string,
-  revokedBy: string,
+  /** Who revoked it — required, because a revocation with no actor is indistinguishable from a bug. */
+  actor: AuditActor,
   reason: string | null = null,
   revocationType: RevocationType = "user",
 ): Promise<RevokeOutcome> {
@@ -295,12 +325,26 @@ export async function revokeApiKey(
   await db.execute(
     sql`
       UPDATE api_keys
-      SET status = 'revoked', revoked_at = now(), revoked_by = ${revokedBy},
+      SET status = 'revoked', revoked_at = now(), revoked_by = ${actor.actorId},
           revoke_reason = ${reason}, revocation_type = ${revocationType},
           updated_at = now()
       WHERE id = ${id} AND organization_id = ${organizationId}
     `,
   );
+
+  await writeAuditLog({
+    db,
+    module: "core",
+    organizationId,
+    actorId: actor.actorId,
+    actorType: actor.actorType,
+    action: "apikeys.revoked",
+    resourceId: id,
+    ...(reason ? { reason } : {}),
+    beforeState: { status: "active" },
+    afterState: { status: "revoked" },
+    metadata: { revocationType },
+  });
 
   return { outcome: "revoked", id };
 }
@@ -323,7 +367,7 @@ export async function rotateApiKey(
   db: Db,
   organizationId: string,
   id: string,
-  rotatedBy: string,
+  actor: AuditActor,
 ): Promise<RotateOutcome> {
   const existing = await db.execute<{
     id: string;
@@ -364,9 +408,9 @@ export async function rotateApiKey(
   await db.execute(
     sql`
       UPDATE api_keys
-      SET status = 'revoked', revoked_at = now(), revoked_by = ${rotatedBy},
+      SET status = 'revoked', revoked_at = now(), revoked_by = ${actor.actorId},
           revoke_reason = 'rotated', revocation_type = 'user',
-          deleted_at = now(), deleted_by = ${rotatedBy}, updated_at = now()
+          deleted_at = now(), deleted_by = ${actor.actorId}, updated_at = now()
       WHERE id = ${old.id} AND organization_id = ${organizationId}
     `,
   );
@@ -387,13 +431,31 @@ export async function rotateApiKey(
         ${JSON.stringify(Array.isArray(old.scopes) ? old.scopes : [])},
         ${old.expires_at}, ${old.rotation_strategy ?? "none"}, ${old.id},
         ${(old.rotation_count ?? 0) + 1}, ${(old.secret_version ?? 1) + 1},
-        now(), ${rotatedBy}
+        now(), ${actor.actorId}
       )
       RETURNING id, issued_at
     `,
   );
 
   const row = (inserted as any).rows?.[0] as any;
+
+  await writeAuditLog({
+    db,
+    module: "core",
+    organizationId,
+    actorId: actor.actorId,
+    actorType: actor.actorType,
+    action: "apikeys.rotated",
+    // The *new* key is the resource: this is the event that says "a credential changed", and the
+    // id it replaced is in `metadata` so both directions are queryable.
+    resourceId: row.id,
+    metadata: { rotatedFromId: old.id },
+    afterState: {
+      name: old.name,
+      expiresAt: old.expires_at ? new Date(old.expires_at).toISOString() : null,
+    },
+  });
+
   return {
     outcome: "rotated",
     key: {

@@ -29,8 +29,8 @@ import { confirmMFASetup, disableMFA, getMFAStatus, initiateMFASetup } from "@/s
 import { forgotPassword, resetPassword } from "@/services/auth/password-reset";
 import {
   getSessionDetail,
-  listAllLiveSessionIds,
   listUserSessions,
+  revokeOtherSessions,
   revokeSession,
 } from "@/services/auth/session";
 import { signup } from "@/services/auth/signup";
@@ -373,7 +373,13 @@ export const revokeSessionServerFn = createServerFn({ method: "POST" })
       getSessionDetail(db, data.sessionId, auth.userId),
     );
     if (!detail) throw new ValidationError("Session not found");
-    await withServerOrgContext(auth, () => revokeSession(db, data.sessionId));
+    await withServerOrgContext(auth, () =>
+      revokeSession(db, data.sessionId, {
+        actorId: auth.userId,
+        actorType: auth.authMethod === "api_key" ? "api_key" : "user",
+        organizationId: auth.orgId,
+      }),
+    );
     return { revoked: true as const, sessionId: data.sessionId };
   });
 
@@ -384,12 +390,14 @@ export const revokeOthersServerFn = createServerFn({ method: "POST" })
     const db = getServerDb();
     // Unpaginated on purpose: revoking "all other" sessions must not stop at a
     // page boundary and leave sessions alive.
-    const allIds = await withServerOrgContext(auth, () => listAllLiveSessionIds(db, auth.userId));
-    const toRevoke = allIds.filter((id) => id !== data.currentSessionId);
-    for (const id of toRevoke) {
-      await withServerOrgContext(auth, () => revokeSession(db, id));
-    }
-    return { revokedCount: toRevoke.length };
+    const revokedCount = await withServerOrgContext(auth, () =>
+      revokeOtherSessions(db, auth.userId, data.currentSessionId, {
+        actorId: auth.userId,
+        actorType: auth.authMethod === "api_key" ? "api_key" : "user",
+        organizationId: auth.orgId,
+      }),
+    );
+    return { revokedCount };
   });
 
 export const changePasswordServerFn = createServerFn({ method: "POST" })

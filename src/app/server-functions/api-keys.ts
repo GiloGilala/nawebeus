@@ -46,6 +46,10 @@ export const createApiKeyServerFn = createServerFn({ method: "POST" })
         organizationId: auth.orgId,
         userId: auth.userId,
         createdBy: auth.userId,
+        // Same rule as the Hono route's `actorOf`: a key minted by a Bearer caller is an
+        // `api_key`-typed actor, not a human one. The audit row is what makes that distinguishable
+        // later, and before this line existed neither entrypoint wrote one from here at all.
+        actorType: auth.authMethod === "api_key" ? "api_key" : "user",
         name: data.name,
         ...(data.description !== undefined ? { description: data.description } : {}),
         keyType: data.keyType,
@@ -82,7 +86,13 @@ export const revokeApiKeyServerFn = createServerFn({ method: "POST" })
     const auth = await getServerAuth();
     assertServerAbility(auth, "delete", "apikeys");
     const db = getServerDb();
-    await withServerOrgContext(auth, () => revokeApiKey(db, auth.orgId, data.id, auth.userId));
+    await withServerOrgContext(auth, () =>
+      revokeApiKey(db, auth.orgId, data.id, {
+        actorId: auth.userId,
+        actorType: auth.authMethod === "api_key" ? "api_key" : "user",
+        organizationId: auth.orgId,
+      }),
+    );
     return { revoked: true as const, id: data.id };
   });
 
@@ -93,7 +103,11 @@ export const rotateApiKeyServerFn = createServerFn({ method: "POST" })
     assertServerAbility(auth, "update", "apikeys");
     const db = getServerDb();
     const rotated = await withServerOrgContext(auth, () =>
-      rotateApiKey(db, auth.orgId, data.id, auth.userId),
+      rotateApiKey(db, auth.orgId, data.id, {
+        actorId: auth.userId,
+        actorType: auth.authMethod === "api_key" ? "api_key" : "user",
+        organizationId: auth.orgId,
+      }),
     );
     return {
       apiKey: rotated,

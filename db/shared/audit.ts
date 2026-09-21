@@ -111,8 +111,15 @@ export const auditLog = pgTable(
     impersonationSessionId: varchar("impersonation_session_id", { length: 64 }),
 
     // ─── Action ──────────────────────────────────────────────────────────────
-    // Free-form verb e.g. 'user.created', 'post.published', 'login.failed'
-    // Convention: <resource>.<verb> — enforced at application layer
+    // Free-form at this layer by design. The vocabulary lives in
+    // `src/services/audit/actions.ts` (`AUDIT_ACTIONS`, NWB-P1-002) and reaches writers through the
+    // `AuditActionName` type; an enum column here would need a migration per new action and would
+    // have to reconcile every existing row with it.
+    // Actual naming shape: `[<domain>.]<resource>.<verb>` — `auth.mfa.failed`, `apikeys.revoked`,
+    // `organization.member.role_changed`. This comment used to assert `<resource>.<verb>` was
+    // "enforced at application layer", which was never true of anything; the registry is what enforces
+    // it now, and the five names that predate it keep their spelling deliberately
+    // (`LEGACY_AUDIT_ACTION_NAMES`).
     action: varchar("action", { length: 100 }).notNull(),
     category: auditCategoryEnum("category"),
 

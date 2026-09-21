@@ -186,9 +186,7 @@ export async function deleteOrganization(
     actorId: actingUserId,
     actorType: "user",
     action: "organization.deleted",
-    category: "security",
-    severity: "warning",
-    resourceType: "organization",
+    // `category` / `severity` / `resourceType` are the registry's, not repeated here.
     resourceId: orgId,
     beforeState: { name: org.name, status: "active" },
     afterState: {

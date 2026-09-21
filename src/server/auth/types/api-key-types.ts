@@ -56,6 +56,8 @@ export const KEY_PREFIX_LENGTH = 8;
  * what the database indexes, so verification is a single indexed lookup rather
  * than a scan-and-compare over every stored hash.
  */
+import type { AuditActorType } from "@/services/audit";
+
 export interface ParsedApiKey {
   environmentCode: string;
   publicKey: string;
@@ -67,6 +69,13 @@ export interface CreateApiKeyInput {
   /** Owner of the key. A key with no owner cannot be authorized. */
   userId: string;
   createdBy: string;
+  /**
+   * What kind of principal `createdBy` is, for the audit row this creation writes. `api_key` when the
+   * caller authenticated with a machine credential and `impersonation` when staff are acting through a
+   * support session — a key issued by an impersonating admin must be distinguishable in the log from
+   * one its owner issued, and `chk_ual_actor_consistency` means the type cannot be left out.
+   */
+  actorType: AuditActorType;
   name: string;
   description?: string;
   keyType: ApiKeyType;

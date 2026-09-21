@@ -2272,7 +2272,146 @@ All events follow this structure:
 
 ---
 
-## 19. API Versioning
+## 19. Audit Log Endpoints
+
+Read access to `unified_audit_log`. Landed **2026-09-21** with NWB-P1-002, as the first half of F-19
+("the audit log has no read API"). Unlike the draft paths elsewhere in this reference, the routes below
+are the ones that exist in the codebase today.
+
+**Path note.** The System Administration module spec plans `GET /api/v1/admin/audit-log` for the admin
+console, with `admin:audit:read` as its permission. What ships now is `GET /api/audit` guarded by the
+ability `read audit`, mounted without the `/v1` segment because that is how every live route in
+`src/server/index.ts` is mounted; the version prefix arrives with §20.1's versioning work, not before it.
+The console view and `POST …/audit-log/export` (§3.3's FR-ADMIN-020) remain unbuilt — that screen is a
+consumer of these two endpoints, not a second API.
+
+| Method | Path | Ability | Purpose |
+|---|---|---|---|
+| `GET` | `/api/audit` | `read audit` | One page of the calling organization's audit trail, newest first |
+| `GET` | `/api/audit/:id` | `read audit` | One event, with the state snapshots the list omits |
+
+### 19.1 Scope Rules
+
+Enforced in the route (`src/server/api/audit/audit.route.ts`) before the query service is called, so no
+caller can reach a query that forgets them:
+
+| Rule | Behaviour |
+|---|---|
+| The organization comes from the access token | `organizationId` is read from the JWT. No parameter can widen it. |
+| `?organizationId=` is a platform capability, not a filter | Only a platform role (`super_admin`) may name **one** other organization. Anyone else gets **403** — a silently ignored parameter would let a caller read their own log believing they were reading someone else's. |
+| There is no "all organizations" | Naming another org is bounded to exactly one tenant; a whole-table read does not exist. Cross-platform investigation is deferred to Phase 15's support tooling (`P15-006`), where it belongs. |
+| Org-less platform rows are a capability too | Nightly purge and rate-limit reclamation events carry `organization_id IS NULL` because one run sweeps every tenant. They are reachable by platform roles only, derived from the role and never from a query parameter. |
+| A foreign event answers **404**, not 403 | `GET /api/audit/:id` returns "not found" for a row that exists in another tenant as well as for a row that does not exist: distinguishing the two would confirm the id. |
+| These endpoints never write | The log is append-only (BR-ADMIN-012); mutation of it through HTTP is prohibited, including for `super_admin`. |
+
+### 19.2 `GET /api/audit` — Parameters
+
+All optional, all combined with `AND`. Unknown parameters are ignored; invalid ones are 422 (§19.4).
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `actorId` | uuid | Who performed the action |
+| `targetUserId` | uuid | Whose data was affected — the column that answers "what did this admin do to this user" |
+| `action` | string ≤ 100 | Exact registry name, e.g. `apikeys.revoked`. Filter values are validated as strings, not as registry members: saved filters outlive vocabulary changes |
+| `actorType` | enum | `user`, `admin`, `system`, `api_key`, `impersonation` — who, categorically, acted |
+| `module` | enum | `core`, `admin`, `compliance`, `security`, `engagement`, `publishing`, `listening`, `monitoring`, `influencer`, `pr`, `commerce`, `campaigns`, `social_accounts`, `analytics`, `system` |
+| `category` | enum | `authentication`, `authorization`, `user_management`, `content`, `billing`, `security`, `compliance`, `system_config`, `feature_flag`, `engagement`, `publishing`, `listening`, `data_ops` |
+| `severity` | enum | `info`, `warning`, `critical`, `emergency` |
+| `resourceType` | string ≤ 50 | e.g. `api_key`, `organization` |
+| `resourceId` | string ≤ 64 | Paired with `resourceType` for a precise lookup |
+| `requestId` | string ≤ 100 | Correlates a request across logs and rows; indexed (`idx_ual_request_id`) |
+| `from`, `to` | ISO 8601 | Both bounds **inclusive** (`created_at >= from AND created_at <= to`). An empty range returns no rows rather than 422, because "what happened between X and X" is a legitimate query. |
+| `organizationId` | uuid | Platform roles only — see §19.1 |
+| `limit` | integer | Default 20, max 100 |
+| `cursor` | string | The opaque `meta.pagination.cursor` from a previous page |
+
+### 19.3 Response
+
+```json
+{
+  "data": {
+    "events": [
+      {
+        "id": "al_8f3c1d2e-4b5a-6f70-8192",
+        "createdAt": "2026-09-21T02:15:00.123456Z",
+        "organizationId": "0b4e4d2a-6f3c-4a1e-9d5b-7c2f8e1a3b45",
+        "module": "core",
+        "category": "security",
+        "severity": "info",
+        "action": "apikeys.revoked",
+        "actorId": "3c9a1e2f-4b5c-6d7e-8f90-1a2b3c4d5e6f",
+        "actorType": "user",
+        "targetUserId": null,
+        "resourceType": "api_key",
+        "resourceId": "6d2f1a0b-9c8d-7e6f-5a4b-3c2d1e0f9a8b",
+        "requestId": "9f2c7c0e-1b3a-4a6e-8d5f-2c1b0a9e7d64",
+        "sessionId": null,
+        "reason": null,
+        "hashChainValid": true
+      }
+    ]
+  },
+  "meta": { "pagination": { "cursor": null, "hasMore": false } }
+}
+```
+
+Ordering is `(createdAt, id) DESC`. `createdAt` carries microseconds because `timestamptz` does and
+because the cursor needs the same precision the column has — a cursor built from `toISOString()` would
+skip rows whose sub-millisecond component was truncated, the failure class recorded as F-14. `id` is the
+tiebreaker for rows that share a timestamp, which bulk writes produce routinely.
+
+The list omits `beforeState`, `afterState`, `changes`, `actorIp`, `actorUserAgent`, `checksum` and
+`previousChecksum`; `GET /api/audit/:id` returns `beforeState`, `afterState`, `changes`, `actorIp` and
+`actorUserAgent`, and still no checksums. `id` is `al_` + 21 characters — the column is `varchar(64)`,
+not a uuid, which is why `:id` and the cursor tiebreaker are validated as text and no `::uuid` cast
+appears anywhere in the query. `hashChainValid` is `true` on every row today: that is the column's
+default, and it stays honest only because nothing computes it yet — NWB-P1-014 adds the chain and the
+verification job that flips it to `false`, and the field ships now so the response shape does not change
+underneath consumers when it lands.
+
+`meta.pagination.cursor` is the opaque token to pass back as `?cursor=`; it is `null` when there is no
+further page, and `hasMore` is computed the way §2.6 specifies (one row fetched beyond the page).
+
+**`GET /api/audit/:id`** returns `{ "data": { "event": { …as above, plus the snapshots } } }` with no
+`meta` block.
+
+### 19.4 Errors
+
+| Status | `code` | When |
+|---|---|---|
+| 401 | `AUTH_ERROR` | No session. Checked before parsing, so an unauthenticated caller never learns whether a filter value is valid. |
+| 403 | `FORBIDDEN` | Role lacks `audit.read` (`Missing permission: read audit`), or a non-platform role passed another organization's id |
+| 404 | `NOT_FOUND` | Unknown id, or a row belonging to another tenant |
+| 422 | `VALIDATION_ERROR` | `message` names the failure and `error.details[]` carries one `{field, message}` per rejected parameter — for an enum, `message` lists every legal value (taken from the schema's own enum, not a hand-copied list), so a wrong `module` is self-correcting. A malformed `:id` is 422 for the same reason; an unknown but well-formed one is 404. |
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid audit query",
+    "details": [
+      { "field": "module", "message": "Invalid option: expected one of \"core\"|\"admin\"|…" }
+    ]
+  }
+}
+```
+
+### 19.5 Deliberately Absent
+
+| Gap | Where it is tracked |
+|---|---|
+| Hash chain on write, verification job, `hashChainValid` becoming real | NWB-P1-014 (split out of this ticket by Q1's answer; the two `module: "core"` workarounds flip there) |
+| Retention (7 years, FR-ADMIN-021) and legal holds | NWB-P1-010 |
+| Anonymizing rows of erased subjects | NWB-P1-015 (defect F-29) |
+| Export in JSON/CSV/PDF, watermarking | FR-ADMIN-020 / BR-ADMIN-022, Phase 7 console work |
+| Full-text search over `changes` | Second half of FR-ADMIN-019; needs an index decision (GIN over jsonb), not a `LIKE` |
+| Rows with `actorType = "impersonation"` | Nothing writes them yet — NWB-P1-011 creates the sessions; the filter is ready for them |
+| Anything beyond `GET` — export, watermarking, a saved-filter builder | Phase 7 (System Administration §7.2), on top of these two endpoints |
+
+---
+
+
+## 20. API Versioning
 
 ### 19.1 Version Strategy
 
@@ -2309,7 +2448,7 @@ Link: <https://docs.nawebeus.com/api/v2/migration>; rel="successor-version"
 
 ---
 
-## 20. Client SDKs
+## 21. Client SDKs
 
 | Language | Package | Status |
 |----------|---------|--------|
@@ -2354,7 +2493,7 @@ const plans = await client.billing.plans.list();
 
 ---
 
-## 21. Document Approvals
+## 22. Document Approvals
 
 | Role | Name | Signature | Date |
 |------|------|-----------|------|
@@ -2364,7 +2503,7 @@ const plans = await client.billing.plans.list();
 
 ---
 
-## 22. Related Documents
+## 23. Related Documents
 
 | Document | Relationship |
 |----------|-------------|
@@ -2384,6 +2523,7 @@ const plans = await client.billing.plans.list();
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-21 | Engineering Lead | Unified and expanded API Reference document. Merges and improves both source documents into a single comprehensive reference. Adds: Nigerian market API conventions (₦ field naming with `Naira` suffix, `NGN` currency fields, WAT timezone defaults, Nigerian email domain examples, +234 phone format), complete ₦ billing plans endpoint with all 5 tiers priced in Naira, Paystack webhook event table with ₦ amounts, NDPR-compliant journalist consent fields, crisis incident endpoints with full S1–S5 severity framework, complete error code reference including `VALIDATION_INVALID_NAIRA_AMOUNT` and `SYSTEM_PAYSTACK_ERROR`, expanded WebSocket events with `crisis:alert` event including Nigerian brand context, and JavaScript SDK usage example with ₦ pricing. |
+| 1.1.0 | 2026-09-21 | Engineering Lead | Added §19 (Audit Log Endpoints), documenting the `GET /api/audit` + `GET /api/audit/:id` surface shipped by NWB-P1-002, including the scope rules (organization from the token, one-named-organization escape hatch for platform roles) and the deliberate gaps tracked as NWB-P1-010/011/014/015. Former §19–§22 renumbered to §20–§23. |
 
 ---
 
