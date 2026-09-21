@@ -70,7 +70,8 @@ export const listApiKeysServerFn = createServerFn({ method: "GET" })
     assertServerAbility(auth, "read", "apikeys");
     const db = getServerDb();
     const apiKeys = await withServerOrgContext(auth, () =>
-      listApiKeys(db, auth.orgId, data.status as never),
+      // First page only — no cursor UI on this screen until Phase 7.
+      listApiKeys(db, auth.orgId, data.status as never).then((p) => p.items),
     );
     return { apiKeys };
   });

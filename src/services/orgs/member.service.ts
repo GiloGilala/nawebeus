@@ -1,6 +1,12 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError, ValidationError } from "../../lib/errors";
+import {
+  buildPage,
+  DEFAULT_PAGE_SIZE,
+  type Page,
+  type PaginationParams,
+} from "../../lib/pagination";
 import { writeAuditLog } from "../audit";
 import { assignRole } from "./role-assignment.service";
 import {
@@ -37,23 +43,35 @@ export interface UpdateMemberInput {
 export async function listMembers(
   db: NodePgDatabase<Record<string, any>>,
   orgId: string,
-): Promise<MemberProfile[]> {
+  page?: PaginationParams,
+): Promise<Page<MemberProfile>> {
+  const limit = page?.limit ?? DEFAULT_PAGE_SIZE;
+  const cursor = page?.cursor ?? null;
+  // Ascending list, so the cursor selects rows *after* the boundary. The
+  // (created_at, id) pair is compared as a tuple because created_at alone is
+  // not unique — see src/lib/pagination.ts.
+  const after = cursor
+    ? sql`AND (om.created_at, om.id) > (${cursor.v}::timestamptz, ${cursor.id}::uuid)`
+    : sql``;
   const rows = await db.execute(
     sql`
       SELECT om.id, om.user_id, om.organization_id, om.role_id,
              r.slug AS role_slug, om.status, om.is_active,
              om.display_name, om.job_title, om.department,
              COALESCE(u.email, om.invited_email) AS email,
-             u.username, om.created_at AS joined_at
+             u.username, om.created_at AS joined_at,
+             to_char(om.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS cursor_v
       FROM organization_members om
       LEFT JOIN users u ON u.id = om.user_id AND u.deleted_at IS NULL
       LEFT JOIN roles r ON r.id = om.role_id
       WHERE om.organization_id = ${orgId}
         AND om.deleted_at IS NULL
-      ORDER BY om.created_at ASC
+        ${after}
+      ORDER BY om.created_at ASC, om.id ASC
+      LIMIT ${limit + 1}
     `,
   );
-  return ((rows as any).rows ?? []).map((r: any) => ({
+  const mapped = ((rows as any).rows ?? []).map((r: any) => ({
     id: r.id as string,
     userId: (r.user_id as string) ?? null,
     organizationId: r.organization_id as string,
@@ -67,7 +85,9 @@ export async function listMembers(
     email: r.email as string,
     username: (r.username as string) ?? null,
     joinedAt: (r.joined_at as string) ?? null,
+    _cursorV: r.cursor_v as string,
   }));
+  return buildPage(mapped, limit, (m: any) => m._cursorV);
 }
 
 export async function getMember(

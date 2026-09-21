@@ -134,7 +134,8 @@ export const listUsersServerFn = createServerFn({ method: "GET" }).handler(async
   const auth = await getServerAuth();
   assertServerAbility(auth, "read", "users");
   const db = getServerDb();
-  const users = await withServerOrgContext(auth, () => listUsers(db, auth.orgId));
+  // First page only — the admin screen has no cursor UI until Phase 7.
+  const users = (await withServerOrgContext(auth, () => listUsers(db, auth.orgId))).items;
   return { users };
 });
 

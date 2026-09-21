@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { getOrgContext } from "@/lib/org-context";
+import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
@@ -20,8 +21,9 @@ const router = new Hono();
 router.get("/orgs/:orgId/members", authMiddleware, requireOrgMatch(), async (c) => {
   const db = c.var.db;
   const orgId = c.req.param("orgId");
-  const members = await listMembers(db, orgId);
-  return c.json(success({ members }));
+  const page = parsePagination(new URL(c.req.url));
+  const { items: members, pageInfo } = await listMembers(db, orgId, page);
+  return c.json(success({ members }, paginationMeta(pageInfo)));
 });
 
 router.get("/orgs/:orgId/members/:memberId", authMiddleware, requireOrgMatch(), async (c) => {

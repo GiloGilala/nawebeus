@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { getClientIp } from "@/lib/ip";
+import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
@@ -27,8 +28,9 @@ const router = new Hono();
 router.get("/", authMiddleware, requireAbility("read", "users"), async (c) => {
   const { orgId } = c.var.user;
   const db = c.var.db;
-  const users = await listUsers(db, orgId);
-  return c.json(success({ users }));
+  const page = parsePagination(new URL(c.req.url));
+  const { items: users, pageInfo } = await listUsers(db, orgId, page);
+  return c.json(success({ users }, paginationMeta(pageInfo)));
 });
 
 router.get("/:userId", authMiddleware, requireAbility("read", "users"), async (c) => {

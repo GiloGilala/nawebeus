@@ -1,11 +1,17 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { NotFoundError } from "@/lib/errors";
+import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { writeAuditLog } from "@/services/audit";
-import { getSessionDetail, listUserSessions, revokeSession } from "@/services/auth/session";
+import {
+  getSessionDetail,
+  listAllLiveSessionIds,
+  listUserSessions,
+  revokeSession,
+} from "@/services/auth/session";
 
 const router = new Hono();
 
@@ -15,8 +21,9 @@ router.use("/sessions/*", authMiddleware);
 router.get("/sessions", async (c) => {
   const { userId } = c.var.user;
   const db = c.var.db;
-  const sessions = await listUserSessions(db, userId);
-  return c.json(success({ sessions }));
+  const page = parsePagination(new URL(c.req.url));
+  const { items: sessions, pageInfo } = await listUserSessions(db, userId, page);
+  return c.json(success({ sessions }, paginationMeta(pageInfo)));
 });
 
 // GET /sessions/:sessionId — session detail
@@ -46,11 +53,13 @@ router.delete("/sessions/revoke-others", async (c) => {
   }
   const parsed = revokeOthersSchema.parse(body);
 
-  const all = await listUserSessions(db, userId);
-  const toRevoke = all.filter((s) => s.id !== parsed.currentSessionId);
+  // Unpaginated on purpose: revoking "all other" sessions must not stop at a
+  // page boundary and leave sessions alive.
+  const allIds = await listAllLiveSessionIds(db, userId);
+  const toRevoke = allIds.filter((id) => id !== parsed.currentSessionId);
 
-  for (const session of toRevoke) {
-    await revokeSession(db, session.id);
+  for (const sessionId of toRevoke) {
+    await revokeSession(db, sessionId);
   }
 
   await writeAuditLog({

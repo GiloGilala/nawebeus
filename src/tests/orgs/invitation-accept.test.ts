@@ -449,7 +449,7 @@ describe.skipIf(!hasDb())("Invitation accept flow (F-08 / NWB-P0-016)", () => {
       const { owner, org, cookie } = await ownerOrg(db);
       await inviteMember(db, org.id, owner.id, { email: "pending-visible@test.com" });
 
-      const members = await listMembers(db, org.id);
+      const members = (await listMembers(db, org.id)).items;
       const pending = members.find((m) => m.email === "pending-visible@test.com");
       expect(pending).toBeDefined();
       expect(pending?.status).toBe("invited");
