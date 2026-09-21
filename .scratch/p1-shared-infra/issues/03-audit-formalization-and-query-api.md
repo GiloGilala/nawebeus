@@ -1,10 +1,10 @@
 # NWB-P1-002 — Audit service formalization + query API (closes F-19)
 
 Type: task
-Status: draft (blocked on the questions below)
+Status: claimed — building (all four questions answered 2026-09-21)
 Blocked by: NWB-P1-001 ✅ (queue base — the chain's verification job needs it)
 Phase: P1 (roadmap Phase 2) · execution plan §5 P1 · PRD §8.10.2
-Size: M per the plan; see Scope for why the real number depends on Question 1
+Size: M (Scope settled at Q1(a) — the chain moved out to NWB-P1-014)
 
 > **Note on the filename:** this is `03-…` although the ID is NWB-P1-002, because `issues/02-…`
 > holds NWB-P1-013 (the purge-batch follow-up found while delivering P1-001). IDs and filenames
@@ -61,40 +61,35 @@ retention + legal-hold hook in P1-010."*
 - Anything the Web app needs to render this (filters UI, saved views) → Phase 7.
 - Impersonation session plumbing → NWB-P1-011 (`AuditActorType` already carries the value;
   `chk_ual_impersonation_consistency` demands a session id the moment `actorType='impersonation'`).
+- The `checksum` / `previousChecksum` / `hashChainValid` chain and its verification job →
+  **NWB-P1-014**. Note the constraint that makes this visible: widening `AuditModule` to the DB enum's
+  15 values does **not** license writing `admin`, `system` or `compliance` today — `chk_ual_*_requires_checksum`
+  rejects those rows without a checksum, which is why the widened type carries a comment rather than a
+  free-for-all.
 
-## Questions
+## Questions — all four answered 2026-09-21
 
-**Q1 — How much does this ticket carry?** The hash chain is the expensive half and it is *architectural*:
-`checksum` covers `createdAt`, so per-module chaining needs a serialization point on every
-`admin|system|compliance` insert (or a batch seal), and the verification job wants the queue base.
-- **(a)** 002 = items 1–5 (typing + registry + query + coverage); chain + verification job become
-  **NWB-P1-014**, which also flips the two `module: "core"` workarounds. ← recommended
-- **(b)** one ticket, everything including the chain and the nightly verify job.
-- **(c)** items 3–4 only (closes F-19's read half); typing and coverage get their own ticket.
+**Q1: How much does this ticket carry?** → **(a)** items 1–5 only. The hash chain, its verification
+job, and the two `module: "core"` workarounds move to **NWB-P1-014**. Chosen because the chain is
+architectural (per-module chaining needs a serialization point on every `admin|system|compliance`
+insert, since `checksum` covers `createdAt`) and because a service refactor, a new read API and an
+integrity design in one PR reviews badly. The workarounds therefore **stay** in this PR —
+`dsar.service.ts:75` and `src/lib/worker.ts:286` keep writing `core`, and both comments now name
+NWB-P1-014 as the ticket that flips them, so nobody reads them as permanent.
 
-**Q2 — How strict is the action registry about the 31 existing actions?** They violate the documented
-convention in three different ways.
-- **(a)** registry + validator for new writes; existing strings grandfathered in the registry with
-  their current spelling, rename deferred. ← recommended, because a rename silently breaks any saved
-  filter and any future retention rule keyed on `action`.
-- **(b)** rename to `<resource>.<verb>` now, in the same commit, no aliases.
-- **(c)** registry of typed constants, no format validation at all.
+**Q2: How strict is the registry about the 31 existing actions?** → **(a)** new writes validated,
+existing strings grandfathered at their current spelling inside the registry. A rename would break any
+saved filter and any future retention rule keyed on `action`, and back-fitting history to a naming
+rule is exactly what an append-only table must not do.
 
-**Q3 — Does `audit.read` see platform-wide or only its org?** PRD:429 gives Admin "view audit log";
-the module doc says admins query *their org's* log; the enum has cross-module rows on purpose
-("everything admin X did across the whole platform", per `db/shared/audit.ts`). The answer decides
-whether `GET /api/audit` takes an optional `organizationId` filter at all, and whether super_admin is
-a branch in the service or a different route. ← needs a decision; the honest default is org-scoped for
-every role, with a separate super_admin-only `?organizationId=` escape hatch.
+**Q3: Who can query which org's log?** → **(a)** org scope always comes from the JWT;
+`super_admin` may pass `?organizationId=` to look at one named org (never "all orgs" — there is no
+route that reads the whole table, so the escape hatch is bounded and greppable instead of a missing
+filter). Cross-platform investigation stays a later concern, with P15's support tooling.
 
-**Q4 — BR-AUTH-043 (`Audit log entries anonymized (not deleted) on account deletion`) is unimplemented**
-(`grep -rn anonymi src/` → nothing) and it *contradicts* the append-only contract in
-`db/shared/audit.ts`. Note the table stores `actor_ip` and `actor_user_agent` — personal data that
-survives every erasure today, including the purge NWB-P1-001 just scheduled.
-- **(a)** record it as a new defect (**F-29** — the register stops at F-28) + its own ticket; 002 does not touch it. ← recommended
-- **(b)** fold a minimal version into 002: on hard purge, null `actor_ip`/`actor_user_agent` and
-  replace `actor_id` with a one-way hash of it, keeping the row and its `checksum` chain intact.
-- **(c)** decide the requirement is already met by id-only storage and document that reading here.
+**Q4: BR-AUTH-043 anonymization?** → **(a)** recorded as **F-29** in the defect register and filed as
+**NWB-P1-015**; untouched here. It is a policy decision (how do you anonymize an append-only row)
+disguised as a query, and bundling it would have made the read API wait on it.
 
 ## Notes for the implementer
 

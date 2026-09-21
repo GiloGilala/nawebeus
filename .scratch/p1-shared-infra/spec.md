@@ -29,6 +29,8 @@ correlation id from log to audit row · all purge/reclamation workers running on
 | NWB-P1-002 | Audit service formalization + query API (closes F-19) | M | [issues/03-audit-formalization-and-query-api.md](issues/03-audit-formalization-and-query-api.md) | **claimed** — drafted 2026-09-21, blocked on 4 scope questions in the ticket |
 | NWB-P1-003 | Approval service (request/submit/approve/reject/expire-stale) | L | to file | ready-for-agent (needs P1-001 ✅) |
 | NWB-P1-013 | Purge batches must delete per row (org-owner FK aborts a night of erasures) | M | [issues/02-purge-batches-must-be-per-row.md](issues/02-purge-batches-must-be-per-row.md) | ready-for-agent (found in P1-001; blocks P1-010) |
+| NWB-P1-014 | Audit hash chain: checksums on write + scheduled verification | M | [issues/04-audit-hash-chain.md](issues/04-audit-hash-chain.md) | ready-for-agent (split out of P1-002; blocks P1-015) |
+| NWB-P1-015 | Anonymize audit actor context on hard purge (F-29 / BR-AUTH-043) | S–M | [issues/05-audit-anonymization-on-purge.md](issues/05-audit-anonymization-on-purge.md) | ready-for-agent (needs P1-014) |
 | NWB-P1-004 | Email transport: Resend adapter behind `EmailTransport` | M | to file | ready-for-agent |
 | NWB-P1-005 | Media/storage service | L | to file | **blocked on D6** |
 | NWB-P1-006 | Templates service | M | to file | ready-for-agent |
