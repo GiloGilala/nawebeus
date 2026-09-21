@@ -13,7 +13,14 @@ Nawebeus is a multi-tenant social media management and PR intelligence SaaS. The
 - Test & runtime utilities — `bun:test`, `Bun.env`, `Bun.deepEquals`, `Bun.escapeHTML`, `Bun.semver`, `Bun.sleep`, `Bun.cron`, `Bun.randomUUIDv7`
 - Node built-ins are implemented — `node:fs`, `node:path`, `node:crypto`, `node:stream`, `node:zlib`, `node:events`, `node:url`, `node:util`, `node:buffer`, `node:http`
 
-Only add a package once you have confirmed Bun can't cover the need — and say in the PR what you checked. This rule governs **new** dependencies only; the existing set (`hono`, `drizzle-orm`, `zod`, `pg`, `@casl/ability`) is settled, so don't propose replacing it on these grounds.
+Only add a package once you have confirmed Bun can't cover the need — and say in the PR what you checked. This rule governs **new** dependencies only; the existing set (`hono`, `drizzle-orm`, `zod`, `pg`, `@casl/ability`, `pg-boss`) is settled, so don't propose replacing it on these grounds.
+
+`pg-boss` (NWB-P1-001) is the one exception worth recording, because the check has already been
+done and written down: **ADR-028** chose it deliberately over `Bun.cron` (a trigger, not a queue —
+no persistence, retry, backoff, or job state), over in-process `setTimeout`/`setInterval` (jobs die
+with the process, no depth visibility), and over BullMQ+Redis (a second service on a self-hosted VPS,
+ADR-008). It stores jobs in the PostgreSQL instance ADR-003 already provides and manages its own
+schema; its tables never enter `db/schema.ts` or `drizzle/migrations/`.
 
 ## Developer commands
 
@@ -34,18 +41,22 @@ No PostgreSQL server (and no Docker)? `docs/agents/local-database.md` has a zero
 ### Daily
 
 ```bash
-bun run dev             # hot-reload dev server (src/index.ts)
+bun run dev             # hot-reload dev server (src/index.ts) — also starts the queue runtime
 bun test                # run all tests
 bun run typecheck       # tsc --noEmit
 bun run build           # typecheck + bundle to dist/
+bun run queue:worker    # workers + scheduler only, no HTTP server (ADR-007's other half)
+bun run queue:run --list            # the queues that exist, and what each one does
+bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same audit events
 ```
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (226 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (243 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
+- **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
 - **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 89.9% / 95.8%. Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
@@ -122,6 +133,9 @@ src/services/             ← Business logic (single source of truth)
   orgs/    org.service, org-deletion.service, member.service, invitation.service,
            role-assignment.service, role-policy (hierarchy rules)
   email.ts, audit.ts
+src/jobs/                 ← Queue job definitions (thin adapters over services)
+  index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
+  rate-limit-reclaim.ts, purge-expired-accounts.ts, purge-expired-organizations.ts
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
   db.ts          ← Drizzle client factory + test DB helper
@@ -129,6 +143,10 @@ src/lib/                  ← Infrastructure
   errors.ts      ← Typed error hierarchy → HTTP status mapping
   response.ts    ← { data } / { error } envelope helpers
   rate-limit.ts  ← sliding-window limiter backed by the `rate_limits` table
+  queue.ts       ← pg-boss client: config-driven construction, start/stop singleton, queue policy
+  scheduler.ts   ← the cron side: schedule table, per-job env overrides, converge-not-init
+  worker.ts      ← the worker base: register, audit both outcomes, rethrow for retry
+  transaction.ts ← atomic-write helper that is safe inside the test harness's transaction
   tokens.ts      ← token primitives (generate / hash / expiry) — see note below
   password.ts
 src/tests/                ← Bun tests
@@ -155,6 +173,25 @@ directory you care about) for the complete set.
 
 ### Key facts
 
+- **The queue runtime is configuration, not a code path** (ADR-007 · ADR-028 · NWB-P1-001) — three
+  processes can be built from one tree: `bun run dev`/`src/index.ts` (API + workers + scheduler),
+  `bun run queue:worker` (workers only, and it **exits non-zero** if pg-boss cannot start, because
+  there the queue is the whole job), and `QUEUE_ENABLED=false` (API only). `src/index.ts` does the
+  opposite on the same failure — logs `WORKER NOT STARTED` and keeps serving, because nothing in
+  `src/server/**` enqueues yet and an API hostage to a background runtime is unoperatable. Handlers
+  never touch pg-boss: they declare a `JobDefinition` (`name`, `audit`, `policy`, `handle`) and the
+  base in `src/lib/worker.ts` supplies the audit events, the attempt number, and the rethrow that
+  makes pg-boss retry with backoff. Swallow a handler error there and every job silently "succeeds".
+- **Worker audit events are `module: "core"`, actor type `system`, with `organization_id` NULL** —
+  not `"system"`: `chk_ual_system_requires_checksum` demands a hash-chain checksum for
+  admin/system/compliance and nothing computes the chain yet (the same reason NWB-P0-002's DSAR
+  event cites `core`). NULL organization because one run sweeps every tenant. Flip both when
+  NWB-P1-002 lands the chain, or a future RLS policy (D11) will look for a tenant that is not there.
+- **The nightly order is load-bearing: reclamation → organizations → accounts** — a user who still
+  owns an organization cannot be hard-deleted (`organizations.owner_id` is `NOT NULL` + restrictive,
+  F-25/D16), and PostgreSQL aborts the *whole* `DELETE`, so one un-purgeable owner would otherwise
+  hold every other erasure hostage for the night. Running the org purge first in the same hour
+  clears the reference; `src/tests/queue/jobs.test.ts` proves both halves, including the wedge.
 - **`loadConfig()` must run before `getConfig()`** — `config.ts` uses a singleton. `src/index.ts` calls it at startup; tests call `loadConfig()` inline (the always-required JWT secrets are supplied by `src/tests/preload.ts`).
 - **Auth is cookie-first, with API keys as a Bearer alternative** — the browser flow sets an access token (15-min JWT) and refresh token (7-day JWT) as HTTP-only cookies (`nawebeus_access`, `nawebeus_refresh`) in the signin route. The access cookie path is `/`; the refresh cookie path is `/api/auth`. Machine clients send `Authorization: Bearer nwb_<env>_<publicKey>_<secret>` instead, which `authMiddleware` resolves to the same user + org. A Bearer header takes precedence over the cookie.
 - **API keys are stored as a digest, never the secret** — only the SHA-256 of the 256-bit secret is persisted. The 128-bit `public_key` exists so verification is a single indexed lookup rather than a scan-and-compare over every stored hash. The full key is returned exactly once, at creation.

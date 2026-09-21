@@ -18,10 +18,20 @@ Rules of the road:
   `DESC` ordering and/or partial `WHERE` clauses (a drizzle-kit introspection
   gap on PG14; deterministic, safe, and it is why push is not the evolution
   path).
-- **pg-boss is library-managed.** When the Phase 2 queue lands
-  (NWB-P0-002's async half and friends), `pgBoss.start()` creates and versions
-  its own tables on process start. Those tables must NOT enter this directory —
-  drizzle knows nothing about them and must never try to.
+- **pg-boss is library-managed, and that is now an as-built fact, not a plan**
+  (NWB-P1-001, 2026-09-21). `src/lib/queue.ts` calls `boss.start()` on process
+  start, and that call creates and versions schema `pgboss` (env
+  `QUEUE_SCHEMA`) — 12 tables at pg-boss 12.33.2, `pgboss.version` = 42. Two
+  histories run side by side and neither knows about the other: the drizzle
+  ledger for `db/schema.ts`, pg-boss's `version` table for its own. Its tables
+  must NOT enter this directory — drizzle knows nothing about them and must
+  never try to. Verified the dangerous direction too: `bun run db:push --
+  --force` against a database holding an installed `pgboss` schema leaves it
+  byte-identical (schema, 12 tables, version row all intact), because push only
+  introspects what `db/schema.ts` claims. Upgrading pg-boss is therefore
+  `bun add pg-boss@x` and a process restart — never a migration file here.
+  Tests that need a queue install into their own throwaway schema and drop it
+  (`src/tests/queue/loop.test.ts`), so no test ever migrates a real one.
 - **ADR-017 renames** live in `db/manual-migrations/campaign-domain-disambiguation.sql`.
   They apply only when the (aspirational, schema-excluded) PR/influencer modules
   are adopted — fold them into the first migration that module adoption

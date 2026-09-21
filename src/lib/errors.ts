@@ -132,3 +132,43 @@ export class InternalError extends AppError {
   readonly statusCode = 500;
   readonly code = "INTERNAL_ERROR";
 }
+
+/**
+ * A one-line description of an unknown error, safe to log and to store.
+ *
+ * Exists because of a specific hole: a failed TCP connect surfaces as a Node
+ * `AggregateError` whose own `message` is **empty** — its detail lives in
+ * `.code` (`ECONNREFUSED`) and in `.errors[]`. So `error.message` alone printed
+ * nothing at all while the queue runtime failed to start, which is the worst
+ * possible thing for the one log line that explains why a background job is not
+ * running. The same shape appears in every driver-level failure this codebase
+ * can hit (pool timeouts, DNS, TLS), which is why it belongs next to the error
+ * hierarchy rather than inside the queue.
+ *
+ * Full structured logging is NWB-P1-012's job; this stays a string formatter.
+ */
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    // A thrown non-Error is precisely where an empty line is worst — `throw ""` from a driver
+    // would print a prefix and nothing else. Say what arrived, not just that something did.
+    const text = String(error);
+    if (text.length > 0) return text;
+    return `${typeof error} value: ${JSON.stringify(error) ?? text}`;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  const parts = [
+    error.name === "Error" ? undefined : error.name,
+    error.message.length > 0 ? error.message : undefined,
+    typeof code === "string" ? `(${code})` : undefined,
+  ].filter((part): part is string => part !== undefined);
+
+  const nested = (error as { errors?: unknown }).errors;
+  if (Array.isArray(nested) && nested.length > 0) {
+    parts.push(nested.map((inner) => describeError(inner)).join("; "));
+  }
+
+  // An Error with no message, no code, and nothing inside it: say so, rather
+  // than emit an empty string that reads as a formatting bug in the log.
+  return parts.join(" ") || `${error.name || "Error"} (no message)`;
+}
