@@ -67,6 +67,13 @@ const listQuerySchema = z.object({
   resourceType: z.string().min(1).max(50).optional(),
   resourceId: z.string().min(1).max(64).optional(),
   requestId: z.string().min(1).max(100).optional(),
+  // Enum-plus-transform, deliberately not `z.coerce.boolean()`: coercion reads the *string*
+  // "false" as truthy, which would turn the compliance query into its own negation. Anything
+  // outside the pair is a 422, like every other filter here.
+  chainValid: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   organizationId: z.string().uuid("Must be an organization id").optional(),
@@ -128,6 +135,7 @@ router.get("/audit", requireAbility("read", "audit"), async (c) => {
     resourceType: c.req.query("resourceType") ?? undefined,
     resourceId: c.req.query("resourceId") ?? undefined,
     requestId: c.req.query("requestId") ?? undefined,
+    chainValid: c.req.query("chainValid") ?? undefined,
     from: c.req.query("from") ?? undefined,
     to: c.req.query("to") ?? undefined,
     organizationId: c.req.query("organizationId") ?? undefined,
@@ -152,6 +160,7 @@ router.get("/audit", requireAbility("read", "audit"), async (c) => {
     ...(parsed.data.resourceType ? { resourceType: parsed.data.resourceType } : {}),
     ...(parsed.data.resourceId ? { resourceId: parsed.data.resourceId } : {}),
     ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
+    ...(parsed.data.chainValid !== undefined ? { chainValid: parsed.data.chainValid } : {}),
     ...(parsed.data.from ? { from: parsed.data.from } : {}),
     ...(parsed.data.to ? { to: parsed.data.to } : {}),
   };

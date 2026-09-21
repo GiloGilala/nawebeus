@@ -71,6 +71,12 @@ export interface AuditEventFilters {
   readonly resourceType?: string | undefined;
   readonly resourceId?: string | undefined;
   readonly requestId?: string | undefined;
+  /**
+   * Chain state. `false` is the compliance query — "show me rows the nightly verification
+   * flagged" — which is why `whereClause` gates this on `!== undefined` rather than truthiness:
+   * the interesting value is falsy.
+   */
+  readonly chainValid?: boolean | undefined;
   /** Inclusive lower bound, `created_at >= from`. */
   readonly from?: Date | undefined;
   /** Inclusive upper bound, `created_at <= to`. */
@@ -209,6 +215,8 @@ function whereClause(scope: AuditReadScope, filters: AuditEventFilters) {
   if (filters.resourceType) parts.push(eq(sql`resource_type`, filters.resourceType));
   if (filters.resourceId) parts.push(eq(sql`resource_id`, filters.resourceId));
   if (filters.requestId) parts.push(eq(sql`request_id`, filters.requestId));
+  // `!== undefined`, not truthiness: `false` ("show me the flagged rows") is the whole point.
+  if (filters.chainValid !== undefined) parts.push(eq(sql`hash_chain_valid`, filters.chainValid));
   if (filters.from) parts.push(gte(sql`created_at`, filters.from));
   if (filters.to) parts.push(lte(sql`created_at`, filters.to));
   return and(...parts);

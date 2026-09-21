@@ -52,7 +52,7 @@ bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same aud
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (274 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (275 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.

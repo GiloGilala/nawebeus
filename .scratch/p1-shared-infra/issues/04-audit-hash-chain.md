@@ -225,3 +225,14 @@ pre-stamp code → the same 7/8.
   rule) — no new package.
 - The 7-year retention floor and legal holds are NWB-P1-010; if a hold has to freeze chain
   *verification* too, that interaction belongs there, not here.
+
+## Follow-up delivered 2026-09-21 (chain-state filter)
+
+The "not surfaced in the query API" note above turned out to be half-stale: `hashChainValid` was
+already on `AuditEventSummary`/`AuditEventDetail` (it predates this ticket — blame lands on the
+base commit, i.e. NWB-P1-002's read work). What was genuinely missing was *filterability*: no way
+to ask for flagged rows. Landed: `chainValid?: boolean` on `AuditEventFilters` (`!== undefined`-
+gated — `false` is the compliance query), `?chainValid=true|false` on `GET /api/audit` (enum-plus-
+transform; `z.coerce.boolean()` would read `"false"` as truthy), service + route tests with the
+flag flipped the way the verifier writes it. Red-checked both layers against a truthy gate.
+554/554, lint exit 0, coverage unchanged at 91.4/96.9, no migration (no schema change).
