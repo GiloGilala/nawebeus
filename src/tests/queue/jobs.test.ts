@@ -40,7 +40,11 @@ interface AuditRow {
   actor_type: string | null;
   module: string;
   organization_id: string | null;
-  after_state: { deleted?: number } | null;
+  after_state: {
+    deleted?: number;
+    failed?: number;
+    errors?: Array<{ id: string; error: string }>;
+  } | null;
   metadata: { queue?: string; jobId?: string } | null;
   reason: string | null;
   changes: { error?: string } | null;
@@ -137,7 +141,7 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
     });
   });
 
-  test("the nightly order is what unblocks erasure: owner FK blocks accounts, the org purge clears it", async () => {
+  test("one blocked account no longer wedges the batch: per-row delete, per-row report", async () => {
     await withTestDb(async ({ db }) => {
       const plain = await createTestUser(db);
       const owner = await createTestUser(db);
@@ -147,43 +151,79 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
       await stampOrganizationExpired(db, org.id);
 
       /**
-       * F-25 / D16 in the shape the job inherits it: one owner whose organization still exists
-       * rejects the DELETE, and PostgreSQL aborts the *whole statement* — so every other expired
-       * account waits for it. A savepoint keeps the transaction usable afterwards (the 25P02 class
-       * NWB-P0-012 pinned in the test harness); the failure is the finding, not the harness.
+       * F-25 / D16 in the shape the job inherits it: the owner still owns an organization, so its
+       * own DELETE refuses — but the refusal costs exactly that row now (NWB-P1-013), not the
+       * statement. Nothing throws; the blocked row is reported with its error.
        */
-      await db.execute(sql`SAVEPOINT owner_block`);
-      let blocked: unknown;
-      try {
-        await purgeExpiredAccountsJob.handle({ db, job: ATTEMPT }, null);
-      } catch (error) {
-        blocked = error;
-      } finally {
-        await db.execute(sql`ROLLBACK TO SAVEPOINT owner_block`);
-      }
-      expect(String(blocked)).toMatch(/foreign key|organizations_owner_id_fkey|23503/i);
-      // Nothing was deleted, including the unrelated account: that is the wedge, verified.
-      expect(await rowGone(db, "users", plain.id)).toBe(false);
+      expect(await purgeExpiredAccountsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
+        deleted: 1,
+        failed: 1,
+        errors: [{ id: owner.id, error: expect.stringMatching(/23503|owner_id/i) }],
+      });
+      expect(await rowGone(db, "users", plain.id)).toBe(true);
+      expect(await rowGone(db, "users", owner.id)).toBe(false);
 
-      // …so the scheduler runs organizations first, and in the same hour the accounts go.
+      // …so the scheduler still runs organizations first, and in the same hour the accounts go:
+      // the org purge clears the reference the owner's erasure was waiting on.
       expect(await purgeExpiredOrganizationsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
         deleted: 1,
+        failed: 0,
+        errors: [],
       });
       expect(await rowGone(db, "organizations", org.id)).toBe(true);
 
       expect(await purgeExpiredAccountsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
-        deleted: 2,
+        deleted: 1,
+        failed: 0,
+        errors: [],
       });
-      expect(await rowGone(db, "users", plain.id)).toBe(true);
       expect(await rowGone(db, "users", owner.id)).toBe(true);
 
       // Both are no-ops the second time, which is what makes at-least-once delivery equivalent to
       // exactly-once here — the property the idempotency ground rule is actually asking for.
       expect(await purgeExpiredAccountsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
         deleted: 0,
+        failed: 0,
+        errors: [],
       });
       expect(await purgeExpiredOrganizationsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
         deleted: 0,
+        failed: 0,
+        errors: [],
+      });
+    });
+  });
+
+  test("the org purge isolates a blocked row the same way — proven with a stand-in restrictive FK", async () => {
+    await withTestDb(async ({ db }) => {
+      // No restrictive edge to `organizations.id` exists in the active schema today (every FK is
+      // CASCADE or SET NULL — verified against the applied migration DDL), so the blocker is a
+      // temporary table with the default NO ACTION FK: the same refusal class the aspirational
+      // billing tables will bring when they migrate. Transactional DDL — rolls back with the test.
+      await db.execute(
+        sql`CREATE TABLE tmp_org_purge_blocker (org_id uuid NOT NULL REFERENCES organizations(id))`,
+      );
+      const blockedOwner = await createTestUser(db);
+      const freeOwner = await createTestUser(db);
+      const blocked = await createTestOrg(db, { ownerId: blockedOwner.id });
+      const free = await createTestOrg(db, { ownerId: freeOwner.id });
+      await db.execute(sql`INSERT INTO tmp_org_purge_blocker (org_id) VALUES (${blocked.id})`);
+      await stampOrganizationExpired(db, blocked.id);
+      await stampOrganizationExpired(db, free.id);
+
+      expect(await purgeExpiredOrganizationsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
+        deleted: 1,
+        failed: 1,
+        errors: [{ id: blocked.id, error: expect.stringMatching(/23503/i) }],
+      });
+      expect(await rowGone(db, "organizations", free.id)).toBe(true);
+      expect(await rowGone(db, "organizations", blocked.id)).toBe(false);
+
+      // Re-running is still idempotent: the blocked row reports `failed` again, never `deleted`.
+      expect(await purgeExpiredOrganizationsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
+        deleted: 0,
+        failed: 1,
+        errors: [{ id: blocked.id, error: expect.stringMatching(/23503/i) }],
       });
     });
   });
@@ -220,6 +260,41 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
       });
       expect(row?.after_state?.deleted).toBeGreaterThanOrEqual(1);
       expect(row?.metadata?.queue).toBe(rateLimitReclaimJob.name);
+    });
+  });
+
+  test("a partial run audits as warning, so a night that erased nothing-but-tried never reads as clean", async () => {
+    await withTestDb(async ({ db }) => {
+      // Two owners whose organizations are NOT expired: both rows refuse with 23503, nothing is
+      // erased, and the run still reports — `{ deleted: 0, failed: 2 }` must be distinguishable
+      // from a clean `{ deleted: 0 }` idle night.
+      const first = await createTestUser(db);
+      const second = await createTestUser(db);
+      await createTestOrg(db, { ownerId: first.id });
+      await createTestOrg(db, { ownerId: second.id });
+      await stampAccountExpired(db, first.id);
+      await stampAccountExpired(db, second.id);
+
+      const jobId = `partial-${crypto.randomUUID().slice(0, 8)}`;
+      const outcome = await runJobGuarded(
+        purgeExpiredAccountsJob,
+        { db, audit: (params) => writeAuditLog(params) },
+        { id: jobId, attempt: 1 },
+        null,
+      );
+      expect(outcome).toMatchObject({ deleted: 0, failed: 2 });
+
+      const row = await selectOne<AuditRow>(
+        db,
+        sql`SELECT action, severity, after_state, metadata
+             FROM unified_audit_log WHERE metadata->>'jobId' = ${jobId} LIMIT 1`,
+      );
+
+      expect(row).toBeDefined();
+      expect(row).toMatchObject({ action: "accounts.purged", severity: "warning" });
+      expect(row?.after_state).toMatchObject({ deleted: 0, failed: 2 });
+      expect(row?.after_state?.errors).toHaveLength(2);
+      expect(row?.metadata?.queue).toBe(purgeExpiredAccountsJob.name);
     });
   });
 

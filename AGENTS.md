@@ -189,9 +189,13 @@ directory you care about) for the complete set.
   NWB-P1-002 lands the chain, or a future RLS policy (D11) will look for a tenant that is not there.
 - **The nightly order is load-bearing: reclamation → organizations → accounts** — a user who still
   owns an organization cannot be hard-deleted (`organizations.owner_id` is `NOT NULL` + restrictive,
-  F-25/D16), and PostgreSQL aborts the *whole* `DELETE`, so one un-purgeable owner would otherwise
-  hold every other erasure hostage for the night. Running the org purge first in the same hour
-  clears the reference; `src/tests/queue/jobs.test.ts` proves both halves, including the wedge.
+  F-25/D16), so the org purge has to clear that reference first for the same night's erasure of the
+  *owner* to land. Since NWB-P1-013 a blocked row costs only itself: both purges delete per row
+  (each id in its own savepoint, `deleteRowsPerRow` in `src/lib/transaction.ts`) and report
+  `{ deleted, failed, errors }`, so one un-purgeable owner no longer holds every other erasure
+  hostage for the night — and a nonzero `failed` makes the run's audit row `warning` (the
+  partial-run convention, `isPartialRun` in `src/lib/worker.ts`). `src/tests/queue/jobs.test.ts`
+  proves the isolation, the report shape, and the order.
 - **`loadConfig()` must run before `getConfig()`** — `config.ts` uses a singleton. `src/index.ts` calls it at startup; tests call `loadConfig()` inline (the always-required JWT secrets are supplied by `src/tests/preload.ts`).
 - **Auth is cookie-first, with API keys as a Bearer alternative** — the browser flow sets an access token (15-min JWT) and refresh token (7-day JWT) as HTTP-only cookies (`nawebeus_access`, `nawebeus_refresh`) in the signin route. The access cookie path is `/`; the refresh cookie path is `/api/auth`. Machine clients send `Authorization: Bearer nwb_<env>_<publicKey>_<secret>` instead, which `authMiddleware` resolves to the same user + org. A Bearer header takes precedence over the cookie.
 - **API keys are stored as a digest, never the secret** — only the SHA-256 of the 256-bit secret is persisted. The 128-bit `public_key` exists so verification is a single indexed lookup rather than a scan-and-compare over every stored hash. The full key is returned exactly once, at creation.

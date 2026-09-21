@@ -21,10 +21,12 @@ export const purgeExpiredOrganizationsJob: JobDefinition<null> = {
     resourceType: "organization",
   },
   async handle({ db }) {
-    // Every FK into `organizations.id` is CASCADE or SET NULL, so the delete cannot be refused —
-    // the reason this purge runs unguarded while the account purge refuses an owner up front.
-    // Members are detached, never deleted with the workspace.
-    const deleted = await purgeExpiredOrganizations(db);
-    return { deleted };
+    // Every FK into `organizations.id` is CASCADE or SET NULL, so today no row can refuse — but
+    // the delete still runs per row (NWB-P1-013), because the aspirational billing tables already
+    // declare `restrict` FKs to this table and the day they migrate is the day a batch DELETE
+    // would start wedging. A nonzero `failed` makes this run's audit row `warning` (the wrapper's
+    // partial-run convention). Members are detached, never deleted with the workspace.
+    const result = await purgeExpiredOrganizations(db);
+    return { deleted: result.deleted, failed: result.failed, errors: result.errors };
   },
 };

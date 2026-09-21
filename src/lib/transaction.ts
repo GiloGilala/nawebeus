@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase, NodePgTransaction } from "drizzle-orm/node-postgres";
 import type { Db } from "./db";
+import { describeError } from "./errors";
 
 /**
  * A drizzle handle that can execute SQL: either the top-level database or a
@@ -83,4 +84,86 @@ export async function withAtomicWrites<T>(db: Db, fn: (tx: DbOrTx) => Promise<T>
     await db.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${savepoint}`));
     throw err;
   }
+}
+
+/**
+ * One row's refusal inside a per-row delete: which row, and why it refused.
+ * `error` is `describeError` text, so a PostgreSQL refusal keeps its code
+ * (`(23503)` plus the constraint name) — which is what lets a test tell
+ * "blocked by the owner FK" from "the database went away".
+ */
+export interface RowDeleteFailure {
+  id: string;
+  error: string;
+}
+
+/**
+ * The honest count of a per-row delete: `deleted` rows actually erased (never
+ * attempted), `failed` rows that refused, and the per-row reasons. `failed`
+ * duplicates `errors.length` on purpose — it keeps "how many refused" a scalar
+ * an operator can read off `after_state` without measuring an array, and it is
+ * the key the worker's partial-run convention (`isPartialRun`) looks at.
+ */
+export interface PerRowDeleteResult {
+  deleted: number;
+  failed: number;
+  errors: RowDeleteFailure[];
+}
+
+/**
+ * Tables a purge is allowed to delete from. A closed union, not `string`: the
+ * table name is interpolated into SQL (identifiers cannot be parameterised),
+ * so the type system is the allow-list.
+ */
+export type PurgeableTable = "users" | "organizations";
+
+/**
+ * Delete `ids` from `table` one row at a time, each in its own savepoint
+ * (NWB-P1-013).
+ *
+ * A single multi-row DELETE is atomic in the wrong direction for a purge: one
+ * row's restrictive FK aborts the whole statement, so every healthy row waits
+ * a night for a blocked one — and the 23503 carries no per-row information.
+ * Here each id gets its own savepoint inside one `withAtomicWrites` scope, so a
+ * refusal rolls back exactly that row and is collected into `errors` instead of
+ * thrown. The run reports what actually happened: `{ deleted, failed, errors }`.
+ *
+ * A row that vanished between the candidate SELECT and its DELETE (a
+ * concurrent run got there first) counts as neither: the run that actually
+ * erased it already claimed it, and double-counting would lie in the other
+ * direction.
+ *
+ * Callers pass candidate ids, not a predicate, so the "which rows are due"
+ * decision stays in the service that owns the lifecycle — this helper only
+ * decides *how* the delete is isolated.
+ */
+export async function deleteRowsPerRow(
+  db: Db,
+  table: PurgeableTable,
+  ids: readonly string[],
+): Promise<PerRowDeleteResult> {
+  if (ids.length === 0) return { deleted: 0, failed: 0, errors: [] };
+
+  return withAtomicWrites(db, async (tx) => {
+    let deleted = 0;
+    const errors: RowDeleteFailure[] = [];
+    for (const id of ids) {
+      // Counter-derived, never caller input — the only interpolation `sql.raw`
+      // is safe for. `withAtomicWrites`' own savepoint is the outer scope.
+      const savepoint = `sp_purge_row_${savepointCounter++}`;
+      await tx.execute(sql.raw(`SAVEPOINT ${savepoint}`));
+      try {
+        const result = await tx.execute<{ id: string }>(
+          sql`DELETE FROM ${sql.raw(table)} WHERE id = ${id} RETURNING id`,
+        );
+        const removed = (result as unknown as { rows?: unknown[] }).rows?.length ?? 0;
+        if (removed > 0) deleted++;
+        await tx.execute(sql.raw(`RELEASE SAVEPOINT ${savepoint}`));
+      } catch (error) {
+        await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${savepoint}`));
+        errors.push({ id, error: describeError(error) });
+      }
+    }
+    return { deleted, failed: errors.length, errors };
+  });
 }

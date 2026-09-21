@@ -25,15 +25,17 @@ export const purgeExpiredAccountsJob: JobDefinition<null> = {
     resourceType: "user",
   },
   async handle({ db }) {
-    // Idempotent at the source, which is why at-least-once delivery is safe here: the statement
+    // Idempotent at the source, which is why at-least-once delivery is safe here: the service
     // selects only rows whose window has elapsed, so the second run of a night finds nothing.
     //
-    // Known limit, filed rather than papered over (see the ticket): a user who still owns an
-    // organization hits the restrictive `organizations.owner_id` FK (F-25 / D16) and 23503s the
-    // whole statement, so every other expired account waits for it. Running the organization purge
-    // first in the same hour (`src/lib/scheduler.ts`) is what clears that reference in practice;
-    // batch-level isolation belongs in the service, not in a job wrapper here.
-    const deleted = await purgeExpiredAccounts(db);
-    return { deleted };
+    // Per-row since NWB-P1-013: a user who still owns an organization hits the restrictive
+    // `organizations.owner_id` FK (F-25 / D16) and lands in `failed` with the 23503, instead of
+    // aborting the whole statement and holding every other expired account hostage for the night.
+    // Running the organization purge first in the same hour (`src/lib/scheduler.ts`) is still
+    // what clears that reference in practice; the isolation itself belongs in the service, not in
+    // a job wrapper here. A nonzero `failed` makes this run's audit row `warning` (the wrapper's
+    // partial-run convention), so a night that erased nothing-but-tried never reads as clean.
+    const result = await purgeExpiredAccounts(db);
+    return { deleted: result.deleted, failed: result.failed, errors: result.errors };
   },
 };

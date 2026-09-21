@@ -360,7 +360,8 @@ describe.skipIf(!hasDb())("Organization deletion — service + routes (with DB)"
       await expireGrace(db, expired.orgId);
 
       const purged = await purgeExpiredOrganizations(db);
-      expect(purged).toBeGreaterThanOrEqual(1);
+      expect(purged.deleted).toBeGreaterThanOrEqual(1);
+      expect(purged.failed).toBe(0);
 
       const stillThere = async (orgId: string) =>
         (await countWhere(
@@ -391,9 +392,12 @@ describe.skipIf(!hasDb())("Organization deletion — service + routes (with DB)"
       await expireGrace(db, f.orgId);
 
       // `purgeExpiredAccounts` could not do this for an owner (F-25) — a
-      // restrictive FK refused and the whole transaction aborted. Every FK to
-      // organizations.id is CASCADE or SET NULL, so this must simply succeed.
-      await expect(purgeExpiredOrganizations(db)).resolves.toBeGreaterThanOrEqual(1);
+      // restrictive FK refused and the whole statement aborted (per-row since
+      // NWB-P1-013). Every FK to organizations.id is CASCADE or SET NULL, so
+      // this must simply succeed.
+      const orgPurge = await purgeExpiredOrganizations(db);
+      expect(orgPurge.deleted).toBeGreaterThanOrEqual(1);
+      expect(orgPurge.failed).toBe(0);
 
       expect(
         await countWhere(
@@ -590,7 +594,9 @@ describe.skipIf(!hasDb())("D16 interaction — org deletion vs. account deletion
       // After the grace period elapses and the organization is really gone,
       // the owner owns nothing and erasure proceeds end to end.
       await expireGrace(db, f.orgId);
-      expect(await purgeExpiredOrganizations(db)).toBeGreaterThanOrEqual(1);
+      const orgPurge = await purgeExpiredOrganizations(db);
+      expect(orgPurge.deleted).toBeGreaterThanOrEqual(1);
+      expect(orgPurge.failed).toBe(0);
 
       await expect(deleteAccount(db, f.owner.id)).resolves.toMatchObject({
         scheduledDeletionAt: expect.any(String),
@@ -599,8 +605,10 @@ describe.skipIf(!hasDb())("D16 interaction — org deletion vs. account deletion
       await db.execute(
         sql`UPDATE users SET scheduled_deletion_at = now() - interval '1 day' WHERE id = ${f.owner.id}`,
       );
-      // The F-25 failure mode would surface here as a 23503; it must not.
-      await expect(purgeExpiredAccounts(db)).resolves.toBeGreaterThanOrEqual(1);
+      // The F-25 failure mode would surface here as a 23503 in `failed`; it must not.
+      const accountPurge = await purgeExpiredAccounts(db);
+      expect(accountPurge.deleted).toBeGreaterThanOrEqual(1);
+      expect(accountPurge.failed).toBe(0);
     });
   });
 
@@ -622,9 +630,16 @@ describe.skipIf(!hasDb())("D16 interaction — org deletion vs. account deletion
             WHERE id = ${f.owner.id}`,
       );
 
-      // 23503 on organizations_owner_id_users_id_fk — the precise defect F-25
-      // described. This is why the gate stays as D16 decided it.
-      await expect(purgeExpiredAccounts(db)).rejects.toMatchObject({ code: "23503" });
+      // The refusal is per-row since NWB-P1-013: the purge resolves, deletes
+      // nothing, and reports the 23503 on organizations_owner_id_users_id_fk in
+      // `errors` — the precise defect F-25 described, still present, still the
+      // reason the gate stays as D16 decided it.
+      const result = await purgeExpiredAccounts(db);
+      expect(result.deleted).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.id).toBe(f.owner.id);
+      expect(result.errors[0]?.error).toMatch(/23503|owner_id/i);
     });
   });
 });

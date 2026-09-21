@@ -1,7 +1,7 @@
 # NWB-P1-013 — Purge batches must delete per row (one org-owner FK aborts a night of erasures)
 
 Type: task
-Status: ready-for-agent
+Status: done (2026-09-21 — verified locally: typecheck + `bun run lint` exit 0 + build + **535/535** `bun test` with a live database, 289 pass / 260 skip / 0 fail without one, `coverage:check` green at 90.7% services / 96.7% lib)
 Blocked by: — (NWB-P1-001 landed the scheduler that makes this visible; the defect predates it)
 Phase: P1 (roadmap Phase 2) · found while delivering NWB-P1-001 on 2026-09-21
 
@@ -27,6 +27,38 @@ or to a dedicated dead-letter structure? Answer before coding: the audit `after_
 place this run records anything, and "deleted 0" is indistinguishable from "nothing to do" unless the
 failure count travels with it. If the answer is dead-letter (it probably is — the plan already reserves
 DLQ shape for NWB-P1-012's observability), that is a schema decision and needs its own ticket.
+
+## Answer (2026-09-21, before coding)
+
+**Failed rows belong to this run's audit record** — `after_state: { deleted, failed, errors }` —
+not to a dead-letter structure. Three reasons:
+
+1. A refused row is retried by the *next nightly run*, not by an operator reading a DLQ: the row
+   is still expired, so the next run selects it again. A DLQ table would need its own lifecycle
+   (when does an entry clear — when a later run succeeds?), which is a second source of truth for
+   "was this user erased on time".
+2. `after_state` already carries the run's counts; `{ deleted: 0, failed: 2 }` keeps "erased vs
+   blocked" queryable per night with no join. If P1-012 wants repeated-failure alerting, it can
+   aggregate `failed > 0` runs from the audit log — no new schema needed.
+3. No migration. This ticket touches no DDL, so NWB-P0-005's "migrations from zero" criterion is
+   untouched.
+
+**Severity mechanism: the wrapper inspects the outcome.** `runJobGuarded` treats an outcome with a
+numeric `failed > 0` as a partial run and writes `warning` instead of `info` (`isPartialRun` in
+`src/lib/worker.ts`). Partiality is a property of *this run* — the same job is clean most nights —
+so it is read off the outcome, not declared on the definition; jobs that never report `failed`
+keep exactly the severity they always had.
+
+**Correction measured while scoping:** the ticket text claims a membership edge
+("`organizations_member_org_membership`") can abort an org batch. It cannot — verified against the
+applied migration DDL, `organization_members_organization_id_organizations_id_fk` is `ON DELETE
+cascade`, and every other FK to `organizations.id` in the active schema is CASCADE or SET NULL.
+The org-side per-row isolation is still built (same helper, same shape): the aspirational billing
+tables already declare `restrict` FKs to `organizations.id` (`invoices`, `payments`,
+`transactions`), so the day they migrate is the day a batch DELETE would start wedging — and
+NWB-P1-010's hold-skip needs per-row scope regardless. The org-side blocking test therefore uses a
+temporary restrictive FK (transactional DDL, rolls back with the test) as a stand-in for that
+future edge.
 
 ## Scope
 
@@ -60,18 +92,22 @@ DLQ shape for NWB-P1-012's observability), that is a schema decision and needs i
 
 ## Acceptance criteria
 
-- [ ] Two expired accounts, one of which still owns an organization: the other is deleted, the blocked
-      one is reported as failed with its error. (Today: `23503 organizations_owner_id_fkey`, and the
-      unblocked account survives too — that is the bug, and `src/tests/queue/jobs.test.ts` currently
-      proves it by asserting it.)
-- [ ] Same shape for the org purge with a blocking membership row.
-- [ ] `after_state` distinguishes `{deleted: 0}` from `{deleted: 0, failed: 2}`.
-- [ ] Re-running is still idempotent (the blocked row appears in `failed` twice, never in `deleted`).
-- [ ] Audit row for a partial run is `warning`, not `info`, when `failed.length > 0` — decide whether
-      that means `JobOutcome` carries a "partial" signal or the wrapper inspects the outcome; either
-      way a night that erased nothing must not look like a clean night.
-- [ ] `bun test`, `bun run typecheck`, `bun run build`, `bun run coverage:check` green; the two
-      `jobs.test.ts` assertions that pinned the old behaviour updated in the same commit.
+- [x] Two expired accounts, one of which still owns an organization: the other is deleted, the blocked
+      one is reported as failed with its error. (`jobs.test.ts`: "one blocked account no longer
+      wedges the batch".)
+- [x] Same shape for the org purge with a blocking row — via a temporary restrictive FK, because the
+      ticket's assumed membership edge turned out to be `ON DELETE cascade` (see Answer above).
+      (`jobs.test.ts`: "the org purge isolates a blocked row the same way".)
+- [x] `after_state` distinguishes `{deleted: 0}` from `{deleted: 0, failed: 2}`. (Partial-run audit
+      test asserts exactly `{ deleted: 0, failed: 2 }` on the row.)
+- [x] Re-running is still idempotent (the blocked row appears in `failed` twice, never in `deleted`).
+- [x] Audit row for a partial run is `warning`, not `info`, when `failed > 0` — wrapper inspects the
+      outcome (`isPartialRun`; see Answer above). Unit-pinned in `worker.test.ts`, integration-pinned
+      in `jobs.test.ts`.
+- [x] `bun test`, `bun run typecheck`, `bun run build`, `bun run coverage:check` green; the
+      `jobs.test.ts` wedge assertions that pinned the old behaviour rewritten in the same commit —
+      plus `org-deletion.test.ts`'s negative control, which also pinned throw-on-23503 and now pins
+      report-on-23503.
 
 ## Evidence of the defect (2026-09-21)
 
@@ -85,3 +121,25 @@ Reproduced in `src/tests/queue/jobs.test.ts` inside one transaction:
   (`{deleted: 2}`) and a re-run deletes nothing (`{deleted: 0}`). That ordering is why the schedules are
   02:15 before 02:45; it does not help a user whose org is soft-deleted *within* the same grace window,
   which is the case this ticket exists for.
+
+## Comments
+
+**2026-09-21 — delivered.** Shape decided as `{ deleted, failed, errors }` (`failed` duplicates
+`errors.length` so the count stays a scalar in `after_state` and the wrapper's check stays a number
+comparison). One shared helper (`deleteRowsPerRow` in `src/lib/transaction.ts`) serves both purges,
+so the savepoint handling cannot drift between them; candidates run oldest-erasure-first so a cut-short
+night still lands the rows closest to their NDPR deadline. A row that vanishes between SELECT and
+DELETE (a concurrent run got there first) counts as neither deleted nor failed — the run that erased
+it already claimed it. No migration (see Answer §3); schedule order and times untouched.
+
+Verification beyond the gates: the `ROLLBACK TO SAVEPOINT` line was temporarily removed and all
+three purge tests failed red with `25P02` (transaction aborted) — the savepoint is load-bearing and
+the tests prove it — then restored, green again. Suite: 531 → 535 pass (4 new: org stand-in-FK
+isolation, partial-run audit row, 2 wrapper-convention units); no-DB run 289 pass / 260 skip / 0 fail.
+(The 23-vs-20 test-count wobble in `org-deletion.test.ts` between no-DB and with-DB runs was checked
+against the pristine tree and is pre-existing, not from this ticket.)
+
+Unblocks NWB-P1-010's per-row hold check as filed. Feeds NWB-P1-015 one thing to know: `errors`
+carries the ids of rows that were *not* erased, so it is operational data about living subjects, not
+erasure residue — the anonymizer must still scrub any purged-subject ids that reach the jsonb columns
+through other paths.
