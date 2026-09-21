@@ -167,7 +167,8 @@
 - **Acceptance criteria:** no cross-origin credentialed preflight succeeds from an unlisted origin; one IP helper, three call sites.
 - **Risk:** low-medium (could break a dev setup that relied on `*`; dev default keeps localhost). **Rollback:** revert to `cors()`.
 
-#### NWB-P0-018 — Make the CASL scoping decision explicit (F-06)
+#### NWB-P0-018 — Make the CASL scoping decision explicit (F-06) — **DONE 2026-09-20**
+- **Shipped:** the recommended minimal option. Condition removed from `loadAbility` (behaviour-identical: it was inert); `Security Architecture.md` §4.3 gained an as-built column and a new §4.3.1 stating the real chain, with RLS marked unimplemented pending D11 (so no "per D11" placeholder was needed and the doc is true today); CASL v7 trap pinned plus three DB-gated `loadAbility` assertions in `src/tests/auth/ability-scoping.test.ts`; `src/tests/route-invariants.test.ts` added — a static scan over `src/server/api/**` that fails any `:orgId` route not covered by `requireOrgMatch` (inline or via `router.use`), with a negative control so it cannot pass vacuously. Ticket: `.scratch/p0-foundation-gap/issues/18-casl-scope-cleanup.md`.
 - **Objective:** the authorization story is true, documented, and pinned by a test — either the condition works or it is removed.
 - **Why:** F-06: every rule carries `{organizationId}` that can never be evaluated in the current `requireAbility` pattern; security docs claim it works; future developers will be misled.
 - **Current state:** `loadAbility` adds the condition; `requireAbility` checks string subjects; CASL v7 ignores conditions for string subjects (verified, §5 note).
@@ -180,12 +181,26 @@
 - **Acceptance criteria:** no code path relies on an inert condition; the scan test fails when a future `:orgId` route omits `requireOrgMatch`.
 - **Risk:** low (behavior-preserving — the condition was inert). **Rollback:** revert.
 
-#### NWB-P0-020 — Re-run the verification log (plan Appendix C)
+#### NWB-P0-020 — Re-run the verification log (plan Appendix C) — **DONE**
 - **Objective:** refresh every "last verified" number against the current tree with a live database.
 - **Why:** the plan's test numbers (96/33 skip; 162 with DB) are dated 2026-09-13 and this sandbox could not execute them; the roadmap's baseline must be current.
 - **Steps:** `bun install`; fresh PG (≥14); `db:push -- --force` (with `DB_*`); `bun run seed`; `bun test` (with and without `DATABASE_URL`); `bun run typecheck && bun run lint && bun run build`; record in Appendix C of the plan with today's date + HEAD.
 - **Acceptance:** typecheck PASS, lint PASS (errors), build PASS, test 0 fail. Any failure becomes a Phase 1 defect ticket before anything else.
 - **Risk:** none. **Rollback:** n/a.
+- **Outcome (2026-09-20):** done — `.scratch/p0-foundation-gap/issues/20-rerun-verification-log.md`.
+  Executed at HEAD `51c1a2d` against a **freshly created empty** PostgreSQL 14.23:
+  `db:migrate` from zero PASS (1 migration, 30 tables), **re-run a no-op** (exit criterion 3
+  evidenced), `seed` PASS and idempotent, `bun test` **395 pass / 0 fail** with a database and
+  **222 pass / 184 skip / 0 fail** without one, typecheck PASS, `biome check .` **0 errors**,
+  build PASS. No failure surfaced, so no new defect ticket. Appendix C now carries the measured
+  table and the 2026-09-13 log is marked superseded; plan §1 and `01-discovery.md` refreshed
+  (including 28 → **30** tables and three stale `src/app/*` route paths deleted in NWB-P0-026).
+  **Deviation:** the ticket's `db:push -- --force` step was deliberately not used — NWB-P0-005/009
+  replaced it with `db:migrate` as the evolution path; `db:push` is dev-convenience only.
+  Exit criteria re-scored against evidence: 1, 2, 4, 6 met; **3 partly** (migration path proven,
+  but CI still runs `db:push` — corrected after NWB-P0-022 read the workflow); **5 addressed by
+  NWB-P0-019** (all four decisions now carry a status; D11/D12 recorded-but-undecided); **7 open**
+  (branch protection, NWB-P0-022).
 
 #### NWB-P0-002 — DSAR data export (plan ticket, open)
 - **Objective:** any authenticated user (and admin on behalf) can request a machine-readable export of all personal data in their org; delivered within the NDPR window (PRD: 24h; Module 1 spec AC8).
@@ -213,27 +228,60 @@
 - **Risk:** medium (touching 81 schema files). **Rollback:** one revert; schema files are compile-checked and CI-tested.
 - **Note:** this is the single highest-leverage Phase 1 infrastructure task after the defect fixes — every later schema adoption depends on it.
 
-#### NWB-P0-019 — Close out P0 bookkeeping (documentation)
+#### NWB-P0-019 — Close out P0 bookkeeping (documentation) — **DONE**
 - **Objective:** the issue tracker tells the truth.
 - **Steps:** flip `p0-auth/spec.md` status (FR-AUTH-010 done; remaining: DSAR → P0-002, MFA login flow → P0-012, so keep `in-progress` with the accurate note until those land, then `done`); flip `foundation` spec to `done` (all 10 issues done — verify); record D13/D15 decisions + the D11 recommendation into `docs/business/Decision Log.md` as new DEC entries when made; update plan §1 (as-built baseline) with a "Last verified 2026-09-20" marker after Phase 1 lands.
 - **Acceptance:** no `in-progress` ticket without an accurate one-line outstanding note (tracker convention).
 - **Risk:** none.
+- **Outcome (2026-09-20):** done — `.scratch/p0-foundation-gap/issues/19-p0-bookkeeping.md`.
+  `p0-auth` flipped to **done** (10/10 FRs) after verifying API keys, MFA login and DSAR export
+  are all in the tree; `foundation` was already done (NWB-P0-006). **D15 → DEC-040 (Approved):
+  the MVP API ships unversioned**, closing discrepancy D-11 (doc rewrite stays in Phase 7).
+  **D11 → DEC-O009 (Open, with a written recommendation)** — premise re-verified live (0 RLS
+  policies, 0 tables with `relrowsecurity`, no RLS statement in the repo) and a defense-in-depth
+  Phase 8 recommendation recorded, but **not approved**: implement-vs-supersede-ADR-009 is an
+  architecture and procurement call. D12 remains a product call (memo written). Plan §1 marker
+  was refreshed by NWB-P0-020.
+  **Exit criterion 5 therefore reads "recorded" ✅ / "decided" ❌** — D11 and D12 still need a
+  human.
 
-#### NWB-P0-021 — Email link consistency (F-09, F-09b)
+#### NWB-P0-021 — Email link consistency (F-09, F-09b) — **DONE**
 - **Objective:** every emailed link uses one server-decided base URL; no client header in security emails.
 - **Steps:** add `APP_BASE_URL` to `config.ts` (default = `CORS_ORIGIN` for dev); replace `signup.ts:211` base with `APP_BASE_URL + "/api/auth/verify-email"`; replace `verification.route.ts`'s `c.req.header("origin")` with `APP_BASE_URL`; invite emails (Phase 1 P0-016) use `APP_BASE_URL + "/invite?token="` (web-app route); audit other `emailService.send` call sites for link bases (password-reset, email-change, MFA-notice).
 - **Tests:** unit: emitted HTML contains `APP_BASE_URL`-based links; negative: with no client Origin header, links still absolute.
 - **Acceptance:** zero client-controlled values in any emailed URL.
 - **Risk:** none. **Rollback:** revert.
+- **Outcome (2026-09-20):** done — `.scratch/p0-foundation-gap/issues/21-email-link-consistency.md`.
+  `APP_BASE_URL` added (optional; derived `APP_BASE_URL_RESOLVED` defaults to `CORS_ORIGIN[0]`,
+  strips trailing slashes, rejects a non-URL value at startup). The `origin` parameter was removed
+  from `forgotPassword`/`sendVerificationEmail` entirely, so the two routes and the two Server
+  Functions can no longer pass one; the three `CORS_ORIGIN[0]` services moved to the resolved base;
+  signup now links to `/api/auth/verify-email`. Beyond the stated scope, the audit found the
+  *unauthenticated* forgot-password route was the worst instance — a forged `Origin` delivered a
+  **valid reset token** to an attacker-chosen domain (reproduced, now a regression test) — and that
+  the Server Functions emitted relative links. `src/tests/email-links.test.ts`: 12 tests, verified
+  red against the pre-fix service.
 
-#### NWB-P0-022 — Branch protection + CI as a real gate
+#### NWB-P0-022 — Branch protection + CI as a real gate — **BLOCKED (ops, needs repo admin)**
 - **Objective:** merge to `main` requires green CI.
 - **Current state:** workflow exists; "Branch protection on main is not yet configured, so CI currently reports without blocking" (AGENTS.md).
 - **Steps:** configure GitHub branch protection (settings — not code): require status checks `quality` + `test` before merge on `main`; require PR (no direct push); record in AGENTS.md. (If the repo owner lacks settings access, file as an ops task with exact settings.)
 - **Acceptance:** a red PR cannot merge.
 - **Risk:** none.
+- **Outcome (2026-09-20):** filed as an ops task with exact settings —
+  `.scratch/p0-foundation-gap/issues/22-branch-protection.md`. Verified, not assumed: the agent
+  token (`arena-ai-coding-agent[bot]`) reports `admin:false` and **403s on both reading and
+  writing** branch protection; `rulesets` is empty, so `main` has **no protection of any kind**.
+  The ticket records the click-through settings and the equivalent `gh api` call. **Use the check
+  *names* `Typecheck, lint, build` and `Test (PostgreSQL)`, not the job ids `quality`/`test`** —
+  GitHub matches required checks by reported name, so the ids would create a rule that can never
+  be satisfied and would block every merge instead of gating on CI.
 
-#### NWB-P0-023 — Organization deletion (PRD 8.2.1 P0; discrepancy D-14)
+#### NWB-P0-023 — Organization deletion (PRD 8.2.1 P0; discrepancy D-14) — **DONE 2026-09-20**
+- **Shipped:** `src/services/orgs/org-deletion.service.ts` (delete / reactivate / purge / status), `DELETE /api/orgs/:orgId` + `POST /api/orgs/:orgId/reactivate`, 20 tests. Cascades: memberships deactivated (not soft-deleted, so reactivation can tell them from an admin's own suspension), API keys revoked, all members' sessions revoked (and deliberately **not** restored on reactivation). Ownership checked against `organizations.owner_id`, not a role row (DEC-039). Billing block stubbed as `findBillingBlocker()` + `TODO(P13)`.
+- **Found in its own design:** deletion suspends the owner's membership too, so `assertActivePrincipal` locked the owner out of the only route that undoes it — the 30-day grace would have been unreachable. Fixed with `authMiddlewareAllowingInactiveMembership`, a single-route relaxation of *only* the active-membership check, fenced in by four containment tests.
+- **D16 follow-up measured and declined:** relaxing the account-deletion gate for sole-member orgs reintroduces F-25's 23503 (a soft-deleted org still holds the restrictive `owner_id` FK) — negative control test. The hard purge is the unblock; that sequence now works end to end.
+- **Not scheduled:** `purgeExpiredOrganizations` has no runner, same as `purgeExpiredAccounts` (F-18); wire both with the Phase 2 queue. Ticket: `.scratch/p0-foundation-gap/issues/23-organization-deletion.md`.
 - **Objective:** org owner/admin can delete their organization: soft-delete (30-day grace), sessions of all members revoked, memberships deactivated, audit, and a purge path when Phase 2's scheduler lands.
 - **Why:** PRD P0 requirement absent from both code and the execution plan.
 - **Required change:** mirror the account-deletion pattern (`src/services/users/account-deletion.service.ts` — soft delete + `scheduled_deletion_at` + reactivate + `purgeExpired*` function) for organizations: `deleteOrganization`, `reactivateOrganization`, `purgeExpiredOrganizations` (unscheduled until Phase 2, same as F-18). **Read F-24/F-25 first:** the pattern this ticket tells you to copy referenced a `users.scheduled_deletion_at` column that did not exist until NWB-P0-024, and its purge still cannot delete an organization owner (NWB-P0-025) — decide the ownership semantics here rather than inheriting them. Guards: only `owner` role (per D13); blocked while the org has active subscriptions (Phase 6 concern — stub the check as a no-op hook with a TODO referenced to P13, do not invent billing state); cascades: members deactivated, API keys revoked, sessions revoked.
@@ -252,17 +300,21 @@
 **Phase 1 infrastructure changes:** branch protection; CI step swap `db:push → db:migrate`.
 
 **Phase 1 exit criteria (all must be evidenced):**
-> Suite counts quoted in this document are dated; the live numbers as of the NWB-P0-015/024
-> work (2026-09-20) are **325 pass / 0 fail** with a database, 208 pass / 123 skip / 0 fail
-> without one, and `biome check .` clean. **CI is green on PR #12** for both jobs — the first
-> green run since PR #11's merge, and the runtime proof the workflow was missing: the suite
-> passes on the pinned `postgres:14` floor. Exit criterion 1 is therefore met in CI, not just
-> locally; criterion 7 (branch protection, NWB-P0-022) is not.
+> **Live numbers, re-measured 2026-09-20 at HEAD `51c1a2d` (NWB-P0-020 — executed, not carried
+> forward): 395 pass / 0 fail with a live PostgreSQL 14.23; 222 pass / 184 skip / 0 fail without
+> a database; `biome check .` 0 errors; typecheck and build clean.** Earlier counts in this
+> document (96, 162, 325 …) are historical. CI is green on both jobs for PR #14 on the pinned
+> `postgres:14` floor, so exit criterion 1 is met in CI and not merely locally. Criterion 3 is
+> now evidenced **in part**: `db:migrate` was run against a freshly created empty database and then
+> re-run as a no-op — but **CI still runs `db:push -- --force`**, so criterion 3's third clause is
+> not met (NWB-P0-005's remaining step, blocked on the GitHub App's `workflows` permission —
+> re-verified 2026-09-20 by a push that was remote-rejected). **Criterion 7 remains open** — branch protection (NWB-P0-022) is a GitHub
+> *settings* change requiring repo-owner access, so CI still reports without blocking merges.
 1. `bun test` green with a live DB, **including** the new suites: signup-owner-role, org-update positive+negative, MFA full flow, rate-limit windows, role-matrix self-protection, status enforcement, invitation accept, CORS/IP, route-invariant scan, DSAR, org deletion. (NWB-P0-020 re-run recorded.)
 2. A fresh org owner can: invite a member → invitee accepts (new + existing user) → member acts with the invited role → role changes respect self-protection. **This end-to-end sequence is the Phase 1 demo.**
-3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`.
+3. `drizzle/` migrations take a clean DB to current schema; re-run is a no-op; CI uses `db:migrate`. — **Partly met:** the first two clauses are evidenced (NWB-P0-020, against a freshly created database); **CI still runs `db:push -- --force`** — NWB-P0-005's last step, blocked on the GitHub App's `workflows` permission.
 4. DSAR export returns a valid machine-readable payload.
-5. D12, D13, D11, D15 recorded in the Decision Log with status.
+5. D12, D13, D11, D15 recorded in the Decision Log with status. — **Met as written (all four carry a status as of NWB-P0-019: D13 DEC-039 Approved, D15 DEC-040 Approved, D11 DEC-O009 Open+recommendation, D12 open+options memo). Note: two of the four are recorded-but-undecided; if the intent was "all four decided", D11 and D12 remain outstanding and need a human decision.**
 6. No Critical/High defect from §5 remains open (F-01…F-05, F-07, F-08, F-12 closed; F-06 closed by documentation+test; F-09/F-10/F-13 closed).
 7. AGENTS.md "Last verified" marker refreshed; plan §1 refreshed.
 

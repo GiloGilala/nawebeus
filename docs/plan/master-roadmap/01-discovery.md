@@ -97,7 +97,7 @@ Legend: ✅ complete & verified · 🟨 complete but with defects/gaps (defect I
 | AuthN: signin | 🟨 | bcrypt verify, atomic lockout increment (NWB-P0-008 fix, concurrency-tested), IP rate-limit, MFA one-shot code path. But: MFA challenge flow is a dead end (F-03); user `status` selected but never enforced (F-05); IP header parsing inconsistent with middleware (F-10) |
 | AuthN: refresh/signout | ✅ | Rotation + token binding + reuse rejection (`auth.service.ts:refreshSession`); cookies set correctly |
 | AuthN: MFA | 🟨 | Setup/verify/disable + TOTP (RFC 6238) + backup codes. Defects: displayed backup codes are not the stored ones (F-04); codes stored plaintext vs spec AC4 (F-04b); no 2-step login endpoint (F-03); no Owner/Admin enforcement (AC7), no trust-device (AC6), no MFA-failure rate limit (AC8) |
-| AuthN: verification / reset / email-change | 🟨 | Token-table flows work (single-use, TTL, resend limits). Signup link base is wrong (F-09); resend uses client `Origin` header as link base (F-09b) |
+| AuthN: verification / reset / email-change | ✅ | Token-table flows work (single-use, TTL, resend limits). Link bases fixed in NWB-P0-021: one server-decided `APP_BASE_URL`, no request header reaches an emailed link (F-09, F-09b closed) |
 | Sessions/devices | 🟨 | List/detail/revoke implemented; device/browser/location columns exist in schema but **never populated** (no UA parsing) — `createSession` inserts only ip + user-agent |
 | API keys | ✅ | Full lifecycle create/list/rotate/revoke, digest-only storage, permission narrowing, Bearer middleware, 33 tests (`.scratch/p0-foundation-gap/issues/01-api-key-management.md`) |
 | RBAC | 🟨 | Per-request CASL load + `requireAbility` on every mutating route; but: subject mismatch kills org update (F-02); org-scoping condition inert (F-06); self-protection guards reference role codes that don't exist in seed (F-07) |
@@ -123,7 +123,7 @@ Legend: ✅ complete & verified · 🟨 complete but with defects/gaps (defect I
 | Deployment / infra | 🔴 | No Dockerfile, no systemd unit, no nginx conf in repo. Target documented in `docs/technical/Infrastructure.md` (VPS + Coolify + WireGuard, ADR-008/DEC-029) |
 | Backups / DR | 🔴 | Documented strategy (Infra §5) not implemented; no scripts |
 | Secrets management | 🔴 | Env vars via `.env`; no rotation schedule implemented (Infra §8.3 documented) |
-| Testing | 🟨 | 28 test files, ~195 describe/test blocks; transaction-wrapped DB tests (`withTestDb`), no-DB unit seam, factories. Last verified: **96 pass / 33 skip without DB; 162 pass / 0 fail with live DB (2026-09-13, NWB-P0-008 note)** — must be re-run as first Phase 1 action (NWB-P0-020). No E2E (no UI to test), no coverage report, no security suite beyond ad-hoc tenant checks inside feature tests |
+| Testing | 🟨 | 42 test files, 438 describe/test blocks; transaction-wrapped DB tests (`withTestDb`), no-DB unit seam, factories. Last verified **2026-09-20 at HEAD `51c1a2d` (NWB-P0-020, re-run executed — not carried forward)**: **395 pass / 0 fail with a live PostgreSQL 14.23; 222 pass / 184 skip / 0 fail without a database**. Still no E2E (no UI to test), no coverage report, and no dedicated security suite — tenant checks live inside feature tests plus the route-invariant scan |
 | Config | ✅ | Zod-validated env singleton (`src/lib/config.ts`); `loadConfig()` before `getConfig()` convention documented |
 
 **P0 (execution plan) status, re-verified today:**

@@ -69,12 +69,56 @@ const envSchema = z.object({
     })
     .transform(parseCidrList),
 
+  /**
+   * The base URL every emailed link is built from (NWB-P0-021, F-09/F-09b).
+   *
+   * Emailed links must be decided by the server, never by the request. Two
+   * routes previously passed `c.req.header("origin")` into the email body, so
+   * `Origin: https://evil.example.com` on an unauthenticated forgot-password
+   * call put a *valid* reset token for someone else's account on an
+   * attacker-controlled domain (reproduced before the fix). This value is the
+   * single source of truth for link bases.
+   *
+   * Optional: when unset it falls back to the first `CORS_ORIGIN` entry, which
+   * is what the three services already used and keeps dev a zero-config
+   * experience. Trailing slashes are stripped so `${base}/path` never doubles up.
+   */
+  APP_BASE_URL: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || isHttpUrl(v), {
+      message: "APP_BASE_URL must be a single http(s) URL",
+    }),
+
   // Seed credentials
   SEED_ADMIN_EMAIL: z.string().email().default("admin@nawebeus.com"),
   SEED_ADMIN_PASSWORD: z.string().min(8).default("Admin@123456"),
 });
 
-export type Config = z.infer<typeof envSchema>;
+export type Config = z.infer<typeof envSchema> & {
+  /**
+   * Resolved, trailing-slash-free base for every emailed link. Always present
+   * and always absolute, so callers never have to decide a fallback (and so no
+   * call site can be tempted back to a request header). Derived, not parsed —
+   * it is not settable directly; set `APP_BASE_URL` instead.
+   */
+  APP_BASE_URL_RESOLVED: string;
+};
+
+/** A single http(s) URL — no lists, no `*`. */
+function isHttpUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw.trim());
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Strip trailing slashes so `${base}/path` cannot produce `//path`. */
+function stripTrailingSlashes(raw: string): string {
+  return raw.trim().replace(/\/+$/, "");
+}
 
 let _config: Config | undefined;
 
@@ -84,7 +128,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
     throw new Error(`Config validation failed: ${errors}`);
   }
-  _config = result.data;
+  // `CORS_ORIGIN` is guaranteed non-empty by `isOriginList`, so the fallback is
+  // always a real absolute origin.
+  const appBaseUrl = stripTrailingSlashes(result.data.APP_BASE_URL ?? result.data.CORS_ORIGIN[0]!);
+  _config = { ...result.data, APP_BASE_URL_RESOLVED: appBaseUrl };
   return _config;
 }
 

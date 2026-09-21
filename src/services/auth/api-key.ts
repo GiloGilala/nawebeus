@@ -3,6 +3,12 @@ import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ConflictError } from "../../lib/errors";
 import { normaliseIp } from "../../lib/ip";
+import {
+  buildPage,
+  DEFAULT_PAGE_SIZE,
+  type Page,
+  type PaginationParams,
+} from "../../lib/pagination";
 import { generateSecureToken, hashToken } from "../../lib/tokens";
 import {
   API_KEY_NAMESPACE,
@@ -194,7 +200,13 @@ export async function listApiKeys(
   db: Db,
   organizationId: string,
   status: ApiKeyStatus = "active",
-): Promise<ApiKeyListEntry[]> {
+  page?: PaginationParams,
+): Promise<Page<ApiKeyListEntry>> {
+  const limit = page?.limit ?? DEFAULT_PAGE_SIZE;
+  const cursor = page?.cursor ?? null;
+  const after = cursor
+    ? sql`AND (issued_at, id) < (${cursor.v}::timestamptz, ${cursor.id}::uuid)`
+    : sql``;
   const rows = await db.execute<{
     id: string;
     name: string;
@@ -213,21 +225,26 @@ export async function listApiKeys(
     usage_count: number;
     revoked_at: Date | null;
     revoke_reason: string | null;
+    cursor_v: string;
   }>(
     sql`
       SELECT id, name, description, key_prefix, public_key, key_type, environment,
              permission_level, security_level, scopes, status, issued_at, expires_at,
-             last_used_at, usage_count, revoked_at, revoke_reason
+             last_used_at, usage_count, revoked_at, revoke_reason,
+             to_char(issued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS cursor_v
       FROM api_keys
       WHERE organization_id = ${organizationId}
         AND deleted_at IS NULL
         AND status = ${status}
-      ORDER BY issued_at DESC
+        ${after}
+      ORDER BY issued_at DESC, id DESC
+      LIMIT ${limit + 1}
     `,
   );
 
-  return ((rows as any).rows ?? []).map(
-    (r: any): ApiKeyListEntry => ({
+  const mapped = ((rows as any).rows ?? []).map(
+    (r: any): ApiKeyListEntry & { _cursorV: string } => ({
+      _cursorV: r.cursor_v,
       id: r.id,
       name: r.name,
       description: r.description ?? null,
@@ -246,6 +263,7 @@ export async function listApiKeys(
       revokeReason: r.revoke_reason ?? null,
     }),
   );
+  return buildPage(mapped, limit, (k: any) => k._cursorV);
 }
 
 /**

@@ -35,7 +35,8 @@ router.post("/forgot-password", async (c) => {
 
   const db = c.var.db;
   // We always show the same message regardless of whether the email exists
-  await forgotPassword(db, parsed.data.email, c.req.header("origin") ?? "");
+  // No Origin header: the emailed link's base is server-decided (NWB-P0-021).
+  await forgotPassword(db, parsed.data.email);
   return c.json(
     success({
       message: "If an account with that email exists, a password reset link has been sent.",

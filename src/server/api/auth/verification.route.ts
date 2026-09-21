@@ -28,8 +28,8 @@ router.post("/resend-verification", async (c) => {
   }
 
   const db = c.var.db;
-  const origin = c.req.header("origin") ?? "";
-  await sendVerificationEmail(db, parsed.data.email, origin);
+  // No Origin header: the emailed link's base is server-decided (NWB-P0-021).
+  await sendVerificationEmail(db, parsed.data.email);
 
   // Always return the same message to avoid email enumeration
   return c.json(

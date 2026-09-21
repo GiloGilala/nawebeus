@@ -52,9 +52,16 @@ const BEARER_PREFIX = "Bearer ";
  *
  * One statement, three answers, so the extra guard costs no extra round trip.
  */
-async function assertActivePrincipal(db: Db, userId: string, orgId: string): Promise<void> {
+async function assertActivePrincipal(
+  db: Db,
+  userId: string,
+  orgId: string,
+  opts?: { requireActiveMembership?: boolean },
+): Promise<void> {
+  const requireActiveMembership = opts?.requireActiveMembership !== false;
   const rows = await db.execute<{
     member_id: string | null;
+    any_member_id: string | null;
     status: string;
     deleted_at: string | null;
   }>(
@@ -65,6 +72,11 @@ async function assertActivePrincipal(db: Db, userId: string, orgId: string): Pro
               AND om.status = 'active'
               AND om.deleted_at IS NULL
             LIMIT 1) AS member_id,
+          (SELECT om.id FROM organization_members om
+            WHERE om.user_id = u.id
+              AND om.organization_id = ${orgId}
+              AND om.deleted_at IS NULL
+            LIMIT 1) AS any_member_id,
           u.status,
           u.deleted_at
         FROM users u
@@ -72,78 +84,122 @@ async function assertActivePrincipal(db: Db, userId: string, orgId: string): Pro
         LIMIT 1`,
   );
   const row = (rows as any).rows?.[0] as
-    | { member_id: string | null; status: string; deleted_at: string | null }
+    | {
+        member_id: string | null;
+        any_member_id: string | null;
+        status: string;
+        deleted_at: string | null;
+      }
     | undefined;
 
   if (!row || row.deleted_at !== null) throw new AuthError("Account is no longer active");
   assertAccountCanAuthenticate(row.status);
-  if (row.member_id === null) {
+
+  const memberId = requireActiveMembership ? row.member_id : row.any_member_id;
+  if (memberId === null) {
     throw new ForbiddenError("You are not a member of this organization");
   }
 }
 
-export const authMiddleware: MiddlewareHandler = async (c, next) => {
-  const config = getConfig();
-  const db = c.var.db;
+/**
+ * The org-lifecycle escape hatch (NWB-P0-023).
+ *
+ * Deleting an organization suspends *every* membership in it — including the
+ * owner's. `assertActivePrincipal` then refuses the owner on the next request,
+ * which locks them out of the one route that undoes the deletion. The 30-day
+ * grace period PRD 8.2.1 promises would have been unreachable in practice: the
+ * only recovery would have been a manual database edit.
+ *
+ * Found by the NWB-P0-023 reactivation test, which 403'd. Rather than not
+ * suspending the owner (which would leave them able to keep working inside a
+ * deleted organization, so the deletion would not really have taken effect),
+ * exactly one route opts out of the *active*-membership requirement while
+ * keeping every other check: the account must still exist, not be soft-deleted,
+ * pass `users.status`, and hold a membership row in this organization that is
+ * not itself soft-deleted. The route then re-checks `organizations.owner_id`
+ * before doing anything.
+ *
+ * Do not reach for this anywhere else. It exists so that "deleted" can mean
+ * deleted without also meaning unrecoverable.
+ */
+const AUTH_ALLOW_INACTIVE_MEMBERSHIP = { requireActiveMembership: false } as const;
 
-  // ── API key path ─────────────────────────────────────────────────────────
-  // A Bearer key is a drop-in replacement for the access-token cookie on every
-  // protected route. It resolves to a user + org exactly as the cookie does,
-  // but the ability it installs is narrowed to the key's own limits.
-  const authHeader = c.req.header("authorization");
-  if (authHeader && authHeader.startsWith(BEARER_PREFIX)) {
-    const presented = authHeader.slice(BEARER_PREFIX.length).trim();
-    if (!presented) throw new AuthError("Malformed Authorization header");
+function buildAuthMiddleware(principalOpts?: {
+  requireActiveMembership?: boolean;
+}): MiddlewareHandler {
+  return async (c, next) => {
+    const config = getConfig();
+    const db = c.var.db;
 
-    const resolved = await resolveApiKey(db, presented);
-    if (!resolved) throw new AuthError("Invalid or revoked API key");
+    // ── API key path ─────────────────────────────────────────────────────────
+    // A Bearer key is a drop-in replacement for the access-token cookie on every
+    // protected route. It resolves to a user + org exactly as the cookie does,
+    // but the ability it installs is narrowed to the key's own limits.
+    const authHeader = c.req.header("authorization");
+    if (authHeader && authHeader.startsWith(BEARER_PREFIX)) {
+      const presented = authHeader.slice(BEARER_PREFIX.length).trim();
+      if (!presented) throw new AuthError("Malformed Authorization header");
 
-    await assertActivePrincipal(db, resolved.userId, resolved.organizationId);
+      const resolved = await resolveApiKey(db, presented);
+      if (!resolved) throw new AuthError("Invalid or revoked API key");
 
-    c.set("user", { userId: resolved.userId, orgId: resolved.organizationId });
-    c.set("authMethod", "api_key");
-    c.set("apiKeyId", resolved.id);
+      await assertActivePrincipal(db, resolved.userId, resolved.organizationId, principalOpts);
 
-    const base = await loadAbility(db, resolved.userId, resolved.organizationId);
-    c.set("ability", apiKeyAbility(base, resolved.permissionLevel, resolved.scopes));
+      c.set("user", { userId: resolved.userId, orgId: resolved.organizationId });
+      c.set("authMethod", "api_key");
+      c.set("apiKeyId", resolved.id);
 
-    await recordApiKeyUsage(db, resolved.id, {
-      ip: getClientIp(c, config),
-      userAgent: c.req.header("user-agent") ?? null,
-    });
+      const base = await loadAbility(db, resolved.userId, resolved.organizationId);
+      c.set("ability", apiKeyAbility(base, resolved.permissionLevel, resolved.scopes));
 
-    // MUST await: Hono's compose() checks `context.finalized` as soon as this
-    // handler's promise settles. Dropping the await resolves the chain before
-    // the route handler writes its response, and Hono throws
-    // "Context is not finalized" → a blanket 500 on every protected route.
-    await runWithOrgContext({ orgId: resolved.organizationId, userId: resolved.userId }, next);
-    return;
-  }
+      await recordApiKeyUsage(db, resolved.id, {
+        ip: getClientIp(c, config),
+        userAgent: c.req.header("user-agent") ?? null,
+      });
 
-  // ── Session cookie path (unchanged) ──────────────────────────────────────
-  const accessToken = getCookie(c, "nawebeus_access");
-  if (!accessToken) throw new AuthError("No access token provided");
+      // MUST await: Hono's compose() checks `context.finalized` as soon as this
+      // handler's promise settles. Dropping the await resolves the chain before
+      // the route handler writes its response, and Hono throws
+      // "Context is not finalized" → a blanket 500 on every protected route.
+      await runWithOrgContext({ orgId: resolved.organizationId, userId: resolved.userId }, next);
+      return;
+    }
 
-  let payload: AccessPayload;
-  try {
-    const result = await verifyToken(accessToken, config.JWT_ACCESS_SECRET);
-    if (result.type !== "access") throw new AuthError("Invalid token type");
-    payload = result;
-  } catch (e) {
-    if (e instanceof AuthError) throw e;
-    throw new AuthError("Invalid or expired access token");
-  }
+    // ── Session cookie path (unchanged) ──────────────────────────────────────
+    const accessToken = getCookie(c, "nawebeus_access");
+    if (!accessToken) throw new AuthError("No access token provided");
 
-  // Verify membership — the JWT's orgId must match a real membership row
-  await assertActivePrincipal(db, payload.userId, payload.orgId);
+    let payload: AccessPayload;
+    try {
+      const result = await verifyToken(accessToken, config.JWT_ACCESS_SECRET);
+      if (result.type !== "access") throw new AuthError("Invalid token type");
+      payload = result;
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      throw new AuthError("Invalid or expired access token");
+    }
 
-  c.set("user", { userId: payload.userId, orgId: payload.orgId });
-  c.set("authMethod", "session");
-  c.set("apiKeyId", undefined);
+    // Verify membership — the JWT's orgId must match a real membership row
+    await assertActivePrincipal(db, payload.userId, payload.orgId, principalOpts);
 
-  const ability = await loadAbility(db, payload.userId, payload.orgId);
-  c.set("ability", ability);
+    c.set("user", { userId: payload.userId, orgId: payload.orgId });
+    c.set("authMethod", "session");
+    c.set("apiKeyId", undefined);
 
-  // Same reasoning as the API-key branch above — the await is load-bearing.
-  await runWithOrgContext({ orgId: payload.orgId, userId: payload.userId }, next);
-};
+    const ability = await loadAbility(db, payload.userId, payload.orgId);
+    c.set("ability", ability);
+
+    // Same reasoning as the API-key branch above — the await is load-bearing.
+    await runWithOrgContext({ orgId: payload.orgId, userId: payload.userId }, next);
+  };
+}
+
+export const authMiddleware: MiddlewareHandler = buildAuthMiddleware();
+
+/**
+ * `authMiddleware`, minus the requirement that the membership be *active*.
+ * See AUTH_ALLOW_INACTIVE_MEMBERSHIP above — org reactivation only.
+ */
+export const authMiddlewareAllowingInactiveMembership: MiddlewareHandler = buildAuthMiddleware(
+  AUTH_ALLOW_INACTIVE_MEMBERSHIP,
+);

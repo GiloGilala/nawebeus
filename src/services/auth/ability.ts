@@ -39,12 +39,21 @@ export async function loadAbility(
     const subject = perm.slice(0, dot);
     const action = perm.slice(dot + 1);
 
-    // Scope abilities to the user's organization
-    if (action === "manage") {
-      can("manage", subject, { organizationId: orgId });
-    } else {
-      can(action as Actions, subject, { organizationId: orgId });
-    }
+    // NO `{ organizationId }` condition here — deliberately (NWB-P0-018, F-06).
+    //
+    // CASL evaluates conditions only against a *subject instance*. Every check
+    // in this codebase is `ability.can(action, "string-subject")`, and for a
+    // string subject CASL v7 skips condition matching entirely, so a condition
+    // attached here is decorative: it can never deny anything. Carrying it
+    // anyway made the authorization story read stronger than it was.
+    //
+    // The real org scoping is the query above: abilities are loaded per
+    // (user, org) from *that org's* active memberships, so a user in org A
+    // never receives org B's rules in the first place. On top of that sit
+    // `requireOrgMatch()` (URL `:orgId` must equal the JWT org) and the
+    // service-layer `organization_id` predicates. See
+    // `docs/technical/Security Architecture.md` §4.3.
+    can(action as Actions, subject);
   }
 
   return build();

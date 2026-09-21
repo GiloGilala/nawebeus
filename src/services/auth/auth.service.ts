@@ -1,7 +1,12 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getConfig } from "../../lib/config";
-import { AccountLockedError, AccountSuspendedError, AuthError } from "../../lib/errors";
+import {
+  AccountLockedError,
+  AccountSuspendedError,
+  AuthError,
+  ConflictError,
+} from "../../lib/errors";
 import { checkRateLimit } from "../../lib/rate-limit";
 import { writeAuditLog } from "../audit";
 import { type JwtPayload, signAccessToken, signRefreshToken, verifyToken } from "./jwt";
@@ -12,8 +17,8 @@ import {
   revokeMfaChallenge,
   verifyMFAForLogin,
 } from "./mfa";
-import { hashPassword, verifyPassword } from "./password";
-import { recordPasswordChange } from "./password-history";
+import { verifyPassword } from "./password";
+import { isPasswordInHistory, recordPasswordChange } from "./password-history";
 import {
   createSession,
   findSession,
@@ -443,14 +448,20 @@ export async function changePassword(
   const valid = await verifyPassword(currentPassword, user.password);
   if (!valid) throw new AuthError("Current password is incorrect");
 
-  const hashed = await hashPassword(newPassword);
-  const newHistory = await recordPasswordChange(db, userId, hashed);
+  // BR-AUTH-022 / AC3 (`docs/modules/Authentication & User Management.md` §321):
+  // the change-password flow must reject a password from the user's history,
+  // exactly as the reset flow does. This check was missing entirely here, so
+  // "must not match your last 5 passwords" was enforced on only one of the two
+  // paths that set a password.
+  if (await isPasswordInHistory(db, userId, newPassword)) {
+    throw new ConflictError("New password must not match any of your last 5 passwords");
+  }
 
-  await db.execute(
-    sql`UPDATE users SET password = ${hashed},
-        password_history = ${JSON.stringify(newHistory)}::jsonb
-        WHERE id = ${userId}`,
-  );
+  // `recordPasswordChange` takes the **plaintext** password — it hashes
+  // internally and writes `users.password`, `password_history` and
+  // `last_password_change_at` itself. Passing it an already-hashed value
+  // double-hashed the password and corrupted the history column (F-28).
+  await recordPasswordChange(db, userId, newPassword);
 
   await revokeAllSessionsForUser(db, userId);
 

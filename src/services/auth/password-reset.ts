@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { getConfig } from "../../lib/config";
 import { AuthError, ConflictError, NotFoundError } from "../../lib/errors";
 import { validatePassword } from "../../lib/password";
 import { writeAuditLog } from "../audit";
@@ -14,7 +15,6 @@ const RESET_TTL_MINUTES = 60;
 export async function forgotPassword(
   db: NodePgDatabase<Record<string, any>>,
   email: string,
-  origin: string,
 ): Promise<void> {
   const user = await getUserByEmail(db, email);
 
@@ -27,7 +27,11 @@ export async function forgotPassword(
       expiresInMinutes: RESET_TTL_MINUTES,
     });
 
-    const link = `${origin}/reset-password?token=${rawToken}`;
+    // Server-decided base, never the request's Origin header (F-09b). This
+    // route is unauthenticated, so a client-supplied base meant anyone could
+    // have a valid reset token for someone else's account delivered to a
+    // domain they control.
+    const link = `${getConfig().APP_BASE_URL_RESOLVED}/reset-password?token=${rawToken}`;
 
     await emailService.send({
       to: email,

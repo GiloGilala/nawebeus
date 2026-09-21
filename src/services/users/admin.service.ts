@@ -1,6 +1,12 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ForbiddenError, NotFoundError } from "../../lib/errors";
+import {
+  buildPage,
+  DEFAULT_PAGE_SIZE,
+  type Page,
+  type PaginationParams,
+} from "../../lib/pagination";
 import { writeAuditLog } from "../audit";
 import { assignRole } from "../orgs/role-assignment.service";
 import {
@@ -38,22 +44,32 @@ export interface AdminUpdateUserInput {
 export async function listUsers(
   db: NodePgDatabase<Record<string, any>>,
   orgId: string,
-): Promise<AdminUserProfile[]> {
+  page?: PaginationParams,
+): Promise<Page<AdminUserProfile>> {
+  const limit = page?.limit ?? DEFAULT_PAGE_SIZE;
+  const cursor = page?.cursor ?? null;
+  // Descending list, so the cursor selects rows *before* the boundary.
+  const after = cursor
+    ? sql`AND (u.created_at, u.id) < (${cursor.v}::timestamptz, ${cursor.id}::uuid)`
+    : sql``;
   const rows = await db.execute(
     sql`
       SELECT u.id, u.email, u.username, u.first_name, u.last_name,
              u.display_name, u.profile_image, u.status, u.role,
              om.id AS member_id, om.status AS member_status, om.is_active,
-             u.last_login_at, u.created_at
+             u.last_login_at, u.created_at,
+             to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS cursor_v
       FROM users u
       JOIN organization_members om ON om.user_id = u.id
       WHERE om.organization_id = ${orgId}
         AND om.deleted_at IS NULL
         AND u.deleted_at IS NULL
-      ORDER BY u.created_at DESC
+        ${after}
+      ORDER BY u.created_at DESC, u.id DESC
+      LIMIT ${limit + 1}
     `,
   );
-  return ((rows as any).rows ?? []).map((r: any) => ({
+  const mapped = ((rows as any).rows ?? []).map((r: any) => ({
     id: r.id as string,
     email: r.email as string,
     username: r.username as string,
@@ -68,7 +84,9 @@ export async function listUsers(
     isActive: !!r.is_active,
     lastLoginAt: (r.last_login_at as string) ?? null,
     createdAt: (r.created_at as string) ?? null,
+    _cursorV: r.cursor_v as string,
   }));
+  return buildPage(mapped, limit, (u: any) => u._cursorV);
 }
 
 export async function getUserById(

@@ -27,7 +27,12 @@ import {
 } from "@/services/auth/auth.service";
 import { confirmMFASetup, disableMFA, getMFAStatus, initiateMFASetup } from "@/services/auth/mfa";
 import { forgotPassword, resetPassword } from "@/services/auth/password-reset";
-import { getSessionDetail, listUserSessions, revokeSession } from "@/services/auth/session";
+import {
+  getSessionDetail,
+  listAllLiveSessionIds,
+  listUserSessions,
+  revokeSession,
+} from "@/services/auth/session";
 import { signup } from "@/services/auth/signup";
 import { sendVerificationEmail, verifyEmail } from "@/services/auth/verification";
 import { createServerFn } from "../lib/createServerFn";
@@ -262,8 +267,9 @@ export const forgotPasswordServerFn = createServerFn({ method: "POST" })
   .validator(forgotSchema)
   .handler(async ({ data }) => {
     const db = getServerDb();
-    // Origin is not needed for the Server Function path; Hono route passes `c.req.header("origin")`
-    await forgotPassword(db, data.email, "");
+    // Link bases are server-decided for every entry point (NWB-P0-021), so
+    // neither this path nor the Hono route passes an origin any more.
+    await forgotPassword(db, data.email);
     return {
       message: "If an account with that email exists, a password reset link has been sent.",
     };
@@ -287,7 +293,7 @@ export const resendVerificationServerFn = createServerFn({ method: "POST" })
   .validator(resendVerificationSchema)
   .handler(async ({ data }) => {
     const db = getServerDb();
-    await sendVerificationEmail(db, data.email, "");
+    await sendVerificationEmail(db, data.email);
     return { message: "If an account with that email exists, a verification link has been sent." };
   });
 
@@ -340,7 +346,9 @@ export const disableMfaServerFn = createServerFn({ method: "POST" }).handler(asy
 export const listSessionsServerFn = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await getServerAuth();
   const db = getServerDb();
-  const sessions = await withServerOrgContext(auth, () => listUserSessions(db, auth.userId));
+  // First page only — the sessions screen has no cursor UI until Phase 7.
+  const sessions = (await withServerOrgContext(auth, () => listUserSessions(db, auth.userId)))
+    .items;
   return { sessions };
 });
 
@@ -374,10 +382,12 @@ export const revokeOthersServerFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const auth = await getServerAuth();
     const db = getServerDb();
-    const all = await withServerOrgContext(auth, () => listUserSessions(db, auth.userId));
-    const toRevoke = all.filter((s) => s.id !== data.currentSessionId);
-    for (const s of toRevoke) {
-      await withServerOrgContext(auth, () => revokeSession(db, s.id));
+    // Unpaginated on purpose: revoking "all other" sessions must not stop at a
+    // page boundary and leave sessions alive.
+    const allIds = await withServerOrgContext(auth, () => listAllLiveSessionIds(db, auth.userId));
+    const toRevoke = allIds.filter((id) => id !== data.currentSessionId);
+    for (const id of toRevoke) {
+      await withServerOrgContext(auth, () => revokeSession(db, id));
     }
     return { revokedCount: toRevoke.length };
   });

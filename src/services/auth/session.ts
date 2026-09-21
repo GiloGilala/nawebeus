@@ -1,6 +1,12 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { normaliseIp } from "../../lib/ip";
+import {
+  buildPage,
+  DEFAULT_PAGE_SIZE,
+  type Page,
+  type PaginationParams,
+} from "../../lib/pagination";
 
 export interface SessionRow {
   id: string;
@@ -180,7 +186,18 @@ export async function revokeAllSessionsForUser(
 export async function listUserSessions(
   db: NodePgDatabase<Record<string, any>>,
   userId: string,
-): Promise<SessionListEntry[]> {
+  page?: PaginationParams,
+): Promise<Page<SessionListEntry>> {
+  const limit = page?.limit ?? DEFAULT_PAGE_SIZE;
+  const cursor = page?.cursor ?? null;
+  // `last_activity_at` is nullable, and a NULL sort key cannot be carried in a
+  // cursor: every comparison against NULL is NULL, so paging would stall on the
+  // first such row. COALESCE to `created_at` (NOT NULL) gives a total order the
+  // keyset comparison can resume from, and removes the need for the previous
+  // `NULLS LAST` — there are no NULLs left to place.
+  const after = cursor
+    ? sql`AND (COALESCE(last_activity_at, created_at), id) < (${cursor.v}::timestamptz, ${cursor.id}::uuid)`
+    : sql``;
   const rows = await db.execute<{
     id: string;
     status: string;
@@ -202,20 +219,27 @@ export async function listUserSessions(
     created_at: Date;
     mfa_method: string;
     authentication_level: string;
+    cursor_v: string;
   }>(
     sql`
       SELECT id, status, is_revoked, remember_me, type, login_method,
              ip_address, user_agent, device_type, device_name, device_os,
              browser_name, browser_version, location_country, location_city,
-             expires_at, last_activity_at, created_at, mfa_method, authentication_level
+             expires_at, last_activity_at, created_at, mfa_method, authentication_level,
+             to_char(
+               COALESCE(last_activity_at, created_at) AT TIME ZONE 'UTC',
+               'YYYY-MM-DD"T"HH24:MI:SS.USOF'
+             ) AS cursor_v
       FROM sessions
       WHERE user_id = ${userId}
         AND is_revoked = false
-      ORDER BY last_activity_at DESC NULLS LAST, created_at DESC
+        ${after}
+      ORDER BY COALESCE(last_activity_at, created_at) DESC, id DESC
+      LIMIT ${limit + 1}
     `,
   );
 
-  return ((rows as any).rows ?? []).map((r: any) => ({
+  const mapped = ((rows as any).rows ?? []).map((r: any) => ({
     id: r.id,
     status: r.status,
     isRevoked: r.is_revoked,
@@ -233,7 +257,28 @@ export async function listUserSessions(
     createdAt: r.created_at ? new Date(r.created_at) : null,
     mfaMethod: r.mfa_method ?? null,
     authenticationLevel: r.authentication_level ?? null,
+    _cursorV: r.cursor_v as string,
   }));
+  return buildPage(mapped, limit, (x: any) => x._cursorV);
+}
+
+/**
+ * Every live session id for a user, unpaginated.
+ *
+ * "Revoke all other sessions" must act on *all* of them. Iterating the
+ * paginated list would silently stop at the page size and leave the rest of a
+ * compromised user's sessions alive — a security action that quietly does only
+ * part of its job. Callers that revoke use this; callers that display use the
+ * paginated `listUserSessions`.
+ */
+export async function listAllLiveSessionIds(
+  db: NodePgDatabase<Record<string, any>>,
+  userId: string,
+): Promise<string[]> {
+  const rows = await db.execute<{ id: string }>(
+    sql`SELECT id FROM sessions WHERE user_id = ${userId} AND is_revoked = false`,
+  );
+  return ((rows as any).rows ?? []).map((r: any) => r.id as string);
 }
 
 export async function getSessionDetail(

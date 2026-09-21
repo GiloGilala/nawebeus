@@ -109,7 +109,10 @@ export const listMembersServerFn = createServerFn({ method: "GET" })
     if (data.orgId !== auth.orgId)
       throw new ValidationError("You do not have access to this organization");
     const db = getServerDb();
-    const members = await withServerOrgContext(auth, () => listMembers(db, data.orgId));
+    // Server Functions serve the web app's own screens, which have no cursor UI
+    // yet (Phase 7). Take the first page explicitly rather than silently
+    // returning a truncated list that looks complete.
+    const members = (await withServerOrgContext(auth, () => listMembers(db, data.orgId))).items;
     return { members };
   });
 

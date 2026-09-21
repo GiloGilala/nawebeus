@@ -248,13 +248,62 @@ All lockout events are logged in `login_attempts` table and generate security al
 
 ### 4.3 RBAC Enforcement Layers (Defense in Depth)
 
+> **As-built, verified 2026-09-20 (NWB-P0-018, finding F-06).** The table below
+> describes the target design. What the code enforces today is the chain in
+> §4.3.1 — Layer 3 (RLS) is **not implemented** (decision D11 is open, tracked as
+> **DEC-O009** in the Decision Log with an engineering recommendation; re-verified
+> 2026-09-20 against the live database: 0 policies, 0 tables with `relrowsecurity`),
+> and CASL conditions are **not** part of the enforcement chain. Read §4.3.1 first.
+
 Authorization is enforced at **three independent layers**:
 
-| Layer | Mechanism | What it Catches |
-|-------|-----------|----------------|
-| **API route layer (Layer 1)** | Hono `requirePermission()` middleware | Unauthenticated or wrong-role requests before reaching business logic |
-| **Service layer (Layer 2)** | CASL `ability.can()` checks before every state-changing operation | Bypassed API middleware; incorrect CASL configuration |
-| **Database layer (Layer 3)** | PostgreSQL Row-Level Security (RLS) policies | Application bugs that produce incorrect `organization_id`; raw database access |
+| Layer | Mechanism | What it Catches | As-built |
+|-------|-----------|----------------|----------|
+| **API route layer (Layer 1)** | Hono `requirePermission()` middleware | Unauthenticated or wrong-role requests before reaching business logic | ✅ shipped as `requireAbility(action, subject)` (`src/server/middleware/rbac.ts`) |
+| **Service layer (Layer 2)** | CASL `ability.can()` checks before every state-changing operation | Bypassed API middleware; incorrect CASL configuration | ⚠️ partial — services enforce org predicates and the role-policy guards; `ability.can()` is checked at the route |
+| **Database layer (Layer 3)** | PostgreSQL Row-Level Security (RLS) policies | Application bugs that produce incorrect `organization_id`; raw database access | ❌ not implemented — pending decision D11 / **DEC-O009** (recommendation: defense-in-depth in Phase 8, application layer stays primary) |
+
+#### 4.3.1 The enforcement chain that actually runs
+
+An authenticated request is scoped to exactly one organization by **four**
+mechanisms, none of which is a CASL condition:
+
+1. **JWT-derived org.** The access token carries `(userId, orgId)`. There is no
+   request input that can change the org a caller acts in; `authMiddleware`
+   takes it from the verified token (or, for a Bearer key, from the key's own
+   row) and puts it in `AsyncLocalStorage` as the Org context.
+2. **Active-principal check.** `assertActivePrincipal` rejects the request
+   unless the user has an **active** membership in that org and an active
+   `users.status`. A revoked membership stops working on the next request.
+3. **Per-(user, org) ability load.** `loadAbility(db, userId, orgId)` builds the
+   Ability from *that org's* membership → role → permission rows only. A user in
+   org A is never handed org B's rules, so the org scoping is structural: it is
+   the `WHERE om.organization_id = …` in the query, not a rule condition.
+4. **Org-match on path parameters + service predicates.** `requireOrgMatch()`
+   rejects any route whose `:orgId` differs from the JWT's org, and every
+   org-scoped service method takes `organizationId` and filters on it.
+
+**CASL conditions are deliberately absent.** `loadAbility` previously attached
+`{ organizationId }` to every rule. CASL only evaluates conditions against a
+*subject instance*, and every check in this codebase is
+`ability.can(action, "string-subject")` — for a string subject CASL v7 skips
+condition matching entirely. The condition could therefore never deny anything;
+it made this document read stronger than the code was. It was removed rather
+than left decorative (NWB-P0-018). The alternative — passing
+`{ organizationId }` objects from routes into `ability.can` — was rejected:
+object-level checks belong in the service layer, where the org predicate already
+lives.
+
+Two tests pin this so it cannot silently regress:
+
+- `src/tests/auth/ability-scoping.test.ts` — pins the CASL v7 behaviour (a
+  condition does not deny a string-subject check), asserts that no rule returned
+  by `loadAbility` carries conditions, and asserts that a member of org A loads
+  an **empty** ability for org B.
+- `src/tests/route-invariants.test.ts` — a static scan over `src/server/api/**`
+  that fails when any route whose path contains `:orgId` is not covered by
+  `requireOrgMatch`. This closes the IDOR class by construction rather than by
+  review.
 
 **Self-protection rules (enforced in CASL and service layer):**
 - Owners and Admins cannot suspend their own accounts

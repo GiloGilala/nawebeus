@@ -42,11 +42,11 @@ bun run build           # typecheck + bundle to dist/
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (123 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (226 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
-- `bun test --coverage` — no thresholds configured, and CI does not run coverage. The Engineering Standards doc (p. 730) targets 85% services / 90% lib.
+- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 89.9% / 95.8%. Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
 ### CI
@@ -81,7 +81,7 @@ bun run build           # typecheck + bundle to dist/
 
 ### Layers (current)
 
-> **Last verified against HEAD `d03dc49` (2026-09-20) on 2026-09-20.** If the
+> **Last verified against HEAD `c2a2453` on 2026-09-20 (NWB-P0-020 re-run; counts refreshed by NWB-P0-029).** If the
 > tree below looks older than the working copy, re-verify before trusting it —
 > `src/` is always the source of truth.
 
@@ -98,8 +98,9 @@ src/server/index.ts       ← Hono app factory (CORS, error handler, route mount
   api/                    ← Hono route handlers, mounted at /api (thin: validate + delegate)
     auth/   signin, signup, signout, refresh, sessions, mfa, verification,
             password-reset, invitations (public validate + accept), session-cookies helper
-    users/  /me, /admin
-    orgs/   /orgs, /members, /roles
+    users/  /me (self-service), /admin (admin surface — mounted on the literal
+            `/users/admin` prefix so it can never shadow `/users/me*`; F-11/NWB-P0-029)
+    orgs/   /orgs (incl. DELETE + /reactivate), /members, /roles
     api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
@@ -118,7 +119,7 @@ src/services/             ← Business logic (single source of truth)
            password-history, password-reset, verification, email-change,
            mfa, totp, ability, api-key
   users/   user.service, admin.service, account-deletion.service
-  orgs/    org.service, member.service, invitation.service,
+  orgs/    org.service, org-deletion.service, member.service, invitation.service,
            role-assignment.service, role-policy (hierarchy rules)
   email.ts, audit.ts
 src/lib/                  ← Infrastructure
@@ -133,6 +134,7 @@ src/lib/                  ← Infrastructure
 src/tests/                ← Bun tests
   preload.ts ← runs before any test file (bunfig.toml); supplies the always-required
                JWT secrets so suites don't each set/delete them
+  route-invariants.test.ts ← static scan: every `:orgId` route must carry requireOrgMatch
   helpers/  test-db.ts (withTestDb), test-client.ts (createTestApp),
             test-factory.ts (data factories)
 db/                       ← Drizzle schema modules
@@ -165,6 +167,8 @@ directory you care about) for the complete set.
   `emailVerified: false`; the hard server-side gate lands with real email in Phase 2).
   `suspended` → 403 `ACCOUNT_SUSPENDED`; `deleted`/unknown → generic 401 so the status is never
   disclosed to a caller without the password. NWB-P0-015.
+- **Organization deletion is soft, with a reachable undo** — `deleteOrganization` (`src/services/orgs/org-deletion.service.ts`) stamps `deleted_at`/`scheduled_deletion_at` 30 days out, suspends every membership, revokes the org's API keys and all members' sessions; `reactivateOrganization` restores the memberships and keys but **never the sessions** (a revoked session is a credential that may have leaked). Ownership is checked against `organizations.owner_id`, not a role row — DEC-039 makes Owner a transferred singleton on the organization itself. **`POST /orgs/:orgId/reactivate` is the one route that uses `authMiddlewareAllowingInactiveMembership`**: deletion suspends the owner's own membership, so the normal `assertActivePrincipal` check would 403 the only person who can undo it, making the grace period unreachable. That middleware relaxes *only* the `status='active'` requirement — account existence, soft-delete, `users.status` and "holds a membership row here" all still apply — and the route carries no `requireAbility` because `loadAbility` reads active memberships only, so a deleted org yields an empty ability by construction. Do not reuse it elsewhere. NWB-P0-023.
+- **`purgeExpiredOrganizations` actually completes; `purgeExpiredAccounts` is gated instead** — every FK referencing `organizations.id` is CASCADE or SET NULL, so the org purge has no restrictive edge (users are *detached*, never deleted with the workspace). The account purge has one (`organizations.owner_id`), which is why `deleteAccount` refuses an owner up front (D16/F-25). Relaxing that gate for soft-deleted orgs reintroduces the 23503 — a soft-deleted org still holds the reference; a negative-control test pins this. The unblock is the hard purge: delete org → grace expires → `purgeExpiredOrganizations` → `deleteAccount` → `purgeExpiredAccounts`. Neither purge is scheduled yet (F-18); wire both with the Phase 2 queue.
 - **Account deletion keeps its grace window in `users.scheduled_deletion_at`** — nullable
   `timestamptz` written by `deleteAccount`, read by `reactivateAccount` /
   `purgeExpiredAccounts` / `getAccountDeletionStatus`. The column was missing until NWB-P0-024,
@@ -192,7 +196,7 @@ directory you care about) for the complete set.
   `compliance.dsar.requested` event is written BEFORE the build so the request
   self-cites inside its own export — and its module is `core`, not `compliance`:
   `unified_audit_log` requires a hash-chain `checksum` for modules admin/compliance/system
-  and nothing computes the chain yet. Admin-on-behalf is `POST /api/users/:userId/data-export`
+  and nothing computes the chain yet. Admin-on-behalf is `POST /api/users/admin/:userId/data-export`
   (org-scoped, 404 cross-tenant with no request row created) and returns the receipt
   only — the payload only ever travels the subject's own channel
   (`GET /api/users/me/data-export/:requestId`). Self-service POST is rate-limited
@@ -201,6 +205,7 @@ directory you care about) for the complete set.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.
 - **`runWithOrgContext()` must be awaited inside middleware** — Hono's `compose()` checks `context.finalized` as soon as a handler's promise settles. Calling `next()` without awaiting it resolves the chain before the route handler writes its response, and Hono throws "Context is not finalized" → a blanket 500 on every protected route.
+- **Path params that are uuids must go through `uuidParam`** (`src/server/api/route-params.ts`). An unvalidated segment lands in a `WHERE id = $1` against a `uuid` column and Postgres answers `22P02`, which surfaces as a **500** instead of a 422 — four route families did exactly that until NWB-P0-029. `uuidParam(c, "userId", "user id")` throws `ValidationError` before the query runs. Pinned by `src/tests/route-params.test.ts`.
 - **Role hierarchy is DEC-039** — one platform role (`super_admin`, level 100) plus six per-organization system roles: `owner` 90, `admin` 80, `manager` 60, `creator` 40, `analyst` 20, `viewer` 10 (all `organization_id IS NULL`; `org_admin`/`member` no longer exist — the seed retires them). Rank comparisons use `roles.level`; only `owner`/`admin` have code-specific semantics. The rules — Owner is transferred never granted, Owner never demoted/removed, no self-change, actor must strictly outrank both the target and the granted role, at least one active Owner/Admin remains (BR-AUTH-030) — live in `src/services/orgs/role-policy.ts`, and **every** path that grants, writes, or clears `organization_members.role_id` or removes/suspends a member goes through it (`assign-role`, `PATCH /members/:id`, `PATCH /users/:id`, both DELETEs, and the invitation pair — `inviteMember` at grant time via `resolveAssignableRole` + `assertRoleGrantAllowed`, `acceptInvitation` activating what the invite was allowed to grant). Add a new write path without it and you have re-opened F-07.
 - **Invitation accept exists and is the only way members join** (F-08 / NWB-P0-016) —
   `inviteMember` writes `organization_members` rows (`status='invited'`; `invited_email`
@@ -213,11 +218,11 @@ directory you care about) for the complete set.
   hash stays for the double-accept 409. D14's interim single-org answer is enforced: an
   account with an active membership elsewhere gets a clear 409, never a silent re-home —
   the multi-org branch is deliberately unbuilt until D14's final call.
-- **CASL for authorization** — `loadAbility()` queries the DB for the user's role permissions, builds a CASL ability scoped with `{ organizationId: orgId }`, and attaches it to the context. Routes use `requireAbility(action, subject)`.
+- **CASL for authorization, and org scoping is NOT a CASL condition** — `loadAbility(db, userId, orgId)` queries that org's memberships for the user's role permissions and builds `can(action, subject)` rules with **no conditions**; routes use `requireAbility(action, subject)`. The rules used to carry `{ organizationId: orgId }`, which was inert: CASL v7 evaluates conditions only against a *subject instance*, and every check here passes a string subject, so the condition could never deny anything (F-06, removed in NWB-P0-018). What actually scopes a request to one organization: the JWT-derived `orgId` (no request input can change it) → `assertActivePrincipal` (active membership + active `users.status`) → the per-(user, org) ability load itself (a user in org A is never handed org B's rules) → `requireOrgMatch()` on any `:orgId` path plus the services' `organization_id` predicates. Full chain: `docs/technical/Security Architecture.md` §4.3.1. **Do not re-add rule conditions** expecting them to enforce anything — `src/tests/auth/ability-scoping.test.ts` fails if you do, and `src/tests/route-invariants.test.ts` fails any new `:orgId` route that omits `requireOrgMatch`.
 - **API response envelope** — success: `{ data: T, meta? }`; error: `{ error: { code, message, details? } }`.
 - **Every 500 is opaque by default** — `errorHandler` maps any non-`AppError` to a generic `INTERNAL_ERROR`, so the real cause never reaches the client. Run with `NWB_DEBUG_ERRORS=1` to have it log the underlying exception and stack first.
 - **Biome is the formatter and linter** (`biome.json`, `@biomejs/biome`). Bun 1.4 ships neither a formatter nor a linter — verified: `bun fmt` is "Script not found", and `bun lint` just runs our own script. `bun run lint` fails CI on errors but **not** on warnings, and `noExplicitAny` is deliberately a warning because the codebase has 246 `any` sites. **Never put `//` comments in `biome.json`** — Biome's parser rejects them and then silently falls back to defaults, so a `--write` pass will reformat the tree to tabs instead of the configured 2 spaces. Put rationale in the ticket instead.
-- **CI exists and runs** (`.github/workflows/ci.yml`, added 2026-09-13) — `quality` (typecheck + lint + build, ~23 s) then `test` (the full suite against a `postgres:14` service container, ~55 s). Both are green as of PR #12 (run 35526182874). Two things to know: **branch protection on `main` is not configured** (NWB-P0-022), so a red check does not block a merge — `main` sat red between PR #11's merge and PR #12 because the web merge left `bun run lint` failing with 18 formatting/import-order errors (fixed in NWB-P0-027); and the check names to require are exactly `Typecheck, lint, build` and `Test (PostgreSQL)`. Run `bunx biome check .` locally before pushing. **No pre-commit hooks.**
+- **CI exists and runs** (`.github/workflows/ci.yml`, added 2026-09-13) — `quality` (typecheck + lint + build, ~23 s) then `test` (the full suite against a `postgres:14` service container, ~55 s). Both are green as of PR #12 (run 35526182874). Two things to know: **branch protection on `main` is not configured** (NWB-P0-022), so a red check does not block a merge — `main` sat red between PR #11's merge and PR #12 because the web merge left `bun run lint` failing with 18 formatting/import-order errors (fixed in NWB-P0-027); and the check names to require are exactly `Typecheck, lint, build` and `Test (PostgreSQL)` (the job *names*, not the ids `quality`/`test` — GitHub matches required checks by reported name, so the ids would create a rule nothing can satisfy). Also note the `test` job still runs **`db:push -- --force`**, not `db:migrate`: NWB-P0-005's last step, blocked on the same App's missing `workflows` permission. Run `bunx biome check .` locally before pushing. **No pre-commit hooks.**
 
 ### Path aliases (tsconfig.json)
 

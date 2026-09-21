@@ -1,7 +1,13 @@
 # Foundation: Core Application Infrastructure
 
 **Spec ID:** `foundation-001`
-**Status:** `in-progress` — 9/10 foundation issues done; 07 blocked on API keys.
+**Status:** `done` — 10/10 foundation issues done (2026-09-20). Issue 07 was the last
+open one: API keys landed in NWB-P0-001 (2026-09-13), role assignment in NWB-P0-014
+(2026-09-20), and its checklist was reconciled against the code — with the two missing
+integration tests written — in NWB-P0-006 (2026-09-20). Note that several issues were
+marked `done` here while defects in the same surface were still open; those were filed
+and closed separately under `.scratch/p0-foundation-gap/` (F-01…F-28), which is the
+tracker to read for the current state of this code, not this spec.
 **Triage:** None needed (produced by `/to-spec`)
 **Depends on:** None (first buildable slice)
 

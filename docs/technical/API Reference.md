@@ -156,7 +156,18 @@ All list endpoints use **cursor-based pagination** — never offset-based.
 | `limit` | integer | 20 | 100 | Number of items per page |
 | `cursor` | string | — | — | Opaque cursor from previous response |
 
-**Cursor Format:** Base64-encoded JSON — clients must treat as opaque and never parse or construct cursors.
+**Cursor Format:** Base64-encoded JSON (base64url, unpadded) — clients must treat as opaque and never parse or construct cursors. A malformed `cursor`, or a `limit` that is not an integer in `1..100`, is rejected with **422** rather than being silently clamped or reset to the first page.
+
+**Response Shape:** page info is returned in the envelope's `meta` slot:
+
+```json
+{
+  "data": { "members": [] },
+  "meta": { "pagination": { "cursor": "eyJ2IjoiMjAyNi0wOS0yMVQxMDowMDowMFoiLCJpZCI6Ii4uLiJ9", "hasMore": true } }
+}
+```
+
+`cursor` is `null` and `hasMore` is `false` on the last page — clients stop when `hasMore` is false rather than looping on the final cursor. **`totalCount` is not returned** (it would cost a `COUNT(*)` per page); see discrepancy **D-17**.
 
 **Example:**
 ```http

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { getClientIp } from "@/lib/ip";
+import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
 import type { ApiKeyStatus } from "@/server/auth/types/api-key-types";
 import { authMiddleware } from "@/server/middleware/auth";
@@ -137,8 +138,14 @@ router.get("/api-keys", requireAbility("read", "apikeys"), async (c) => {
     throw new ValidationError("Invalid status filter", validationDetails(parsed.error));
   }
 
-  const apiKeys = await listApiKeys(c.var.db, orgId, parsed.data.status as ApiKeyStatus);
-  return c.json(success({ apiKeys }));
+  const page = parsePagination(new URL(c.req.url));
+  const { items: apiKeys, pageInfo } = await listApiKeys(
+    c.var.db,
+    orgId,
+    parsed.data.status as ApiKeyStatus,
+    page,
+  );
+  return c.json(success({ apiKeys }, paginationMeta(pageInfo)));
 });
 
 // ── POST /api/api-keys/:id/rotate — mint a replacement ──────────────────────
