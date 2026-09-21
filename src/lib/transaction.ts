@@ -136,7 +136,7 @@ export interface PerRowDeleteHooks {
  * table name is interpolated into SQL (identifiers cannot be parameterised),
  * so the type system is the allow-list.
  */
-export type PurgeableTable = "users" | "organizations";
+export type PurgeableTable = "users" | "organizations" | "organization_members";
 
 /**
  * Delete `ids` from `table` one row at a time, each in its own savepoint

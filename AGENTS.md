@@ -136,7 +136,7 @@ src/services/             ← Business logic (single source of truth)
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
   rate-limit-reclaim.ts, purge-expired-accounts.ts, purge-expired-organizations.ts,
-  audit-chain-verify.ts
+  purge-expired-invitations.ts, audit-chain-verify.ts
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
   db.ts          ← Drizzle client factory + test DB helper

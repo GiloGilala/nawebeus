@@ -185,6 +185,12 @@ export const AUDIT_ACTIONS = {
     category: "compliance",
     resourceType: "data_export_request",
   },
+  "invitations.purged": {
+    description:
+      "Nightly hard-delete of invitations lapsed past the grace window; invitee addresses scrubbed from their audit rows.",
+    category: "compliance",
+    resourceType: "member",
+  },
   "organization.deleted": {
     description:
       "Organization soft-deleted; grace window starts, and the purge job finishes the job.",

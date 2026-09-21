@@ -58,12 +58,19 @@ export interface JobSchedule {
  *    FK (F-25 / DEC-D16). An account that still owns a live or merely soft-deleted organization
  *    cannot be hard-deleted, so the org purge has to clear that reference first for the same
  *    night's erasure to land.
- * 3. **chain verification last** — it walks the night's complete chained set, including whatever
+ * 3. **invitations between the purges** — member rows cascade on both ends
+ *    (`organization_id` and `user_id` are `ON DELETE CASCADE`), so the slot is load-bearing in
+ *    both directions: after the org purge, invites of just-purged workspaces are already gone
+ *    instead of being scrubbed-and-deleted redundantly; before the account purge, so a lapsed
+ *    invite of a same-night-erased user gets its own audit scrub instead of vanishing in the
+ *    cascade and leaving the cleanup to the account scrub's email second pass.
+ * 4. **chain verification last** — it walks the night's complete chained set, including whatever
  *    the purge window wrote, so it runs after the last mutation rather than before it.
  */
 export const QUEUE_SCHEDULE_DEFAULTS: Record<QueueJobName, string> = {
   [QUEUE_JOBS.rateLimitReclaim]: "0 2 * * *",
   [QUEUE_JOBS.purgeExpiredOrganizations]: "15 2 * * *",
+  [QUEUE_JOBS.purgeExpiredInvitations]: "30 2 * * *",
   [QUEUE_JOBS.purgeExpiredAccounts]: "45 2 * * *",
   [QUEUE_JOBS.auditChainVerify]: "0 3 * * *",
 };
@@ -91,6 +98,15 @@ export function resolveSchedules(config: Config = getConfig()): JobSchedule[] {
       cron:
         config.QUEUE_CRON_PURGE_EXPIRED_ORGANIZATIONS ??
         QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.purgeExpiredOrganizations],
+      tz,
+      data: null,
+      missed: "once",
+    },
+    {
+      job: QUEUE_JOBS.purgeExpiredInvitations,
+      cron:
+        config.QUEUE_CRON_PURGE_EXPIRED_INVITATIONS ??
+        QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.purgeExpiredInvitations],
       tz,
       data: null,
       missed: "once",

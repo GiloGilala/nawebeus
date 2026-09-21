@@ -34,8 +34,10 @@ export {
 } from "./actions";
 export {
   type AnonymizeAuditActorContextInput,
+  type AnonymizeAuditInviteeEmailInput,
   AUDIT_REDACTED,
   anonymizeAuditActorContext,
+  anonymizeAuditInviteeEmail,
   mangleCandidates,
   scrubJsonValue,
 } from "./anonymize";

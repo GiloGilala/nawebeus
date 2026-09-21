@@ -12,8 +12,6 @@
  * back — including the `SET LOCAL` flag dance, which cannot leak past the outer rollback.
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { type SQL, sql } from "drizzle-orm";
 import { purgeExpiredAccountsJob } from "../../jobs/purge-expired-accounts";
 import type { Db } from "../../lib/db";
@@ -28,7 +26,7 @@ import {
 } from "../../services/audit";
 import { purgeExpiredOrganizations } from "../../services/orgs/org-deletion.service";
 import { deleteAccount, purgeExpiredAccounts } from "../../services/users/account-deletion.service";
-import { withTestDb } from "../helpers/test-db";
+import { ensureAnonymizationTrigger, withTestDb } from "../helpers/test-db";
 import {
   createTestMember,
   createTestOrg,
@@ -98,40 +96,6 @@ async function expectRejected(db: Db, query: SQL): Promise<unknown> {
   }
   await db.execute(sql.raw(`RELEASE SAVEPOINT ${savepoint}`));
   throw new Error("expected the statement to be rejected, but it succeeded");
-}
-
-/**
- * Ensure the anonymization-aware trigger exists by executing the migration that ships it.
- * Migration SQL, not a copy: if the file stops running, this fails — which is the point.
- * Runs inside the caller's transaction, so it rolls back with the test.
- */
-async function ensureAnonymizationTrigger(db: Db): Promise<void> {
-  const migration = readFileSync(
-    join(
-      import.meta.dir,
-      "..",
-      "..",
-      "..",
-      "drizzle",
-      "migrations",
-      "0002_audit_anonymization_exception.sql",
-    ),
-    "utf8",
-  );
-  const statements = migration
-    .split(/^-->.*$/m)
-    .map((chunk) =>
-      chunk
-        .split("\n")
-        .filter((line) => !line.trim().startsWith("--"))
-        .join("\n")
-        .trim(),
-    )
-    .filter((chunk) => chunk.length > 0);
-  expect(statements.length).toBeGreaterThan(0);
-  for (const statement of statements) {
-    await db.execute(sql.raw(statement));
-  }
 }
 
 describe("audit anonymization rule (no database)", () => {

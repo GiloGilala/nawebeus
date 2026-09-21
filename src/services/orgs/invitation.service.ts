@@ -4,8 +4,13 @@ import { getConfig } from "../../lib/config";
 import { ConflictError, InternalError, NotFoundError, ValidationError } from "../../lib/errors";
 import { validatePassword } from "../../lib/password";
 import { generateSecureToken, hashToken } from "../../lib/tokens";
-import { type DbOrTx, withAtomicWrites } from "../../lib/transaction";
-import { writeAuditLog } from "../audit";
+import {
+  type DbOrTx,
+  deleteRowsPerRow,
+  type PerRowDeleteResult,
+  withAtomicWrites,
+} from "../../lib/transaction";
+import { anonymizeAuditInviteeEmail, writeAuditLog } from "../audit";
 import { createEmailVerificationToken, createUserRecord } from "../auth/user-record";
 import { emailService } from "../email";
 import {
@@ -596,4 +601,85 @@ export async function bulkInviteMembers(
   });
 
   return { successes, failures };
+}
+
+/**
+ * How long a lapsed invitation stays visible before it is erased (NWB-P1-016).
+ *
+ * The same 30-day grace idiom as account and organization deletion: `listMembers` shows invited
+ * rows, so admins see a lapsed invite for one cycle before it vanishes. Past the grace the row is
+ * hard-deleted, not soft-deleted — a soft delete would retain `invited_email` and fail the
+ * purpose. The audit row is the durable record of the invite having happened, which is why the
+ * member row may go.
+ */
+const LAPSED_INVITE_GRACE_DAYS = 30;
+
+/**
+ * The addresses one lapsed invite's audit scrub is value-gated on: the member row's
+ * `invited_email` plus the invite audit row's own `afterState.email` — the same datum ("the
+ * address this invite was sent to") in its two possible locations. The audit half covers
+ * pre-`invited_email` rows, where the column is NULL and the audit row is the only record.
+ *
+ * Collected pre-delete in the hook, while the member row still exists; the scrub itself stays
+ * value-gated, so a resource-scoped row holding someone else's address is still untouched.
+ */
+async function collectInviteeEmails(tx: DbOrTx, memberId: string): Promise<string[]> {
+  const member = await tx.execute<{ invited_email: string | null }>(
+    sql`SELECT invited_email FROM organization_members WHERE id = ${memberId}`,
+  );
+  const memberRow = (member as unknown as { rows?: { invited_email: string | null }[] }).rows?.[0];
+  const audit = await tx.execute<{ email: string | null }>(
+    sql`SELECT DISTINCT after_state->>'email' AS email
+        FROM unified_audit_log
+        WHERE resource_type = 'member' AND resource_id = ${memberId}
+          AND after_state->>'email' IS NOT NULL`,
+  );
+  const auditRows = (audit as unknown as { rows?: { email: string | null }[] }).rows ?? [];
+
+  const emails = new Set<string>();
+  if (memberRow?.invited_email) emails.add(memberRow.invited_email);
+  for (const row of auditRows) {
+    if (row.email) emails.add(row.email);
+  }
+  return [...emails];
+}
+
+/**
+ * Permanently deletes invitations that lapsed past the grace window, one row at a time.
+ * Returns `{ deleted, failed, errors, auditAnonymized }` — rows actually erased, rows that
+ * refused, the per-row reasons, and audit rows scrubbed of invitee addresses. Called by the
+ * `retention.purge-expired-invitations` job; idempotent at the source, so at-least-once delivery
+ * is safe — a re-run simply finds nothing.
+ *
+ * Candidates are `status='invited'` rows with a known lapse (`expires_at` set and past grace),
+ * oldest-lapsed-first. Accepted rows are excluded by the status predicate even though accept
+ * leaves `expires_at` set; NULL-`expires_at` rows are excluded because lapse is unprovable for
+ * them. No row can refuse today — nothing references `organization_members` restrictively — but
+ * the delete still runs per row (NWB-P1-013), because the scrub needs per-row scope regardless.
+ *
+ * Each row's invitee address is scrubbed from its own audit rows before the DELETE
+ * (`anonymizeAuditInviteeEmail`, resource-scoped to the member id), and a re-invite afterwards
+ * is a fresh insert: `inviteMember`'s dedup finds no pending row and takes the insert path.
+ * Existing-user invitees keep their accounts — only the member row goes.
+ */
+export async function expireInvitations(
+  db: NodePgDatabase<Record<string, any>>,
+): Promise<PerRowDeleteResult> {
+  const rows = await db.execute<{ id: string }>(
+    sql`
+      SELECT id FROM organization_members
+      WHERE status = 'invited'
+        AND deleted_at IS NULL
+        AND expires_at IS NOT NULL
+        AND expires_at <= now() - make_interval(days => ${LAPSED_INVITE_GRACE_DAYS})
+      ORDER BY expires_at, id
+    `,
+  );
+  const ids = ((rows as unknown as { rows?: { id: string }[] }).rows ?? []).map((row) => row.id);
+  return deleteRowsPerRow(db, "organization_members", ids, {
+    beforeDelete: async (tx, id) => {
+      const emails = await collectInviteeEmails(tx, id);
+      return anonymizeAuditInviteeEmail(tx, { memberId: id, emails });
+    },
+  });
 }

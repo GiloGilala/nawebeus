@@ -64,6 +64,19 @@ describe("queue job set", () => {
     expect(order.indexOf(QUEUE_JOBS.auditChainVerify)).toBe(order.length - 1);
   });
 
+  test("invitations purge between the purges — member rows cascade on both ends (NWB-P1-016)", () => {
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    // After the org purge (invites of just-purged workspaces are already gone), before the
+    // account purge (a same-night-erased user's lapsed invite gets its own scrub instead of
+    // vanishing in the user cascade) — see `src/lib/scheduler.ts`.
+    expect(order.indexOf(QUEUE_JOBS.purgeExpiredOrganizations)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.purgeExpiredInvitations),
+    );
+    expect(order.indexOf(QUEUE_JOBS.purgeExpiredInvitations)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.purgeExpiredAccounts),
+    );
+  });
+
   test("audit descriptors are `<resource>.<verb>`, unique, and drawn from the enum this table uses", () => {
     const categories = new Set([
       "authentication",

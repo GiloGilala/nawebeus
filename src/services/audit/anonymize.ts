@@ -42,6 +42,11 @@
  * update, and the count returned is rows actually changed — a re-run returns 0 and writes nothing.
  * When NWB-P1-010 lands legal holds, the hold check goes here (service, not job) — this function
  * is the seam.
+ *
+ * NWB-P1-016 reuses the core below the identity layer for lapsed invites
+ * (`anonymizeAuditInviteeEmail`): same flag dance, same value-gated jsonb walk, but resource-
+ * scoped candidates and network-nulling unconditionally off — every matched row belongs to an
+ * inviter who is not being erased.
  */
 
 import { sql } from "drizzle-orm";
@@ -197,75 +202,138 @@ export async function anonymizeAuditActorContext(
     return digits !== "" && knownPhones.has(digits);
   };
 
-  // The email pre-filter runs on the original addresses: a mangled value stored in jsonb contains
-  // its original as a substring, so originals catch both forms. Invite-time addresses catch the
-  // inviter's invite row. `strpos`, not LIKE — no metacharacter escaping to get wrong.
+  // The email pre-filter runs on every known address form at once: the stored value catches
+  // rows holding it verbatim, and an original catches rows holding a mangled form (which contains
+  // its original as a substring). Invite-time addresses catch the inviter's invite row. `strpos`,
+  // not LIKE — no metacharacter escaping to get wrong.
   const preFilterEmails = [
-    ...new Set([...invitedEmails, ...(user ? mangleCandidates(user.email).slice(1) : [])]),
+    ...new Set([...invitedEmails, ...(user ? mangleCandidates(user.email) : [])]),
   ];
   const emailClauses = preFilterEmails.flatMap((email) =>
     SCRUB_JSON_COLUMNS.map((column) => sql`strpos(${sql.raw(column)}::text, ${email}) > 0`),
   );
 
+  const candidates = await tx.execute<AnonymizeCandidateRow>(
+    sql`SELECT id, actor_id, target_user_id, actor_ip, actor_user_agent,
+               before_state, after_state, changes, metadata
+        FROM unified_audit_log
+        WHERE actor_id = ${userId} OR target_user_id = ${userId}${
+          emailClauses.length > 0 ? sql` OR ${sql.join(emailClauses, sql` OR `)}` : sql``
+        }`,
+  );
+  const rows = (candidates as unknown as { rows?: AnonymizeCandidateRow[] }).rows ?? [];
+
+  // Only rows the subject acted lose their network context. A target-matched or second-pass
+  // (email-matched) row's ip/UA describes someone else's session — nulling it would be
+  // destruction beyond the erasure scope.
+  return withAnonymizationFlag(tx, () =>
+    scrubCandidateRows(tx, rows, isKnownValue, (row) => row.actor_id === userId),
+  );
+}
+
+export interface AnonymizeAuditInviteeEmailInput {
+  /** The lapsed invite's member row id — the resource identity the scrub is scoped to. */
+  memberId: string;
+  /**
+   * The invite-time addresses to redact: `invited_email` plus whatever the invite's own audit
+   * rows hold, collected pre-delete by the caller. Empty (an invite with no address anywhere)
+   * means nothing to do, not an error.
+   */
+  emails: readonly string[];
+}
+
+/**
+ * Scrub one lapsed invite's address from its audit rows (NWB-P1-016). Value-only, always: every
+ * matched row belongs to an inviter who is not being erased, so ip/UA is never nulled here.
+ *
+ * Candidates are resource-scoped (`resource_type='member' AND resource_id=<memberId>`), which is
+ * what keeps another org's still-pending invite for the same address untouched — a whole-table
+ * email match would eat it. Must run before the member row's DELETE in the same savepoint, like
+ * its subject-keyed sibling.
+ */
+export async function anonymizeAuditInviteeEmail(
+  tx: DbOrTx,
+  input: AnonymizeAuditInviteeEmailInput,
+): Promise<number> {
+  if (input.emails.length === 0) return 0;
+  const known = new Set(input.emails.map((email) => email.toLowerCase()));
+  const isKnownValue = (value: string): boolean => known.has(value.toLowerCase());
+
+  const candidates = await tx.execute<AnonymizeCandidateRow>(
+    sql`SELECT id, actor_id, target_user_id, actor_ip, actor_user_agent,
+               before_state, after_state, changes, metadata
+        FROM unified_audit_log
+        WHERE resource_type = 'member' AND resource_id = ${input.memberId}`,
+  );
+  const rows = (candidates as unknown as { rows?: AnonymizeCandidateRow[] }).rows ?? [];
+  return withAnonymizationFlag(tx, () => scrubCandidateRows(tx, rows, isKnownValue, () => false));
+}
+
+/**
+ * Declare the scrub intent transaction-locally around `fn, and reset it after — even on
+ * failure, so a failed scrub cannot leave the flag on for whatever runs next in the same
+ * transaction (including a later test asserting the trigger still rejects).
+ */
+async function withAnonymizationFlag<T>(tx: DbOrTx, fn: () => Promise<T>): Promise<T> {
   await tx.execute(sql.raw("SET LOCAL audit.anonymizing = 'on'"));
   try {
-    const candidates = await tx.execute<AnonymizeCandidateRow>(
-      sql`SELECT id, actor_id, target_user_id, actor_ip, actor_user_agent,
-                 before_state, after_state, changes, metadata
-          FROM unified_audit_log
-          WHERE actor_id = ${userId} OR target_user_id = ${userId}${
-            emailClauses.length > 0 ? sql` OR ${sql.join(emailClauses, sql` OR `)}` : sql``
-          }`,
-    );
-    const rows = (candidates as unknown as { rows?: AnonymizeCandidateRow[] }).rows ?? [];
-
-    let scrubbed = 0;
-    for (const row of rows) {
-      // Only rows the subject acted lose their network context. A target-matched or second-pass
-      // (email-matched) row's ip/UA describes someone else's session — nulling it would be
-      // destruction beyond the erasure scope.
-      const actorMatched = row.actor_id === userId;
-      const nextIp = actorMatched ? null : row.actor_ip;
-      const nextUa = actorMatched ? null : row.actor_user_agent;
-
-      const states = {
-        before_state: row.before_state,
-        after_state: row.after_state,
-        changes: row.changes,
-        metadata: row.metadata,
-      } as const;
-      let changed = actorMatched && (row.actor_ip !== null || row.actor_user_agent !== null);
-      const nextStates: Record<(typeof SCRUB_JSON_COLUMNS)[number], unknown> = {
-        before_state: row.before_state,
-        after_state: row.after_state,
-        changes: row.changes,
-        metadata: row.metadata,
-      };
-      for (const column of SCRUB_JSON_COLUMNS) {
-        if (states[column] === null || states[column] === undefined) continue;
-        const scrubbedState = scrubJsonValue(states[column], isKnownValue);
-        if (scrubbedState.changed) {
-          changed = true;
-          nextStates[column] = scrubbedState.value;
-        }
-      }
-      if (!changed) continue;
-
-      // PII columns only — the trigger's NWB-P1-015 exception confines the UPDATE to exactly
-      // these, and rejects anything else even with the flag set.
-      await tx.execute(
-        sql`UPDATE unified_audit_log
-            SET actor_ip = ${nextIp}, actor_user_agent = ${nextUa},
-                before_state = ${JSON.stringify(nextStates.before_state)}::jsonb,
-                after_state = ${JSON.stringify(nextStates.after_state)}::jsonb,
-                changes = ${JSON.stringify(nextStates.changes)}::jsonb,
-                metadata = ${JSON.stringify(nextStates.metadata)}::jsonb
-            WHERE id = ${row.id}`,
-      );
-      scrubbed++;
-    }
-    return scrubbed;
+    return await fn();
   } finally {
     await tx.execute(sql.raw("SET LOCAL audit.anonymizing = 'off'"));
   }
+}
+
+/**
+ * The shared scrub-update loop: walk each candidate's jsonb with the value gate, null network
+ * context where the caller says so, UPDATE the rows that actually changed, and count them.
+ * Rows are updated PII-columns-only — the trigger's NWB-P1-015 exception confines the UPDATE to
+ * exactly these, and rejects anything else even with the flag set.
+ */
+async function scrubCandidateRows(
+  tx: DbOrTx,
+  rows: readonly AnonymizeCandidateRow[],
+  isKnownValue: (value: string) => boolean,
+  nullNetworkForRow: (row: AnonymizeCandidateRow) => boolean,
+): Promise<number> {
+  let scrubbed = 0;
+  for (const row of rows) {
+    const nullNetwork = nullNetworkForRow(row);
+    const nextIp = nullNetwork ? null : row.actor_ip;
+    const nextUa = nullNetwork ? null : row.actor_user_agent;
+
+    const states = {
+      before_state: row.before_state,
+      after_state: row.after_state,
+      changes: row.changes,
+      metadata: row.metadata,
+    } as const;
+    let changed = nullNetwork && (row.actor_ip !== null || row.actor_user_agent !== null);
+    const nextStates: Record<(typeof SCRUB_JSON_COLUMNS)[number], unknown> = {
+      before_state: row.before_state,
+      after_state: row.after_state,
+      changes: row.changes,
+      metadata: row.metadata,
+    };
+    for (const column of SCRUB_JSON_COLUMNS) {
+      if (states[column] === null || states[column] === undefined) continue;
+      const scrubbedState = scrubJsonValue(states[column], isKnownValue);
+      if (scrubbedState.changed) {
+        changed = true;
+        nextStates[column] = scrubbedState.value;
+      }
+    }
+    if (!changed) continue;
+
+    await tx.execute(
+      sql`UPDATE unified_audit_log
+          SET actor_ip = ${nextIp}, actor_user_agent = ${nextUa},
+              before_state = ${JSON.stringify(nextStates.before_state)}::jsonb,
+              after_state = ${JSON.stringify(nextStates.after_state)}::jsonb,
+              changes = ${JSON.stringify(nextStates.changes)}::jsonb,
+              metadata = ${JSON.stringify(nextStates.metadata)}::jsonb
+          WHERE id = ${row.id}`,
+    );
+    scrubbed++;
+  }
+  return scrubbed;
 }
