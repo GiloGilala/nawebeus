@@ -19,6 +19,8 @@
     "coverage": "bun test --coverage --coverage-reporter=lcov",
     "coverage:check": "bun src/scripts/check-coverage.ts",
     "db:reclaim-rate-limits": "bun src/scripts/reclaim-rate-limits.ts",
+    "queue:worker": "bun src/scripts/queue-worker.ts",
+    "queue:run": "bun src/scripts/queue-run.ts",
     "migrate": "drizzle-kit push",
     "seed": "bun run src/seed.ts",
     "test": "bun test",
@@ -31,6 +33,7 @@
     "drizzle-orm": "^0.36.0",
     "hono": "^4.12.32",
     "pg": "^8.13.0",
+    "pg-boss": "^12.33.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
