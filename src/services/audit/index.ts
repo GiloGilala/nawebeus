@@ -17,10 +17,11 @@
  * | The insert | `./write` |
  * | The hash chain: seal on write, verify on schedule | `./chain` |
  * | The reads: list, detail, tenant scope | `./query.service` |
+ * | Scrubbing actor PII on hard purge | `./anonymize` (NWB-P1-015) |
  *
- * Not here on purpose: scrubbing actor context when a subject is erased → NWB-P1-015; retention
- * and legal holds → NWB-P1-010. Both are blocked on or blocked by this module, not the other way
- * round.
+ * Not here on purpose: retention and legal holds → NWB-P1-010, blocked on this module rather
+ * than the other way round. (Scrubbing actor context on erasure used to be listed here too; it
+ * landed as `./anonymize` with NWB-P1-015.)
  */
 export {
   AUDIT_ACTION_FORMAT,
@@ -31,6 +32,13 @@ export {
   auditActionSpec,
   LEGACY_AUDIT_ACTION_NAMES,
 } from "./actions";
+export {
+  type AnonymizeAuditActorContextInput,
+  AUDIT_REDACTED,
+  anonymizeAuditActorContext,
+  mangleCandidates,
+  scrubJsonValue,
+} from "./anonymize";
 export {
   type BrokenChainLink,
   type ChainedAuditModule,

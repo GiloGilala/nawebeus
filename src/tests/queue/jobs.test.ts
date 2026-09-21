@@ -162,6 +162,9 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
         deleted: 1,
         failed: 1,
         errors: [{ id: owner.id, error: expect.stringMatching(/23503|owner_id/i) }],
+        // No audit rows reference these factory users, so the erasure scrubs nothing — the key
+        // is present because the report shape no longer depends on which hooks ran (NWB-P1-015).
+        auditAnonymized: 0,
       });
       expect(await rowGone(db, "users", plain.id)).toBe(true);
       expect(await rowGone(db, "users", owner.id)).toBe(false);
@@ -179,6 +182,7 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
         deleted: 1,
         failed: 0,
         errors: [],
+        auditAnonymized: 0,
       });
       expect(await rowGone(db, "users", owner.id)).toBe(true);
 
@@ -188,6 +192,7 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
         deleted: 0,
         failed: 0,
         errors: [],
+        auditAnonymized: 0,
       });
       expect(await purgeExpiredOrganizationsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
         deleted: 0,

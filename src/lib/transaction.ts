@@ -103,11 +103,32 @@ export interface RowDeleteFailure {
  * duplicates `errors.length` on purpose — it keeps "how many refused" a scalar
  * an operator can read off `after_state` without measuring an array, and it is
  * the key the worker's partial-run convention (`isPartialRun`) looks at.
+ *
+ * `auditAnonymized` sums what the rows' `beforeDelete` hooks reported (today the only hook in
+ * the system is the audit scrub, NWB-P1-015 — the org purge reports 0 because it erases no
+ * subject). Always present, so the report shape never depends on which hooks ran.
  */
 export interface PerRowDeleteResult {
   deleted: number;
   failed: number;
   errors: RowDeleteFailure[];
+  auditAnonymized: number;
+}
+
+/**
+ * Per-row work a purge runs inside the row's savepoint, before its DELETE (NWB-P1-015).
+ *
+ * The placement is the point: the hook's writes share the row's atomic scope, so a hook failure
+ * lands the row in `errors` with nothing half-done, and a DELETE refusal afterwards rolls the
+ * hook's writes back with it. Return the number of side-effect rows touched for the run's report
+ * (or nothing, for hooks with nothing to count) — the count is only claimed when the DELETE that
+ * follows actually removes the row, so a refusal can never inflate it.
+ */
+export interface PerRowDeleteHooks {
+  // `| undefined` is explicit because tsconfig sets `exactOptionalPropertyTypes`; `undefined`
+  // rather than `void` in the return union because `void` there is the confusing kind (biome
+  // `noConfusingVoidType`), and a hook's bare `return;` produces `undefined` anyway.
+  beforeDelete?: ((tx: DbOrTx, id: string) => Promise<number | undefined>) | undefined;
 }
 
 /**
@@ -136,16 +157,24 @@ export type PurgeableTable = "users" | "organizations";
  * Callers pass candidate ids, not a predicate, so the "which rows are due"
  * decision stays in the service that owns the lifecycle — this helper only
  * decides *how* the delete is isolated.
+ *
+ * `hooks.beforeDelete`, when given, runs first inside the same savepoint. Its reported count is
+ * held per-row and only added to `auditAnonymized` when the DELETE actually removes the row: a
+ * refusal rolls the hook's writes back, so claiming its count would count work that did not
+ * survive — and a vanished row (concurrent run got there first) claims nothing either, consistent
+ * with `deleted`.
  */
 export async function deleteRowsPerRow(
   db: Db,
   table: PurgeableTable,
   ids: readonly string[],
+  hooks?: PerRowDeleteHooks,
 ): Promise<PerRowDeleteResult> {
-  if (ids.length === 0) return { deleted: 0, failed: 0, errors: [] };
+  if (ids.length === 0) return { deleted: 0, failed: 0, errors: [], auditAnonymized: 0 };
 
   return withAtomicWrites(db, async (tx) => {
     let deleted = 0;
+    let auditAnonymized = 0;
     const errors: RowDeleteFailure[] = [];
     for (const id of ids) {
       // Counter-derived, never caller input — the only interpolation `sql.raw`
@@ -153,17 +182,24 @@ export async function deleteRowsPerRow(
       const savepoint = `sp_purge_row_${savepointCounter++}`;
       await tx.execute(sql.raw(`SAVEPOINT ${savepoint}`));
       try {
+        let rowScrubbed = 0;
+        if (hooks?.beforeDelete) {
+          rowScrubbed = (await hooks.beforeDelete(tx, id)) ?? 0;
+        }
         const result = await tx.execute<{ id: string }>(
           sql`DELETE FROM ${sql.raw(table)} WHERE id = ${id} RETURNING id`,
         );
         const removed = (result as unknown as { rows?: unknown[] }).rows?.length ?? 0;
-        if (removed > 0) deleted++;
+        if (removed > 0) {
+          deleted++;
+          auditAnonymized += rowScrubbed;
+        }
         await tx.execute(sql.raw(`RELEASE SAVEPOINT ${savepoint}`));
       } catch (error) {
         await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${savepoint}`));
         errors.push({ id, error: describeError(error) });
       }
     }
-    return { deleted, failed: errors.length, errors };
+    return { deleted, failed: errors.length, errors, auditAnonymized };
   });
 }

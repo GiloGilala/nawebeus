@@ -179,7 +179,7 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
       );
 
       const purged = await purgeExpiredAccounts(db);
-      expect(purged).toEqual({ deleted: 1, failed: 0, errors: [] });
+      expect(purged).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 0 });
 
       const remaining = await db.execute<{ id: string }>(
         sql`SELECT id FROM users WHERE id IN (${expired.id}, ${pending.id})`,
@@ -288,7 +288,7 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
       );
 
       const purged = await purgeExpiredAccounts(db);
-      expect(purged).toEqual({ deleted: 1, failed: 0, errors: [] });
+      expect(purged).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 0 });
 
       // The organization survives on its new owner; the creator attribution is
       // set-nulled by the FK (the purged user's id must not outlive the erasure).
@@ -351,7 +351,7 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
       );
 
       const purged = await purgeExpiredAccounts(db);
-      expect(purged).toEqual({ deleted: 1, failed: 0, errors: [] });
+      expect(purged).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 0 });
 
       const keys = await db.execute<{
         user_id: string | null;

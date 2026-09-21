@@ -36,6 +36,13 @@ export const purgeExpiredAccountsJob: JobDefinition<null> = {
     // a job wrapper here. A nonzero `failed` makes this run's audit row `warning` (the wrapper's
     // partial-run convention), so a night that erased nothing-but-tried never reads as clean.
     const result = await purgeExpiredAccounts(db);
-    return { deleted: result.deleted, failed: result.failed, errors: result.errors };
+    // `auditAnonymized` (NWB-P1-015) is the erasure's own evidence: audit rows scrubbed of the
+    // erased subjects' actor PII. The org purge reports no such key — it erases no subject.
+    return {
+      deleted: result.deleted,
+      failed: result.failed,
+      errors: result.errors,
+      auditAnonymized: result.auditAnonymized,
+    };
   },
 };

@@ -42,12 +42,15 @@ import {
  *   - One tamper-detection chain to verify, not N chains
  *   - Single retention/deletion policy (regulatory driven)
  *
- * Append-only contract (enforced by trigger `impl_trg_ual_append_only`, migration `0001`,
- * NWB-P1-014 — not just by convention anymore):
+ * Append-only contract (enforced by trigger `impl_trg_ual_append_only`, migrations `0001` /
+ * `0002` — not just by convention anymore):
  *   - No updatedAt column — by design.
- *   - No UPDATE except the integrity verification job setting hashChainValid = FALSE; no DELETE.
- *     Anything else raises, including an UPDATE that touches `hash_chain_valid` *and* another
- *     column in one statement.
+ *   - No UPDATE except two sanctioned mutations, which are disjoint on purpose (one actor per
+ *     column set; a statement combining them raises): the integrity verification job setting
+ *     hashChainValid = FALSE (NWB-P1-014), and the hard-purge path scrubbing actor PII
+ *     (`actor_ip`, `actor_user_agent`, the four jsonb payloads) while its transaction carries
+ *     `SET LOCAL audit.anonymizing = 'on'` (NWB-P1-015, BR-AUTH-043 — the scrubbed columns are
+ *     exactly the ones the checksum does NOT cover, so the chain survives it). No DELETE, ever.
  *   - TRUNCATE is outside the trigger's reach (no trigger fires on TRUNCATE) and stays a
  *     role-permission concern: PostgreSQL role permissions should be configured to enforce this
  *     at the DB layer as a defense-in-depth measure.

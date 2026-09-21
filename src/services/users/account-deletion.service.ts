@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError, OwnershipTransferRequiredError } from "../../lib/errors";
 import { deleteRowsPerRow, type PerRowDeleteResult } from "../../lib/transaction";
-import { writeAuditLog } from "../audit";
+import { anonymizeAuditActorContext, writeAuditLog } from "../audit";
 import { revokeAllSessionsForUser } from "../auth/session";
 
 const DELETION_GRACE_DAYS = 30;
@@ -138,6 +138,12 @@ export async function reactivateAccount(
  *
  * Candidates run oldest-erasure-first, so a night that is cut short still
  * lands the rows closest to their NDPR deadline.
+ *
+ * Each row's audit context is scrubbed before its DELETE, in the same savepoint (NWB-P1-015,
+ * BR-AUTH-043): the scrub reads identity values from the still-present user row, a scrub failure
+ * lands the row in `errors` for the next night instead of half-erasing, and a DELETE refusal
+ * rolls the scrub back — a user who was not erased keeps intact audit context. The run reports
+ * scrubbed rows as `auditAnonymized`, the erasure's own evidence.
  */
 export async function purgeExpiredAccounts(
   db: NodePgDatabase<Record<string, any>>,
@@ -152,7 +158,9 @@ export async function purgeExpiredAccounts(
     `,
   );
   const ids = ((rows as any).rows ?? []).map((row: { id: string }) => row.id);
-  return deleteRowsPerRow(db, "users", ids);
+  return deleteRowsPerRow(db, "users", ids, {
+    beforeDelete: (tx, id) => anonymizeAuditActorContext(tx, { userId: id }),
+  });
 }
 
 export async function getAccountDeletionStatus(

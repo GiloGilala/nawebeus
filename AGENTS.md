@@ -52,12 +52,12 @@ bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same aud
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (269 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (274 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
 - **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
-- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 91.1% / 96.9% (NWB-P1-014). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
+- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 91.4% / 96.9% (NWB-P1-015). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
 ### CI
@@ -198,8 +198,10 @@ directory you care about) for the complete set.
   are load-bearing and both are red-verified by `src/tests/audit/chain.test.ts`. The
   `audit-chain-verify` job walks each chain nightly, sets `hash_chain_valid = false` from the first
   mismatch onward, and audits both outcomes as `module: "system"`. The table is append-only by
-  trigger (`impl_trg_ual_append_only`: UPDATE only the flag, no DELETE; TRUNCATE stays a
-  role-permission concern). Never write chained modules via raw SQL — the registry scan fails it.
+  trigger (`impl_trg_ual_append_only`: UPDATE only the flag or the hard-purge PII scrub — the
+  scrub touches exactly the columns the checksum does NOT cover, under a transaction-local flag,
+  and the two exceptions are disjoint — no DELETE; TRUNCATE stays a role-permission concern).
+  Never write chained modules via raw SQL — the registry scan fails it.
 - **The nightly order is load-bearing: reclamation → organizations → accounts → audit-chain
   verification** — a user who still
   owns an organization cannot be hard-deleted (`organizations.owner_id` is `NOT NULL` + restrictive,
