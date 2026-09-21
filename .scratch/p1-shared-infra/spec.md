@@ -26,7 +26,7 @@ correlation id from log to audit row · all purge/reclamation workers running on
 | ID | Ticket | Size | File | Status |
 | --- | --- | --- | --- | --- |
 | NWB-P1-001 | Queue + scheduler + worker base (pg-boss) | L | [issues/01-queue-scheduler-worker-base.md](issues/01-queue-scheduler-worker-base.md) | **done** |
-| NWB-P1-002 | Audit service formalization + query API (closes F-19) | M | `issues/02-audit-formalization.md` (to file) | ready-for-agent |
+| NWB-P1-002 | Audit service formalization + query API (closes F-19) | M | [issues/03-audit-formalization-and-query-api.md](issues/03-audit-formalization-and-query-api.md) | **claimed** — drafted 2026-09-21, blocked on 4 scope questions in the ticket |
 | NWB-P1-003 | Approval service (request/submit/approve/reject/expire-stale) | L | to file | ready-for-agent (needs P1-001 ✅) |
 | NWB-P1-013 | Purge batches must delete per row (org-owner FK aborts a night of erasures) | M | [issues/02-purge-batches-must-be-per-row.md](issues/02-purge-batches-must-be-per-row.md) | ready-for-agent (found in P1-001; blocks P1-010) |
 | NWB-P1-004 | Email transport: Resend adapter behind `EmailTransport` | M | to file | ready-for-agent |
