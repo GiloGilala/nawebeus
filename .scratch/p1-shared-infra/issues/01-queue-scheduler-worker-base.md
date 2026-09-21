@@ -129,6 +129,12 @@ never sets `maxWorkerConcurrency`, which is the knob that would multiply workers
 - `bun test src/tests/queue/` → **48 pass / 0 fail** (definitions 16, worker 18, jobs 5 DB-gated, loop 9 against a live PgBoss).
 - `bun test` → 502 pass / 0 fail (447 before this work). With `DATABASE_URL` unset: 273 pass /
   243 skip / 0 fail in 0.3s — nothing reached for a connection.
+- **CI ran the loop test too**, with no workflow edit: `.github/workflows/ci.yml` already runs
+  `bun test` against a `postgres:14` service with `DATABASE_URL` set, so both DB-gated queue files
+  execute on the pull request. Checks green on PR #15 (`Typecheck, lint, build` 21s;
+  `Test (PostgreSQL)` 1m23s). The "out of scope" note above about adding a CI step is therefore
+  closed by infrastructure that already exists — and any later queue test is CI-covered the moment
+  it is DB-gated, which is worth knowing before someone schedules one on a workflow change.
 - `bun run typecheck` clean · `bunx biome check . --diagnostic-level=error` 0 errors (the tree's
   ~2k existing warnings untouched) · `bun run build` clean · `bun run coverage:check` green
   (`src/lib` 96.6%, `src/services` 89.9%).
