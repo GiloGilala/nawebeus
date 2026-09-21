@@ -229,7 +229,7 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
         name: rateLimitReclaimJob.name,
         description: "forced failure",
         audit: {
-          action: "rate-limits.reclaim-forced-failure",
+          action: "rate-limits.reclaimed",
           category: "data_ops",
           resourceType: "rate_limit",
         },

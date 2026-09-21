@@ -34,6 +34,23 @@ export const DEFAULT_PAGE_SIZE = 20;
 /** Hard ceiling, so one request cannot ask for the whole table (§2.6). */
 export const MAX_PAGE_SIZE = 100;
 
+/**
+ * The tiebreaker id must be *safe to put in a WHERE clause*, not specifically a uuid — but every list
+ * this helper served until NWB-P1-002 was uuid-keyed, so uuid was the shape it checked for.
+ * `unified_audit_log.id` is `varchar(64)` with an `al_` prefix by design (the ids there are prefixed
+ * and human-greppable, and the table widens rather than re-keys), so the audit list passes
+ * `AUDIT_ID_PATTERN` instead of the audit table pretending to have uuids.
+ *
+ * A caller that skipped the option would get a 422 on every second page, which is the failure mode
+ * worth knowing about from here rather than from a bug report.
+ */
+export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** What `decodeCursor` accepts as a tiebreaker id, per caller. */
+export interface CursorIdShape {
+  readonly idPattern?: RegExp;
+}
+
 /** Decoded cursor: the sort value of the last row returned, plus its id. */
 export interface CursorPayload {
   /** The ORDER BY value of the boundary row, ISO-8601 for timestamps. */
@@ -79,7 +96,7 @@ export function encodeCursor(payload: CursorPayload): string {
  * string. Garbage in a cursor must never reach the driver — that is the same
  * class of bug as the malformed path params fixed in NWB-P0-029.
  */
-export function decodeCursor(raw: string): CursorPayload | null {
+export function decodeCursor(raw: string, shape: CursorIdShape = {}): CursorPayload | null {
   let json: string;
   try {
     json = Buffer.from(raw, "base64url").toString("utf8");
@@ -96,7 +113,7 @@ export function decodeCursor(raw: string): CursorPayload | null {
   const { v, id } = parsed as Record<string, unknown>;
   if (typeof v !== "string" || v.length === 0 || v.length > 64) return null;
   if (typeof id !== "string") return null;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  if (!(shape.idPattern ?? UUID_PATTERN).test(id)) return null;
   return { v, id };
 }
 
@@ -109,7 +126,7 @@ export function decodeCursor(raw: string): CursorPayload | null {
  * excuse to restart from page one — restarting would make a client's walk
  * silently repeat the beginning of the list.
  */
-export function parsePagination(url: URL): PaginationParams {
+export function parsePagination(url: URL, shape: CursorIdShape = {}): PaginationParams {
   const rawLimit = url.searchParams.get("limit");
   let limit = DEFAULT_PAGE_SIZE;
   if (rawLimit !== null) {
@@ -129,7 +146,7 @@ export function parsePagination(url: URL): PaginationParams {
   const rawCursor = url.searchParams.get("cursor");
   let cursor: CursorPayload | null = null;
   if (rawCursor !== null && rawCursor !== "") {
-    cursor = decodeCursor(rawCursor);
+    cursor = decodeCursor(rawCursor, shape);
     if (cursor === null) {
       throw new ValidationError("Invalid pagination parameter", [
         { field: "cursor", message: "Malformed cursor" },

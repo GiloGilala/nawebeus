@@ -14,7 +14,7 @@ describe.skipIf(!hasDb())("audit service", () => {
         organizationId: "org-1",
         actorId: "user-1",
         actorType: "user",
-        action: "auth.login.success",
+        action: "auth.signin.completed",
         category: "authentication",
         resourceType: "session",
         resourceId: "sess-1",
@@ -31,7 +31,7 @@ describe.skipIf(!hasDb())("audit service", () => {
         sql`SELECT action FROM unified_audit_log WHERE id LIKE 'al_%' ORDER BY created_at DESC LIMIT 1`,
       );
       const row = (rows as any).rows?.[0] as any;
-      expect(row.action).toBe("auth.login.success");
+      expect(row.action).toBe("auth.signin.completed");
     });
   });
 
@@ -41,28 +41,35 @@ describe.skipIf(!hasDb())("audit service", () => {
         writeAuditLog({
           db,
           module: "core",
-          action: "system.startup",
-          category: "system_config",
+          action: "rate-limits.reclaimed",
         }),
       ).resolves.toBeUndefined();
     });
   });
 
-  test("writeAuditLog writes 'user_management' as default category", async () => {
+  test("unspecified columns come from the registry, not from a caller's memory", async () => {
     await withTestDb(async ({ db }) => {
+      // `organization.member.status_changed` is filed `user_management` / `user` / `info` in
+      // `src/services/audit/actions.ts`. Passing none of the three is the case that matters: it is
+      // how an action ends up under two categories depending on who wrote it, which is the reason the
+      // defaults live next to the action instead of at 33 call sites.
       await writeAuditLog({
         db,
         module: "core",
-        action: "user.created",
+        action: "organization.member.status_changed",
         actorId: "user-1",
         actorType: "user",
       });
 
-      const rows = await db.execute<{ category: string }>(
-        sql`SELECT category FROM unified_audit_log WHERE action = 'user.created' ORDER BY created_at DESC LIMIT 1`,
+      const rows = await db.execute<{ category: string; resource_type: string; severity: string }>(
+        sql`SELECT category, resource_type, severity FROM unified_audit_log
+            WHERE action = 'organization.member.status_changed'
+            ORDER BY created_at DESC LIMIT 1`,
       );
       const row = (rows as any).rows?.[0] as any;
       expect(row.category).toBe("user_management");
+      expect(row.resource_type).toBe("user");
+      expect(row.severity).toBe("info");
     });
   });
 });

@@ -387,8 +387,11 @@ export async function refreshSession(
 
   const orgId = user.organization_id ?? "";
 
-  // Rotate: revoke old session, create new one
-  await revokeSession(db, session.id);
+  // Rotate: revoke old session, create new one.
+  //
+  // `null` actor = not an audited event here. Refresh rotation happens on every rotated session;
+  // auditing each one would write an audit row per API call and bury the events that matter.
+  await revokeSession(db, session.id, null);
   const newSessionId = crypto.randomUUID();
   const newRefreshToken = await signRefreshToken(
     newSessionId,
@@ -424,7 +427,7 @@ export async function signOut(
       if (session && !session.isRevoked) {
         const presentedHash = await hashToken(refreshToken);
         if (presentedHash === session.tokenHash) {
-          await revokeSession(db, session.id);
+          await revokeSession(db, session.id, null);
         }
       }
     }

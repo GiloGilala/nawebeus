@@ -22,6 +22,7 @@ import {
 } from "../../lib/queue";
 import { QUEUE_SCHEDULE_DEFAULTS, resolveSchedules } from "../../lib/scheduler";
 import { assertJobSetIsComplete, validateJobDefinitions } from "../../lib/worker";
+import type { AuditActionName } from "../../services/audit";
 
 /**
  * A `Config` carrying only what `resolveSchedules` reads.
@@ -96,7 +97,7 @@ describe("queue job set", () => {
 });
 
 describe("validateJobDefinitions", () => {
-  const job = (name: QueueJobName, action = "thing.done") => ({
+  const job = (name: QueueJobName, action: AuditActionName = "rate-limits.reclaimed") => ({
     name,
     description: "a test job",
     audit: { action, category: "data_ops" as const, resourceType: "thing" },
@@ -110,9 +111,9 @@ describe("validateJobDefinitions", () => {
   });
 
   test("rejects an empty audit action, which would write an unattributable row", () => {
-    expect(() => validateJobDefinitions([job(QUEUE_JOBS.rateLimitReclaim, "   ")])).toThrow(
-      /no audit action/,
-    );
+    expect(() =>
+      validateJobDefinitions([job(QUEUE_JOBS.rateLimitReclaim, "   " as AuditActionName)]),
+    ).toThrow(/no audit action/);
   });
 
   test("rejects a definition without a handler", () => {

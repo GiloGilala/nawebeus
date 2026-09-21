@@ -3,10 +3,11 @@
 **Feature slug:** `p1-shared-infra`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/07-phase-2-shared-infra.md` (§12) · execution plan §5 P1
-**Status:** in-progress — NWB-P1-001 (queue + scheduler + worker base) **done 2026-09-21**;
-NWB-P1-002 (audit infrastructure) is next. **NWB-P1-013** (purge batches must delete per row, found
-while delivering P1-001) should be taken before NWB-P1-010, whose legal-hold check needs per-row scope.
-The other ten tickets are not started.
+**Status:** in-progress — NWB-P1-001 (queue + scheduler + worker base) and NWB-P1-002 (audit
+formalization + query API) both **done 2026-09-21**. Two tickets are live in the queue:
+**NWB-P1-003** (approval service) is drafted with four scope questions open, and **NWB-P1-013** (purge
+batches must delete per row, found while delivering P1-001) should still be taken before NWB-P1-010,
+whose legal-hold check needs per-row scope. The other nine tickets are not started.
 
 **Goal:** land the cross-cutting services every domain module needs. Per the execution plan this is
 "the single largest multiplier in the plan" — nothing downstream starts before the exit gate.
@@ -26,8 +27,8 @@ correlation id from log to audit row · all purge/reclamation workers running on
 | ID | Ticket | Size | File | Status |
 | --- | --- | --- | --- | --- |
 | NWB-P1-001 | Queue + scheduler + worker base (pg-boss) | L | [issues/01-queue-scheduler-worker-base.md](issues/01-queue-scheduler-worker-base.md) | **done** |
-| NWB-P1-002 | Audit service formalization + query API (closes F-19) | M | [issues/03-audit-formalization-and-query-api.md](issues/03-audit-formalization-and-query-api.md) | **claimed** — drafted 2026-09-21, blocked on 4 scope questions in the ticket |
-| NWB-P1-003 | Approval service (request/submit/approve/reject/expire-stale) | L | to file | ready-for-agent (needs P1-001 ✅) |
+| NWB-P1-002 | Audit service formalization + query API (closes F-19's read half) | M | [issues/03-audit-formalization-and-query-api.md](issues/03-audit-formalization-and-query-api.md) | **done** 2026-09-21 — registry + typed writes + `GET /api/audit`(:id); chain → P1-014, retention → P1-010, anonymization → P1-015 |
+| NWB-P1-003 | Approval service (request/submit/approve/reject/expire-stale) | L | [issues/06-approval-service.md](issues/06-approval-service.md) | **drafted 2026-09-21** — schema measured, 4 scope questions open (approver model, chain semantics, expiry worker, permissions) |
 | NWB-P1-013 | Purge batches must delete per row (org-owner FK aborts a night of erasures) | M | [issues/02-purge-batches-must-be-per-row.md](issues/02-purge-batches-must-be-per-row.md) | ready-for-agent (found in P1-001; blocks P1-010) |
 | NWB-P1-014 | Audit hash chain: checksums on write + scheduled verification | M | [issues/04-audit-hash-chain.md](issues/04-audit-hash-chain.md) | ready-for-agent (split out of P1-002; blocks P1-015) |
 | NWB-P1-015 | Anonymize audit actor context on hard purge (F-29 / BR-AUTH-043) | S–M | [issues/05-audit-anonymization-on-purge.md](issues/05-audit-anonymization-on-purge.md) | ready-for-agent (needs P1-014) |

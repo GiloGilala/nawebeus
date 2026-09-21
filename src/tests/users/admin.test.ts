@@ -16,12 +16,24 @@ const testEnv = {
   JWT_REFRESH_SECRET: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 };
 
+// Restoring must be keyed on what *this* suite changed, not on whether a value happens to match its own
+// placeholder: a real `.env` can legitimately carry the same dev secret, and deleting it then breaks
+// every later file in the same `bun test` process (six suites' `loadConfig()` threw, for a reason that
+// looked like a database problem). `src/tests/audit/api.test.ts` uses the same shape.
+const savedEnv: Record<string, string | undefined> = {};
+
 describe("Admin user routes — no DB", () => {
   beforeAll(() => {
-    for (const [k, v] of Object.entries(testEnv)) process.env[k] ??= v;
+    for (const [k, v] of Object.entries(testEnv)) {
+      savedEnv[k] = process.env[k];
+      process.env[k] ??= v;
+    }
   });
   afterAll(() => {
-    for (const [k, v] of Object.entries(testEnv)) if (process.env[k] === v) delete process.env[k]; // only remove what we set
+    for (const k of Object.keys(testEnv)) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
   });
 
   test("GET /api/users/admin without auth returns 401", async () => {

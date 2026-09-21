@@ -93,7 +93,7 @@ function fakeDefinition(
   return {
     name: overrides.name ?? QUEUE_JOBS.rateLimitReclaim,
     description: "test job",
-    audit: { action: "things.done", category: "data_ops", resourceType: "thing" },
+    audit: { action: "rate-limits.reclaimed", category: "data_ops", resourceType: "thing" },
     handle: async () => ({ worked: true }),
     ...overrides,
   };
@@ -181,7 +181,7 @@ describe("the executed job", () => {
     expect(event).toMatchObject({
       module: "core",
       actorType: "system",
-      action: "things.done",
+      action: "rate-limits.reclaimed",
       category: "data_ops",
       resourceType: "thing",
       severity: "info",

@@ -326,6 +326,7 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
         organizationId: org.id,
         userId: target.id,
         createdBy: target.id,
+        actorType: "user",
         name: `key-${crypto.randomUUID().slice(0, 6)}`,
         keyType: "admin",
         environment: "development",
@@ -335,7 +336,14 @@ describe.skipIf(!hasDb())("Account deletion — service + route (with DB)", () =
         expiresAt: null,
         rotationStrategy: "manual",
       });
-      await revokeApiKey(db, org.id, created.id, target.id, "cleanup", "user");
+      await revokeApiKey(
+        db,
+        org.id,
+        created.id,
+        { actorId: target.id, actorType: "user", organizationId: org.id },
+        "cleanup",
+        "user",
+      );
 
       await deleteAccount(db, target.id);
       await db.execute(

@@ -18,7 +18,7 @@
  * implementation. The audit sink is injected (`WorkerDeps.audit`) so `src/lib/` keeps no runtime
  * edge into `src/services/`; only the parameter *type* is imported from there.
  */
-import type { AuditCategory, WriteAuditLogEntryParams } from "../services/audit";
+import type { AuditActionName, AuditCategory, WriteAuditLogEntryParams } from "../services/audit";
 import { getConfig } from "./config";
 import type { Db } from "./db";
 import { describeError } from "./errors";
@@ -76,7 +76,12 @@ export interface JobDefinition<TData extends object | null = object | null> {
   /** Merged over `QUEUE_POLICY_DEFAULTS` and handed to `createQueue`. */
   readonly policy?: QueuePolicy;
   readonly audit: {
-    readonly action: string;
+    /**
+     * A name registered in `src/services/audit/actions.ts`. Typing it here is what stops a job from
+     * inventing a fifth spelling of "purged": the audit vocabulary is shared with every HTTP mutation,
+     * and a job-only action would be invisible to `grep`-ing the registry.
+     */
+    readonly action: AuditActionName;
     readonly category: AuditCategory;
     readonly resourceType: string;
   };

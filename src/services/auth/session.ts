@@ -7,6 +7,7 @@ import {
   type Page,
   type PaginationParams,
 } from "../../lib/pagination";
+import { type AuditActor, writeAuditLog } from "../audit";
 
 export interface SessionRow {
   id: string;
@@ -154,9 +155,28 @@ export async function findSession(
   };
 }
 
+/**
+ * Revoke one session.
+ *
+ * `actor` decides whether this call is audited *here*:
+ *
+ * - **an `AuditActor`** — a user (or machine key) asked for this, so the row is the event:
+ *   `auth.session.revoked`, which is what "who signed me out" investigations read.
+ * - **`null`** — this is an internal consequence of a bigger operation: refresh-token rotation
+ *   (`src/services/auth/auth.service.ts`, twice per rotated session — per-row events there would
+ *   write an audit row on every API call) and revoke-all-on-password-change, whose own aggregate
+ *   events (`auth.password_reset.completed`, `security.password_changed`, `account.deleted`) already
+ *   record that sessions died.
+ *
+ * The parameter is required rather than optional because an *optional* audit context is how the
+ * property gets lost: every caller is forced to pick, in writing, whether it is the event or a
+ * side effect of one. That choice used to be invisible, because the audit lived in the route and the
+ * service had no idea who called it.
+ */
 export async function revokeSession(
   db: NodePgDatabase<Record<string, any>>,
   sessionId: string,
+  actor: AuditActor | null,
 ): Promise<void> {
   await db.execute(
     sql`
@@ -165,6 +185,60 @@ export async function revokeSession(
       WHERE id = ${sessionId}
     `,
   );
+
+  if (!actor) return;
+
+  await writeAuditLog({
+    db,
+    module: "core",
+    organizationId: actor.organizationId,
+    actorId: actor.actorId,
+    actorType: actor.actorType,
+    action: "auth.session.revoked",
+    resourceId: sessionId,
+    ...(actor.requestId ? { requestId: actor.requestId } : {}),
+  });
+}
+
+/**
+ * "Sign out everywhere else": every live session of `userId` except the caller's current one.
+ *
+ * Belongs in the service, not in a route loop: the count in the audit row is the answer to
+ * "how many credentials did this end?", and a caller that reimplemented the loop would quietly
+ * produce a different answer. One event for the batch, because N rows for one user action is noise
+ * that hides the action.
+ */
+export async function revokeOtherSessions(
+  db: NodePgDatabase<Record<string, any>>,
+  userId: string,
+  /** The caller's own session, which survives. `null`/`undefined` means "none named" → all revoked. */
+  keepSessionId: string | null | undefined,
+  actor: AuditActor,
+): Promise<number> {
+  // Unpaginated on purpose: revoking "all other" sessions must not stop at a page boundary and
+  // leave sessions alive.
+  const allIds = await listAllLiveSessionIds(db, userId);
+  const toRevoke = keepSessionId ? allIds.filter((id) => id !== keepSessionId) : allIds;
+
+  for (const sessionId of toRevoke) {
+    // `null` per row: this batch owns the one aggregate event below.
+    await revokeSession(db, sessionId, null);
+  }
+  if (toRevoke.length === 0) return 0;
+
+  await writeAuditLog({
+    db,
+    module: "core",
+    organizationId: actor.organizationId,
+    actorId: actor.actorId,
+    actorType: actor.actorType,
+    action: "auth.sessions.revoked_others",
+    resourceId: userId,
+    targetUserId: userId,
+    afterState: { revokedCount: toRevoke.length },
+    ...(actor.requestId ? { requestId: actor.requestId } : {}),
+  });
+  return toRevoke.length;
 }
 
 export async function revokeAllSessionsForUser(

@@ -1,19 +1,39 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { NotFoundError } from "@/lib/errors";
 import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
-import { writeAuditLog } from "@/services/audit";
 import {
   getSessionDetail,
-  listAllLiveSessionIds,
   listUserSessions,
+  revokeOtherSessions,
   revokeSession,
 } from "@/services/auth/session";
 
 const router = new Hono();
+
+/**
+ * Who is acting, for the audit rows the services now write themselves.
+ *
+ * `authMethod` matters: this surface accepts a Bearer API key exactly as `/api-keys` does, and a
+ * machine credential ending a session is a different fact from the user ending it. The same three
+ * lines exist in `api-keys.route.ts` — they are not factored out because the two routes need
+ * different shapes (`api-keys` has no org on the actor), and a shared helper with an optional org is
+ * how an actor loses its tenant.
+ */
+function actorOf(c: Context): {
+  actorId: string;
+  actorType: "user" | "api_key";
+  organizationId: string;
+} {
+  return {
+    actorId: c.var.user.userId,
+    actorType: c.var.authMethod === "api_key" ? "api_key" : "user",
+    organizationId: c.var.user.orgId,
+  };
+}
 
 router.use("/sessions/*", authMiddleware);
 
@@ -53,28 +73,9 @@ router.delete("/sessions/revoke-others", async (c) => {
   }
   const parsed = revokeOthersSchema.parse(body);
 
-  // Unpaginated on purpose: revoking "all other" sessions must not stop at a
-  // page boundary and leave sessions alive.
-  const allIds = await listAllLiveSessionIds(db, userId);
-  const toRevoke = allIds.filter((id) => id !== parsed.currentSessionId);
+  const revokedCount = await revokeOtherSessions(db, userId, parsed.currentSessionId, actorOf(c));
 
-  for (const sessionId of toRevoke) {
-    await revokeSession(db, sessionId);
-  }
-
-  await writeAuditLog({
-    db,
-    module: "core",
-    actorId: userId,
-    actorType: "user",
-    action: "auth.sessions.revoked_others",
-    category: "authentication",
-    resourceType: "user",
-    resourceId: userId,
-    afterState: { revokedCount: toRevoke.length },
-  });
-
-  return c.json(success({ revokedCount: toRevoke.length }));
+  return c.json(success({ revokedCount }));
 });
 
 // DELETE /sessions/:sessionId — revoke a specific session
@@ -86,18 +87,9 @@ router.delete("/sessions/:sessionId", async (c) => {
   const detail = await getSessionDetail(db, sessionId, userId);
   if (!detail) throw new NotFoundError("Session not found");
 
-  await revokeSession(db, sessionId);
-
-  await writeAuditLog({
-    db,
-    module: "core",
-    actorId: userId,
-    actorType: "user",
-    action: "auth.session.revoked",
-    category: "authentication",
-    resourceType: "session",
-    resourceId: sessionId,
-  });
+  // The service writes `auth.session.revoked` — see `revokeSession`'s `actor` contract, which is the
+  // reason this handler no longer calls `writeAuditLog` itself.
+  await revokeSession(db, sessionId, actorOf(c));
 
   return c.json(success({ revoked: true, sessionId }));
 });

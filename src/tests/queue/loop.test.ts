@@ -35,7 +35,7 @@ import {
   ensureQueues,
   type WorkerDeps,
 } from "../../lib/worker";
-import type { WriteAuditLogEntryParams } from "../../services/audit";
+import type { AuditActionName, WriteAuditLogEntryParams } from "../../services/audit";
 
 const hasDb = () => !!process.env.DATABASE_URL;
 const url = process.env.DATABASE_URL ?? "";
@@ -45,6 +45,17 @@ const testSchema = `pgboss_test_${crypto.randomUUID().replace(/-/g, "").slice(0,
 
 /** The queue this file exercises: a real declared name, with a handler that only counts. */
 const LOOP_QUEUE = QUEUE_JOBS.rateLimitReclaim;
+
+/**
+ * The audit action the harness job reports, as a shared constant.
+ *
+ * It has to be a *registered* action, because `JobDefinition.audit.action` is typed as
+ * `AuditActionName` since NWB-P1-002. Inventing `"loop-test.ran"` would mean adding a test-only name
+ * to a vocabulary that saved filters and future retention rules are keyed on, so the harness borrows
+ * the action of the queue it really does drive — and the assertions below read the same constant, so
+ * the pair cannot drift apart the way the first draft of this file did.
+ */
+const LOOP_AUDIT_ACTION = "rate-limits.reclaimed" satisfies AuditActionName;
 
 let boss: PgBoss;
 
@@ -70,7 +81,7 @@ function harness(options: { failOnAttempts?: number[] } = {}): Harness {
   const job: AnyJobDefinition = {
     name: LOOP_QUEUE,
     description: "loop test job",
-    audit: { action: "loop-test.ran", category: "data_ops", resourceType: "loop_test" },
+    audit: { action: LOOP_AUDIT_ACTION, category: "data_ops", resourceType: "loop_test" },
     handle: async (context) => {
       runs.push({ attempt: context.job.attempt, jobId: context.job.id });
       if (options.failOnAttempts?.includes(runs.length)) {
@@ -190,7 +201,7 @@ describe.skipIf(!hasDb())("queue loop against a live pg-boss", () => {
 
     expect(local.runs[0]).toEqual({ attempt: 1, jobId });
     expect(local.auditEvents).toHaveLength(1);
-    expect(local.auditEvents[0]).toMatchObject({ action: "loop-test.ran", severity: "info" });
+    expect(local.auditEvents[0]).toMatchObject({ action: LOOP_AUDIT_ACTION, severity: "info" });
     expect(local.auditEvents[0]?.metadata).toMatchObject({ jobId, queue: LOOP_QUEUE });
     expect(local.auditEvents[0]?.afterState).toEqual({ ran: true, attempt: 1 });
 
@@ -282,7 +293,7 @@ describe.skipIf(!hasDb())("queue loop against a live pg-boss", () => {
       // Asserted, not implied: a run that came from the schedule still went through the wrapper, so
       // it wrote an audit row naming the queue and the 1-based attempt.
       expect(local.auditEvents[0]).toMatchObject({
-        action: "loop-test.ran",
+        action: LOOP_AUDIT_ACTION,
         severity: "info",
         metadata: { queue: LOOP_QUEUE, attempt: 1 },
       });

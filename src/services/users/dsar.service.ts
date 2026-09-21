@@ -80,9 +80,7 @@ export async function requestDataExport(
   await writeAuditLog({
     db,
     module: "core",
-    category: "compliance",
     action: "compliance.dsar.requested",
-    resourceType: "data_export_request",
     resourceId: id,
     actorId: requestedBy,
     actorType: requestedBy === subjectId ? "user" : "admin",
@@ -91,7 +89,6 @@ export async function requestDataExport(
     ...(input.actorIp ? { actorIp: input.actorIp } : {}),
     ...(input.actorUserAgent ? { actorUserAgent: input.actorUserAgent } : {}),
     ...(input.requestId ? { requestId: input.requestId } : {}),
-    severity: "info",
     metadata: { expiresAt: expiresAt.toISOString() },
   });
 
