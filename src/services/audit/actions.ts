@@ -101,6 +101,12 @@ export const AUDIT_ACTIONS = {
     resourceType: "api_key",
     legacyName: true,
   },
+  "audit-chain.verified": {
+    description:
+      "Nightly hash-chain verification walked the admin/system/compliance chains; `after_state.failed` counts broken rows.",
+    category: "security",
+    resourceType: "audit_log",
+  },
   "auth.email_change.confirmed": {
     description: "Pending email change applied after the new address was verified.",
     category: "authentication",

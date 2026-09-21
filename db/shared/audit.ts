@@ -42,24 +42,28 @@ import {
  *   - One tamper-detection chain to verify, not N chains
  *   - Single retention/deletion policy (regulatory driven)
  *
- * Append-only contract:
+ * Append-only contract (enforced by trigger `impl_trg_ual_append_only`, migration `0001`,
+ * NWB-P1-014 — not just by convention anymore):
  *   - No updatedAt column — by design.
- *   - Application layer enforces: no UPDATE, no DELETE on this table.
- *   - The only "change" allowed is the integrity verification job
- *     setting hashChainValid = FALSE when tampering is detected.
- *   - PostgreSQL role permissions should be configured to enforce
- *     this at the DB layer as a defense-in-depth measure.
+ *   - No UPDATE except the integrity verification job setting hashChainValid = FALSE; no DELETE.
+ *     Anything else raises, including an UPDATE that touches `hash_chain_valid` *and* another
+ *     column in one statement.
+ *   - TRUNCATE is outside the trigger's reach (no trigger fires on TRUNCATE) and stays a
+ *     role-permission concern: PostgreSQL role permissions should be configured to enforce this
+ *     at the DB layer as a defense-in-depth measure.
  *
- * Tamper detection (hash chain):
- *   - checksum        → SHA-256 hash of
- *                       (id + action + actorId + resourceId +
- *                        createdAt + previousChecksum)
- *   - previousChecksum → checksum of the immediately preceding row for
- *                        the same module
+ * Tamper detection (hash chain), implemented in `src/services/audit/chain.ts`:
+ *   - checksum        → lowercase hex SHA-256 of
+ *                       JSON.stringify([id, action, actorId ?? null, resourceId ?? null,
+ *                       String(createdAtMs), previousChecksum])
+ *                       where createdAtMs is the row's `created_at` as epoch milliseconds.
+ *   - previousChecksum → checksum of the immediately preceding row for the same module in
+ *                        (created_at, id) order — or `sha256("audit-chain-genesis:" + module)`
+ *                        for the module's first row.
  *   - Required for:   module IN ('admin', 'system', 'compliance')
- *   - Optional for:   other modules (lightweight, high-volume)
- *   - Verification job scans the chain in createdAt order and sets
- *     hashChainValid = FALSE on rows whose chain is broken.
+ *   - NULL for:       other modules (lightweight, high-volume) — not breakage.
+ *   - Verification job walks each chained module in (created_at, id) order, recomputes every
+ *     link, and sets hashChainValid = FALSE from the first mismatch onward.
  *
  * Compliance notes:
  *   - Rows must outlive the actors and resources they reference.
@@ -147,8 +151,8 @@ export const auditLog = pgTable(
     sessionId: varchar("session_id", { length: 64 }),
 
     // ─── Tamper Detection ────────────────────────────────────────────────────
-    // SHA-256 hash of (id + action + actorId + resourceId +
-    //                  createdAt + previousChecksum)
+    // Exact formula in this file's header comment; computed by
+    // `src/services/audit/chain.ts`, never by hand.
     // NULL for low-sensitivity rows where the chain is not maintained
     // (lightweight, high-volume modules).
     // Required for module IN ('admin', 'system', 'compliance').

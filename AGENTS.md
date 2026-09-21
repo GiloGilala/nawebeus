@@ -52,12 +52,12 @@ bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same aud
 
 ### Tests
 
-- `bun test` — runs all tests. Tests requiring a database (243 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
+- `bun test` — runs all tests. Tests requiring a database (269 of them) are silently skipped when `DATABASE_URL` is unset. Set it to run the full suite — see `docs/agents/local-database.md` for getting a database with nothing installed.
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
 - **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
-- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 89.9% / 95.8%. Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
+- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 91.1% / 96.9% (NWB-P1-014). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
 ### CI
@@ -135,7 +135,8 @@ src/services/             ← Business logic (single source of truth)
   email.ts, audit.ts
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
-  rate-limit-reclaim.ts, purge-expired-accounts.ts, purge-expired-organizations.ts
+  rate-limit-reclaim.ts, purge-expired-accounts.ts, purge-expired-organizations.ts,
+  audit-chain-verify.ts
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
   db.ts          ← Drizzle client factory + test DB helper
@@ -183,11 +184,24 @@ directory you care about) for the complete set.
   base in `src/lib/worker.ts` supplies the audit events, the attempt number, and the rethrow that
   makes pg-boss retry with backoff. Swallow a handler error there and every job silently "succeeds".
 - **Worker audit events are `module: "core"`, actor type `system`, with `organization_id` NULL** —
-  not `"system"`: `chk_ual_system_requires_checksum` demands a hash-chain checksum for
-  admin/system/compliance and nothing computes the chain yet (the same reason NWB-P0-002's DSAR
-  event cites `core`). NULL organization because one run sweeps every tenant. Flip both when
-  NWB-P1-002 lands the chain, or a future RLS policy (D11) will look for a tenant that is not there.
-- **The nightly order is load-bearing: reclamation → organizations → accounts** — a user who still
+  `core` because the 15-value module enum has no `queue` value, not because of the chain: the
+  hash chain exists since NWB-P1-014, and `admin`/`system`/`compliance` rows are sealed on write,
+  so reach for the honest module and let the writer seal it (NWB-P0-002's DSAR event cites
+  `compliance` again). NULL organization because one run sweeps every tenant — a future RLS
+  policy (D11) will need to account for that.
+- **Audit rows for `admin`/`system`/`compliance` are hash-chained, sealed at write** (NWB-P1-014) —
+  `computeChainChecksum` (`src/services/audit/chain.ts`) over
+  `(id, action, actorId, resourceId, createdAt, previousChecksum)`; `writeAuditLog` seals chained
+  modules inside a per-module advisory transaction lock so concurrent writers cannot fork the chain,
+  and stamps `created_at` monotonically per module (`max(now, predecessor + 1ms)`) so the seal order
+  and the `(created_at, id)` walk order can never disagree — do not \"simplify\" either away, both
+  are load-bearing and both are red-verified by `src/tests/audit/chain.test.ts`. The
+  `audit-chain-verify` job walks each chain nightly, sets `hash_chain_valid = false` from the first
+  mismatch onward, and audits both outcomes as `module: "system"`. The table is append-only by
+  trigger (`impl_trg_ual_append_only`: UPDATE only the flag, no DELETE; TRUNCATE stays a
+  role-permission concern). Never write chained modules via raw SQL — the registry scan fails it.
+- **The nightly order is load-bearing: reclamation → organizations → accounts → audit-chain
+  verification** — a user who still
   owns an organization cannot be hard-deleted (`organizations.owner_id` is `NOT NULL` + restrictive,
   F-25/D16), so the org purge has to clear that reference first for the same night's erasure of the
   *owner* to land. Since NWB-P1-013 a blocked row costs only itself: both purges delete per row
@@ -195,7 +209,8 @@ directory you care about) for the complete set.
   `{ deleted, failed, errors }`, so one un-purgeable owner no longer holds every other erasure
   hostage for the night — and a nonzero `failed` makes the run's audit row `warning` (the
   partial-run convention, `isPartialRun` in `src/lib/worker.ts`). `src/tests/queue/jobs.test.ts`
-  proves the isolation, the report shape, and the order.
+  proves the isolation, the report shape, and the order. Verification runs last because it walks
+  the night's complete set (`src/tests/queue/definitions.test.ts` pins it).
 - **`loadConfig()` must run before `getConfig()`** — `config.ts` uses a singleton. `src/index.ts` calls it at startup; tests call `loadConfig()` inline (the always-required JWT secrets are supplied by `src/tests/preload.ts`).
 - **Auth is cookie-first, with API keys as a Bearer alternative** — the browser flow sets an access token (15-min JWT) and refresh token (7-day JWT) as HTTP-only cookies (`nawebeus_access`, `nawebeus_refresh`) in the signin route. The access cookie path is `/`; the refresh cookie path is `/api/auth`. Machine clients send `Authorization: Bearer nwb_<env>_<publicKey>_<secret>` instead, which `authMiddleware` resolves to the same user + org. A Bearer header takes precedence over the cookie.
 - **API keys are stored as a digest, never the secret** — only the SHA-256 of the 256-bit secret is persisted. The 128-bit `public_key` exists so verification is a single indexed lookup rather than a scan-and-compare over every stored hash. The full key is returned exactly once, at creation.
@@ -235,9 +250,9 @@ directory you care about) for the complete set.
   `meta.formatVersion: 1`. Each collection caps at 10k rows and closes with a
   `truncated` marker (`sectionRowCap` is an internal service option for tests). The
   `compliance.dsar.requested` event is written BEFORE the build so the request
-  self-cites inside its own export — and its module is `core`, not `compliance`:
-  `unified_audit_log` requires a hash-chain `checksum` for modules admin/compliance/system
-  and nothing computes the chain yet. Admin-on-behalf is `POST /api/users/admin/:userId/data-export`
+  self-cites inside its own export — and its module is `compliance`, sealed into the hash chain
+  (it cited `core` until NWB-P1-014 because nothing computed the chain yet).
+  Admin-on-behalf is `POST /api/users/admin/:userId/data-export`
   (org-scoped, 404 cross-tenant with no request row created) and returns the receipt
   only — the payload only ever travels the subject's own channel
   (`GET /api/users/me/data-export/:requestId`). Self-service POST is rate-limited

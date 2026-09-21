@@ -15,11 +15,12 @@
  * | The vocabularies, derived from the schema enums | `./types` |
  * | Which actions exist, and how each is filed | `./actions` |
  * | The insert | `./write` |
+ * | The hash chain: seal on write, verify on schedule | `./chain` |
  * | The reads: list, detail, tenant scope | `./query.service` |
  *
- * Not here on purpose: the hash chain (`checksum`/`previous_checksum`/`hash_chain_valid`) →
- * NWB-P1-014; scrubbing actor context when a subject is erased → NWB-P1-015; retention and legal
- * holds → NWB-P1-010. All three are blocked on or blocked by this module, not the other way round.
+ * Not here on purpose: scrubbing actor context when a subject is erased → NWB-P1-015; retention
+ * and legal holds → NWB-P1-010. Both are blocked on or blocked by this module, not the other way
+ * round.
  */
 export {
   AUDIT_ACTION_FORMAT,
@@ -30,6 +31,18 @@ export {
   auditActionSpec,
   LEGACY_AUDIT_ACTION_NAMES,
 } from "./actions";
+export {
+  type BrokenChainLink,
+  type ChainedAuditModule,
+  type ChainLinkInput,
+  type ChainVerificationResult,
+  computeChecksum,
+  genesisPreviousChecksum,
+  isChainedModule,
+  type SealedChainLink,
+  sealChainLink,
+  verifyAuditChains,
+} from "./chain";
 export {
   type AuditEventDetail,
   type AuditEventFilters,
@@ -49,7 +62,6 @@ export {
   type AuditModule,
   type AuditSeverity,
   CHECKSUM_ONLY_MODULES,
-  type WritableAuditModule,
 } from "./types";
 export {
   resolveAuditDefaults,

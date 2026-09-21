@@ -58,11 +58,14 @@ export interface JobSchedule {
  *    FK (F-25 / DEC-D16). An account that still owns a live or merely soft-deleted organization
  *    cannot be hard-deleted, so the org purge has to clear that reference first for the same
  *    night's erasure to land.
+ * 3. **chain verification last** — it walks the night's complete chained set, including whatever
+ *    the purge window wrote, so it runs after the last mutation rather than before it.
  */
 export const QUEUE_SCHEDULE_DEFAULTS: Record<QueueJobName, string> = {
   [QUEUE_JOBS.rateLimitReclaim]: "0 2 * * *",
   [QUEUE_JOBS.purgeExpiredOrganizations]: "15 2 * * *",
   [QUEUE_JOBS.purgeExpiredAccounts]: "45 2 * * *",
+  [QUEUE_JOBS.auditChainVerify]: "0 3 * * *",
 };
 
 /**
@@ -97,6 +100,15 @@ export function resolveSchedules(config: Config = getConfig()): JobSchedule[] {
       cron:
         config.QUEUE_CRON_PURGE_EXPIRED_ACCOUNTS ??
         QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.purgeExpiredAccounts],
+      tz,
+      data: null,
+      missed: "once",
+    },
+    {
+      job: QUEUE_JOBS.auditChainVerify,
+      cron:
+        config.QUEUE_CRON_AUDIT_CHAIN_VERIFY ??
+        QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.auditChainVerify],
       tz,
       data: null,
       missed: "once",

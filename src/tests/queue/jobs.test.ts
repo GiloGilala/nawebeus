@@ -1,5 +1,8 @@
 /**
- * The three maintenance jobs, against a real PostgreSQL (NWB-P1-001).
+ * The maintenance jobs, against a real PostgreSQL (NWB-P1-001).
+ *
+ * The chain-verification job lives here too by registration but is tested in
+ * `src/tests/audit/chain.test.ts`, next to the chain it verifies.
  *
  * What the fake-boss suite cannot prove, and this exists for:
  *

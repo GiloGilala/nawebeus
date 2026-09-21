@@ -60,6 +60,8 @@ describe("queue job set", () => {
       order.indexOf(QUEUE_JOBS.purgeExpiredAccounts),
     );
     expect(order.indexOf(QUEUE_JOBS.rateLimitReclaim)).toBe(0);
+    // Chain verification walks the night's complete set, so it runs after the last mutation.
+    expect(order.indexOf(QUEUE_JOBS.auditChainVerify)).toBe(order.length - 1);
   });
 
   test("audit descriptors are `<resource>.<verb>`, unique, and drawn from the enum this table uses", () => {
