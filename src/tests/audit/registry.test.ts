@@ -72,6 +72,26 @@ function readBalanced(
   return null;
 }
 
+/** The index of the closer balancing the opener at `openIndex`, or null if unbalanced. */
+function balancedEnd(
+  source: string,
+  openIndex: number,
+  open: string,
+  close: string,
+): number | null {
+  if (openIndex < 0) return null;
+  let depth = 0;
+  for (let i = openIndex; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === open) depth++;
+    else if (ch === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return null;
+}
+
 interface AuditWriteSite {
   readonly file: string;
   readonly action: string;
@@ -224,25 +244,57 @@ describe("audit module taxonomy", () => {
     }
   });
 
-  test("no writer uses a checksum-only module, because none computes a checksum yet", () => {
-    // This is the failure mode NWB-P1-002 leaves behind on purpose: `AuditModule` now *contains*
-    // `system` and `compliance`, so the type no longer stops a caller — only the database does, at
-    // runtime, inside someone's request. `src/lib/worker.ts` and `src/services/users/dsar.service.ts`
-    // carry comments pointing at NWB-P1-014 for exactly this reason; if this test ever fails, that is
-    // the ticket to read.
+  test("checksum-only modules appear only at sealed write sites, never in raw SQL", () => {
+    // NWB-P1-014 flipped this test's predecessor ("no writer uses a checksum-only module"): the
+    // chain exists now, so `compliance` and `system` are writable — but ONLY through `writeAuditLog`,
+    // which seals the row, or a job's `audit: { … }` descriptor, which flows into it. A raw
+    // `INSERT INTO unified_audit_log … 'system'` would 23514 in production, and a hand-computed
+    // checksum pair would be worse: valid-looking evidence nobody's code produced.
     const offenders: string[] = [];
+    const sightings: string[] = [];
     for (const file of sourceFiles()) {
       const source = readFileSync(file, "utf8");
-      source.split("\n").forEach((line, index) => {
+      const rel = relative(SRC_DIR, file);
+      // Sealed regions: `writeAuditLog( … )` calls and job `audit: { … }` descriptors.
+      const regions: Array<{ start: number; end: number }> = [];
+      const mark = (needle: string, open: string, close: string): void => {
+        let at = source.indexOf(needle);
+        while (at !== -1) {
+          const end = balancedEnd(source, source.indexOf(open, at), open, close);
+          if (end !== null) regions.push({ start: at, end });
+          at = source.indexOf(needle, at + needle.length);
+        }
+      };
+      mark("writeAuditLog(", "(", ")");
+      mark("audit: {", "{", "}");
+      const lines = source.split("\n");
+      let offset = 0;
+      lines.forEach((line, index) => {
+        const lineStart = offset;
+        offset += line.length + 1;
         const text = line.trim();
         // Comments are skipped on purpose: this repo documents forbidden shapes *as* text — including
         // in this very test's header — and a scan that reports prose trains people to widen the
         // exclusion rather than to fix the code. Code lines only.
         if (text.startsWith("//") || text.startsWith("*") || text.startsWith("/*")) return;
         const match = /module:\s*"(admin|system|compliance)"/.exec(line);
-        if (match?.[1]) offenders.push(`${relative(SRC_DIR, file)}:${index + 1} → ${match[1]}`);
+        if (match?.[1]) {
+          const atIndex = lineStart + (match.index ?? 0);
+          if (regions.some((r) => atIndex >= r.start && atIndex <= r.end)) {
+            sightings.push(`${rel} → ${match[1]}`);
+          } else {
+            offenders.push(`${rel}:${index + 1} → ${match[1]}`);
+          }
+        }
       });
     }
     expect(offenders).toEqual([]);
+    // The scan must keep seeing the real sites, or it passes by finding nothing.
+    expect(sightings.some((s) => s.includes("dsar.service.ts") && s.includes("compliance"))).toBe(
+      true,
+    );
+    expect(sightings.some((s) => s.includes("audit-chain-verify.ts") && s.includes("system"))).toBe(
+      true,
+    );
   });
 });

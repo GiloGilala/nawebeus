@@ -38,7 +38,8 @@
     "db/billing/**",
     "db/campaigns/**",
     "db/commerce/**",
-    "db/compliance/**",
+    // db/compliance/** is wired since NWB-P1-010 (legal_holds + backup_records adopted;
+    // the other four models compile but stay dormant until their own tickets).
     "db/engagement/**",
     "db/influencer/**",
     "db/monitoring/**",

@@ -190,6 +190,9 @@ const envSchema = z.object({
   QUEUE_CRON_RATE_LIMIT_RECLAIM: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_ACCOUNTS: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_ORGANIZATIONS: cronEnv(),
+  QUEUE_CRON_PURGE_EXPIRED_INVITATIONS: cronEnv(),
+  QUEUE_CRON_RETENTION_ENFORCE: cronEnv(),
+  QUEUE_CRON_AUDIT_CHAIN_VERIFY: cronEnv(),
 
   // Seed credentials
   SEED_ADMIN_EMAIL: z.string().email().default("admin@nawebeus.com"),

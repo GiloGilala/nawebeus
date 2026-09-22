@@ -60,6 +60,33 @@ describe("queue job set", () => {
       order.indexOf(QUEUE_JOBS.purgeExpiredAccounts),
     );
     expect(order.indexOf(QUEUE_JOBS.rateLimitReclaim)).toBe(0);
+    // Chain verification walks the night's complete set, so it runs after the last mutation.
+    expect(order.indexOf(QUEUE_JOBS.auditChainVerify)).toBe(order.length - 1);
+  });
+
+  test("invitations purge between the purges — member rows cascade on both ends (NWB-P1-016)", () => {
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    // After the org purge (invites of just-purged workspaces are already gone), before the
+    // account purge (a same-night-erased user's lapsed invite gets its own scrub instead of
+    // vanishing in the user cascade) — see `src/lib/scheduler.ts`.
+    expect(order.indexOf(QUEUE_JOBS.purgeExpiredOrganizations)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.purgeExpiredInvitations),
+    );
+    expect(order.indexOf(QUEUE_JOBS.purgeExpiredInvitations)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.purgeExpiredAccounts),
+    );
+  });
+
+  test("retention enforcement runs after the purges and before verification (NWB-P1-010)", () => {
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    // After the purges so the census reads the night's final state; before verification so its
+    // audit rows join the walked set — see `src/lib/scheduler.ts`.
+    expect(order.indexOf(QUEUE_JOBS.purgeExpiredAccounts)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.retentionEnforce),
+    );
+    expect(order.indexOf(QUEUE_JOBS.retentionEnforce)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.auditChainVerify),
+    );
   });
 
   test("audit descriptors are `<resource>.<verb>`, unique, and drawn from the enum this table uses", () => {

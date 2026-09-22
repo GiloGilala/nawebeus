@@ -21,18 +21,25 @@ import {
   type WorkerHandle,
 } from "../lib/worker";
 import { writeAuditLog } from "../services/audit";
+import { auditChainVerifyJob } from "./audit-chain-verify";
 import { purgeExpiredAccountsJob } from "./purge-expired-accounts";
+import { purgeExpiredInvitationsJob } from "./purge-expired-invitations";
 import { purgeExpiredOrganizationsJob } from "./purge-expired-organizations";
 import { rateLimitReclaimJob } from "./rate-limit-reclaim";
+import { retentionEnforceJob } from "./retention-enforce";
 
 /**
  * Every job this application runs, in the order the nightly schedule expects — reclamation, then
- * organizations, then accounts (see `src/lib/scheduler.ts` for why that order is load-bearing).
+ * organizations, then invitations, then accounts, then retention enforcement, then chain
+ * verification (see `src/lib/scheduler.ts` for why that order is load-bearing).
  */
 export const MAINTENANCE_JOBS: readonly AnyJobDefinition[] = [
   rateLimitReclaimJob,
   purgeExpiredOrganizationsJob,
+  purgeExpiredInvitationsJob,
   purgeExpiredAccountsJob,
+  retentionEnforceJob,
+  auditChainVerifyJob,
 ];
 
 /** The declared queue names, re-exported so a test can assert this list covers them. */

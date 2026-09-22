@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors";
+import { deleteRowsPerRow, type PerRowDeleteResult } from "../../lib/transaction";
 import { writeAuditLog } from "../audit";
+import { assertNoActiveHoldForOrg } from "../retention/legal-holds.service";
 
 /**
  * Organization deletion — PRD 8.2.1 (P0), discrepancy D-14, ticket NWB-P0-023.
@@ -270,31 +272,47 @@ export async function reactivateOrganization(
 }
 
 /**
- * Permanently deletes organizations whose grace period has expired. Returns the
- * number purged. Intended for the Phase 2 scheduler; unscheduled until then, so
- * today it runs only when called directly (script or test) — exactly the state
- * `purgeExpiredAccounts` is in (F-18).
+ * Permanently deletes organizations whose grace period has expired, one row at
+ * a time. Returns `{ deleted, failed, errors }` — rows actually erased, rows
+ * that refused, and the per-row reasons. Intended for the Phase 2 scheduler;
+ * unscheduled until then, so today it runs only when called directly (script or
+ * test) — exactly the state `purgeExpiredAccounts` is in (F-18).
  *
- * Unlike the account purge, this one can actually complete: every FK referencing
- * `organizations.id` is CASCADE or SET NULL, with no restrictive edge (verified
- * against the live catalog; pinned by a test). The members themselves are not
- * deleted — a user is not owned by an organization, their `users.organization_id`
- * is simply set to NULL by the FK. Deleting people along with a workspace is the
- * mistake F-25's option 1 was rejected for.
+ * No row can refuse today: every FK referencing `organizations.id` is CASCADE
+ * or SET NULL, with no restrictive edge (verified against the live catalog and
+ * the applied migration DDL; pinned by a test). The delete still runs per row
+ * (NWB-P1-013), because the aspirational billing tables already declare
+ * `restrict` FKs to this table (`invoices`, `payments`, `transactions`) — the
+ * day they migrate is the day a batch DELETE would start wedging — and because the
+ * legal-hold skip (NWB-P1-010) needs per-row scope regardless.
+ *
+ * The members themselves are not deleted — a user is not owned by an
+ * organization, their `users.organization_id` is simply set to NULL by the FK.
+ * Deleting people along with a workspace is the mistake F-25's option 1 was
+ * rejected for.
  */
 export async function purgeExpiredOrganizations(
   db: NodePgDatabase<Record<string, any>>,
-): Promise<number> {
+): Promise<PerRowDeleteResult> {
   const rows = await db.execute<{ id: string }>(
     sql`
-      DELETE FROM organizations
+      SELECT id FROM organizations
       WHERE deleted_at IS NOT NULL
         AND scheduled_deletion_at IS NOT NULL
         AND scheduled_deletion_at <= now()
-      RETURNING id
+      ORDER BY scheduled_deletion_at, id
     `,
   );
-  return (rows as any).rows?.length ?? 0;
+  const ids = ((rows as any).rows ?? []).map((row: { id: string }) => row.id);
+  // The org erases no subject, so the hook has nothing to scrub — but the hold check still
+  // lives here (service, not job): a held org's row must refuse one row at a time, counted
+  // into `held`, not wedge the night or slip through in a batch.
+  return deleteRowsPerRow(db, "organizations", ids, {
+    beforeDelete: async (tx, id) => {
+      await assertNoActiveHoldForOrg(tx, id, `erasure of organization ${id}`);
+      return 0;
+    },
+  });
 }
 
 export async function getOrgDeletionStatus(

@@ -22,7 +22,7 @@ The platform is designed to be **secure by design** — security is built into e
 | **Least Privilege** | Every user, service, and process has the minimum access required |
 | **Zero Trust** | Every request is authenticated and authorized — even from "internal" sources |
 | **Encryption Everywhere** | Data encrypted in transit (TLS 1.3) and at rest (AES-256) |
-| **Audit by Default** | Every state change is logged; append-only audit trail; 7-year retention |
+| **Audit by Default** | Every state change is logged; append-only audit trail (two sanctioned UPDATEs: the integrity flag, the hard-purge PII scrub); 7-year retention |
 | **Fail Safe** | When in doubt, deny access; errors never compromise security |
 | **No Secrets in Code** | All secrets are environment variables; never committed to Git |
 | **Nigerian Data Sovereignty** | Nigerian user data processed and stored within Nigeria (NDPR compliance) |
@@ -408,6 +408,7 @@ export async function getMediaMentions({
 | **Contact information** | Phone number, address | Consent | Account lifetime + 30 days |
 | **Location data** | IP address, login location | Legitimate interest (security) | 90 days |
 | **Device data** | User agent, device fingerprint | Legitimate interest (security) | 90 days |
+| **Audit actor context** | IP, user agent, email/phone values in audit payloads | Legal obligation (BR-AUTH-043) | Anonymized at hard purge; rows kept 7 years |
 | **Communications** | Conversation content in engagement inbox | Contract | 2 years or as configured |
 | **Financial** | Subscription tier, invoice history (₦ amounts) | Contract | 7 years (Nigerian tax law) |
 | **Behavioral** | Login history, feature usage, session data | Legitimate interest | 1 year |
@@ -820,7 +821,7 @@ NDPR compliance is the **most critical regulatory requirement** for Nawebeus bec
 | Media articles | 3 years | Archive | Yes |
 | Conversation messages | 2 years | Archive | Yes |
 | Analytics and aggregates | 3 years raw; 7 years aggregate | Purge raw; keep aggregate | Yes |
-| Audit logs | 7 years | No action (legally required) | No |
+| Audit logs | 7 years | No deletion (legally required); actor PII anonymized at hard purge (BR-AUTH-043) | No |
 | ₦ Invoice records | 7 years (Nigerian tax law) | Archive | No |
 | Press releases (distributed) | 7 years (legal record) | Archive | No |
 | Backup files | 30 days | Automatic overwrite | Yes (30–90 days) |

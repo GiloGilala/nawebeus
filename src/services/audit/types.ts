@@ -47,23 +47,17 @@ export type AuditSeverity = (typeof auditSeverityEnum.enumValues)[number];
  *   chk_ual_system_requires_checksum
  *   chk_ual_compliance_requires_checksum
  *
- * Nothing computes that chain yet, so a row in one of these modules is a `23514` at runtime. That
- * is the whole reason `src/lib/worker.ts` and `src/services/users/dsar.service.ts` write `core`
- * where `system` and `compliance` would be more accurate.
- *
- * **`writeAuditLog` takes `WritableAuditModule`, not `AuditModule`**, so those three are a type
- * error rather than a production 500 — a compile-time version of the rule the DB already enforces,
- * and the only place you need to look when NWB-P1-014 lands the chain: delete this `Exclude` and the
- * workarounds' comments with it.
+ * `writeAuditLog` seals every row in these modules (`./chain`) — the lock, the predecessor read
+ * and the INSERT share the caller's transaction via `withAtomicWrites`, so no caller can forget
+ * the chain and no two writers can fork it. Every other module keeps NULL checksums: the
+ * "lightweight, high-volume" carve-out, which is load-aware (a per-module lock held to transaction
+ * end must never sit on the `core` hot path).
  */
 export const CHECKSUM_ONLY_MODULES = [
   "admin",
   "system",
   "compliance",
 ] as const satisfies readonly AuditModule[];
-
-/** @see {@link CHECKSUM_ONLY_MODULES} */
-export type WritableAuditModule = Exclude<AuditModule, (typeof CHECKSUM_ONLY_MODULES)[number]>;
 
 /**
  * The acting principal, as a service receives it.

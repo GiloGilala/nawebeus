@@ -18,7 +18,12 @@
  * implementation. The audit sink is injected (`WorkerDeps.audit`) so `src/lib/` keeps no runtime
  * edge into `src/services/`; only the parameter *type* is imported from there.
  */
-import type { AuditActionName, AuditCategory, WriteAuditLogEntryParams } from "../services/audit";
+import type {
+  AuditActionName,
+  AuditCategory,
+  AuditModule,
+  WriteAuditLogEntryParams,
+} from "../services/audit";
 import { getConfig } from "./config";
 import type { Db } from "./db";
 import { describeError } from "./errors";
@@ -40,8 +45,23 @@ import { applySchedules, type JobSchedule, resolveSchedules } from "./scheduler"
  * quiet success is still a distinguishable row from a failure. `undefined` rather than `void` in
  * the union because `void` inside a union is the confusing kind (biome `noConfusingVoidType`), and
  * a handler's `return;` produces `undefined` at runtime anyway.
+ *
+ * A handler that deletes per row reports `{ deleted, failed, errors }` and puts the refusal count
+ * in `failed` — see `isPartialRun` for what the wrapper does with it.
  */
 export type JobOutcome = Record<string, unknown>;
+
+/**
+ * The partial-run convention (NWB-P1-013): a nonzero numeric `failed` on the outcome means the run
+ * erased something and refused something, and its audit row is `warning` instead of `info`.
+ *
+ * Inspected on the outcome rather than declared on the definition on purpose: partiality is a
+ * property of *this run* — the same job is clean most nights — and a job that never reports
+ * `failed` is unaffected, keeping exactly the severity it always had.
+ */
+export function isPartialRun(outcome: JobOutcome | undefined): boolean {
+  return outcome !== undefined && typeof outcome.failed === "number" && outcome.failed > 0;
+}
 
 /** The attempt the handler is running inside, narrowed to what a handler may legitimately need. */
 export interface JobAttempt {
@@ -84,6 +104,13 @@ export interface JobDefinition<TData extends object | null = object | null> {
     readonly action: AuditActionName;
     readonly category: AuditCategory;
     readonly resourceType: string;
+    /**
+     * Which module the run's audit row carries. Unset means `core`: there is no `queue` module in
+     * the 15-value enum, and a routine operational run is not a system event. A job whose whole
+     * subject is the system's own integrity (the chain verifier) sets `system` — legal since
+     * NWB-P1-014, when the writer started sealing chained rows.
+     */
+    readonly module?: AuditModule | undefined;
   };
   handle(context: JobContext, data: TData): Promise<JobOutcome | undefined>;
 }
@@ -241,7 +268,10 @@ export async function runJobGuarded<TData extends object | null>(
   }
 
   await writeAuditSafely(deps, job, {
-    severity: "info",
+    // A partial run is not a failure — per-row refusals are reported, not
+    // rethrown, and the next night retries the same rows — but it must not
+    // read as a clean night either.
+    severity: isPartialRun(outcome) ? "warning" : "info",
     afterState: outcome ?? { ok: true },
     metadata: auditMetadata(job, attempt),
   });
@@ -287,11 +317,10 @@ async function writeAuditSafely(
   try {
     await deps.audit({
       db: deps.db,
-      // `module: "core"` and not `"system"` on purpose: `chk_ual_system_requires_checksum` makes
-      // admin/system/compliance rows carry a hash-chain checksum, and nothing computes the chain
-      // yet (NWB-P0-002's DSAR event cites the same reason). P1-002 flips these to their real
-      // module when the chain exists.
-      module: "core",
+      // `core` unless the job says otherwise: there is no `queue` module in the enum, so routine
+      // runs file as `core` — but the chain exists now (NWB-P1-014), and a job about the system's
+      // own integrity declares `system` on its definition instead of borrowing this default.
+      module: job.audit.module ?? "core",
       // No organizationId: these queues are cross-tenant by design — one run sweeps every
       // organization's expired rows. Attributing the run to one tenant would be a lie.
       actorType: "system",

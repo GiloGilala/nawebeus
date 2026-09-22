@@ -16,17 +16,20 @@
  */
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { type DbOrTx, withAtomicWrites } from "../../lib/transaction";
 import { type AuditActionName, auditActionSpec } from "./actions";
-import type { AuditActorType, AuditCategory, AuditSeverity, WritableAuditModule } from "./types";
+import { isChainedModule, sealChainLink } from "./chain";
+import type { AuditActorType, AuditCategory, AuditModule, AuditSeverity } from "./types";
 
 interface AuditEventFields {
   db: NodePgDatabase<Record<string, any>>;
   /**
    * Which part of the application wrote the row. `core` covers authentication, users, organizations
    * and the queue runtime; `security` for credential-shaped changes. `admin`, `system` and
-   * `compliance` are not accepted here — see `CHECKSUM_ONLY_MODULES` in `./types` for why.
+   * `compliance` are sealed into their per-module hash chain on write — see
+   * `CHECKSUM_ONLY_MODULES` in `./types` and `./chain`.
    */
-  module: WritableAuditModule;
+  module: AuditModule;
   /**
    * The tenant this event belongs to. **NULL means "not tenant-scoped"**, and only two things may say
    * that: a cross-tenant system operation (a nightly purge sweeps every organization) and a
@@ -128,22 +131,108 @@ export async function writeAuditLog(params: WriteAuditLogEntryParams): Promise<v
 
   const { category, resourceType, severity } = resolveAuditDefaults(params);
   const id = `al_${crypto.randomUUID().slice(0, 21)}`;
+  // Set explicitly rather than defaulted: on a chained module the hash input and the stored
+  // instant must derive from one `Date`, never be formatted twice. Millisecond precision fits
+  // PostgreSQL's microsecond storage exactly, so the verifier reads back the same instant.
+  const createdAt = new Date();
 
-  await db.execute(
+  const row = {
+    id,
+    module,
+    organizationId: organizationId ?? null,
+    actorId: actorId ?? null,
+    actorType: actorType ?? null,
+    actorIp: actorIp ?? null,
+    actorUserAgent: actorUserAgent ?? null,
+    action,
+    category,
+    resourceType,
+    resourceId: resourceId ?? null,
+    targetUserId: targetUserId ?? null,
+    beforeState: JSON.stringify(beforeState ?? null),
+    afterState: JSON.stringify(afterState ?? null),
+    changes: JSON.stringify(changes ?? null),
+    severity,
+    reason: reason ?? null,
+    requestId: requestId ?? null,
+    sessionId: sessionId ?? null,
+    metadata: JSON.stringify(metadata ?? null),
+    createdAt,
+  };
+
+  if (!isChainedModule(module)) {
+    // The lightweight path, unchanged: one INSERT, no lock, no extra round trips.
+    await insertAuditRow(db, { ...row, checksum: null, previousChecksum: null });
+    return;
+  }
+
+  // The seal — lock, predecessor read, INSERT — joins the caller's transaction when there is one
+  // and scopes its own when there isn't (the queue runtime's autocommit writes). Either way the
+  // advisory lock is held across the read and the INSERT, which is what keeps two writers to one
+  // module from forking the chain. "Does not commit" still holds: `withAtomicWrites` only commits
+  // a transaction it opened itself.
+  await withAtomicWrites(db, async (tx) => {
+    const sealed = await sealChainLink(tx, module, {
+      id,
+      action,
+      actorId: actorId ?? null,
+      resourceId: resourceId ?? null,
+      createdAt,
+    });
+    await insertAuditRow(tx, {
+      ...row,
+      // The seal's instant, not the caller's: monotonic per module (see `./chain`).
+      createdAt: sealed.createdAt,
+      checksum: sealed.checksum,
+      previousChecksum: sealed.previousChecksum,
+    });
+  });
+}
+
+interface InsertableAuditRow {
+  readonly id: string;
+  readonly module: AuditModule;
+  readonly organizationId: string | null;
+  readonly actorId: string | null;
+  readonly actorType: string | null;
+  readonly actorIp: string | null;
+  readonly actorUserAgent: string | null;
+  readonly action: string;
+  readonly category: string;
+  readonly resourceType: string | null;
+  readonly resourceId: string | null;
+  readonly targetUserId: string | null;
+  readonly beforeState: string;
+  readonly afterState: string;
+  readonly changes: string;
+  readonly severity: string;
+  readonly reason: string | null;
+  readonly requestId: string | null;
+  readonly sessionId: string | null;
+  readonly metadata: string;
+  readonly createdAt: Date;
+  readonly checksum: string | null;
+  readonly previousChecksum: string | null;
+}
+
+async function insertAuditRow(tx: DbOrTx, row: InsertableAuditRow): Promise<void> {
+  await tx.execute(
     sql`
       INSERT INTO unified_audit_log (
         id, module, organization_id, actor_id, actor_type, actor_ip,
         actor_user_agent, action, category, resource_type, resource_id,
         target_user_id, before_state, after_state, changes, severity,
-        reason, request_id, session_id, metadata
+        reason, request_id, session_id, metadata, created_at,
+        checksum, previous_checksum
       ) VALUES (
-        ${id}, ${module}, ${organizationId ?? null}, ${actorId ?? null},
-        ${actorType ?? null}, ${actorIp ?? null}, ${actorUserAgent ?? null},
-        ${action}, ${category}, ${resourceType}, ${resourceId ?? null},
-        ${targetUserId ?? null}, ${JSON.stringify(beforeState ?? null)},
-        ${JSON.stringify(afterState ?? null)}, ${JSON.stringify(changes ?? null)},
-        ${severity}, ${reason ?? null}, ${requestId ?? null},
-        ${sessionId ?? null}, ${JSON.stringify(metadata ?? null)}
+        ${row.id}, ${row.module}, ${row.organizationId}, ${row.actorId},
+        ${row.actorType}, ${row.actorIp}, ${row.actorUserAgent},
+        ${row.action}, ${row.category}, ${row.resourceType}, ${row.resourceId},
+        ${row.targetUserId}, ${row.beforeState},
+        ${row.afterState}, ${row.changes},
+        ${row.severity}, ${row.reason}, ${row.requestId},
+        ${row.sessionId}, ${row.metadata}, ${row.createdAt.toISOString()},
+        ${row.checksum}, ${row.previousChecksum}
       )
     `,
   );

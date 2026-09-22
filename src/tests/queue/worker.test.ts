@@ -16,6 +16,7 @@ import { QUEUE_JOBS, type QueueClient, type QueueJobName } from "../../lib/queue
 import {
   type AnyJobDefinition,
   attemptOf,
+  isPartialRun,
   type JobAttempt,
   registerJobs,
   runJobGuarded,
@@ -210,6 +211,46 @@ describe("the executed job", () => {
     await fake.workers.get(QUEUE_JOBS.rateLimitReclaim)!([{ id: "job-1", data: null }]);
 
     expect(events[0]?.afterState).toEqual({ ok: true });
+  });
+
+  test("a partial run audits as warning: a nonzero `failed` means erased-something-and-refused-something", async () => {
+    const events: WriteAuditLogEntryParams[] = [];
+    const fake = createFakeBoss();
+    const job = fakeDefinition({
+      handle: async () => ({
+        deleted: 1,
+        failed: 1,
+        errors: [{ id: "u-1", error: "violates foreign key constraint (23503)" }],
+      }),
+    });
+
+    await registerJobs(fake.boss, fakeDeps(events), [job]);
+    await fake.workers.get(job.name)!([{ id: "job-3", data: null }]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.severity).toBe("warning");
+    expect(events[0]?.afterState).toEqual({
+      deleted: 1,
+      failed: 1,
+      errors: [{ id: "u-1", error: "violates foreign key constraint (23503)" }],
+    });
+  });
+
+  test("a clean per-row report stays info, as does an outcome that never mentions `failed`", async () => {
+    const events: WriteAuditLogEntryParams[] = [];
+    const fake = createFakeBoss();
+    await registerJobs(fake.boss, fakeDeps(events), [
+      fakeDefinition({ handle: async () => ({ deleted: 2, failed: 0, errors: [] }) }),
+    ]);
+
+    await fake.workers.get(QUEUE_JOBS.rateLimitReclaim)!([{ id: "job-4", data: null }]);
+
+    expect(events[0]?.severity).toBe("info");
+
+    expect(isPartialRun(undefined)).toBe(false);
+    expect(isPartialRun({ deleted: 3 })).toBe(false);
+    expect(isPartialRun({ deleted: 0, failed: 0, errors: [] })).toBe(false);
+    expect(isPartialRun({ deleted: 0, failed: 2, errors: [] })).toBe(true);
   });
 
   test("the handler sees the job payload and a 1-based attempt number", async () => {

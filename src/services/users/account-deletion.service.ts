@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError, OwnershipTransferRequiredError } from "../../lib/errors";
-import { writeAuditLog } from "../audit";
+import { deleteRowsPerRow, type PerRowDeleteResult } from "../../lib/transaction";
+import { anonymizeAuditActorContext, writeAuditLog } from "../audit";
 import { revokeAllSessionsForUser } from "../auth/session";
 
 const DELETION_GRACE_DAYS = 30;
@@ -121,29 +122,45 @@ export async function reactivateAccount(
 }
 
 /**
- * Permanently deletes accounts whose grace period has expired.
- * Returns the number of purged accounts. Intended for a scheduled job.
+ * Permanently deletes accounts whose grace period has expired, one row at a
+ * time. Returns `{ deleted, failed, errors }` — rows actually erased, rows
+ * that refused, and the per-row reasons. Intended for a scheduled job.
  *
  * An organization owner can never be in this set — `deleteAccount` refuses them
  * up front (F-25 / D16). If that invariant is ever broken from the outside (e.g.
  * a future ownership-transfer path reparents an organization onto an
  * already-scheduled account), the restrictive FK on `organizations.owner_id`
- * makes this DELETE fail loudly rather than silently stranding the erasure.
- * The loudness is deliberate — do not convert it to a silent skip.
+ * refuses that row's DELETE — and since NWB-P1-013 the refusal costs exactly
+ * that row: it lands in `errors` with the 23503 instead of aborting the whole
+ * statement and holding every other expired account hostage for the night.
+ * The loudness is deliberate — a nonzero `failed` makes the run's audit row
+ * `warning`, never a silent skip.
+ *
+ * Candidates run oldest-erasure-first, so a night that is cut short still
+ * lands the rows closest to their NDPR deadline.
+ *
+ * Each row's audit context is scrubbed before its DELETE, in the same savepoint (NWB-P1-015,
+ * BR-AUTH-043): the scrub reads identity values from the still-present user row, a scrub failure
+ * lands the row in `errors` for the next night instead of half-erasing, and a DELETE refusal
+ * rolls the scrub back — a user who was not erased keeps intact audit context. The run reports
+ * scrubbed rows as `auditAnonymized`, the erasure's own evidence.
  */
 export async function purgeExpiredAccounts(
   db: NodePgDatabase<Record<string, any>>,
-): Promise<number> {
+): Promise<PerRowDeleteResult> {
   const rows = await db.execute<{ id: string }>(
     sql`
-      DELETE FROM users
+      SELECT id FROM users
       WHERE deleted_at IS NOT NULL
         AND scheduled_deletion_at IS NOT NULL
         AND scheduled_deletion_at <= now()
-      RETURNING id
+      ORDER BY scheduled_deletion_at, id
     `,
   );
-  return (rows as any).rows?.length ?? 0;
+  const ids = ((rows as any).rows ?? []).map((row: { id: string }) => row.id);
+  return deleteRowsPerRow(db, "users", ids, {
+    beforeDelete: (tx, id) => anonymizeAuditActorContext(tx, { userId: id }),
+  });
 }
 
 export async function getAccountDeletionStatus(

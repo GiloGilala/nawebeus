@@ -211,6 +211,29 @@ describe.skipIf(!hasDb())("audit query service", () => {
     });
   });
 
+  test("chainValid narrows to flagged or clean rows, and absent means unfiltered", async () => {
+    await withTestDb(async ({ db }) => {
+      const f = await seed(db);
+      const scope = { organizationId: f.orgA } as const;
+      // The verifier's own write shape: a flag-only UPDATE, allowed under the trigger on
+      // migrate-built databases and trivially on push-built ones.
+      await db.execute(
+        sql`UPDATE unified_audit_log SET hash_chain_valid = false
+            WHERE organization_id = ${f.orgA} AND action = 'security.password_changed'`,
+      );
+      const actions = async (filters: AuditEventFilters) =>
+        (await listAuditEvents(db, scope, filters)).items.map((e) => e.action).sort();
+
+      expect(await actions({ chainValid: false })).toEqual(["security.password_changed"]);
+      expect(await actions({ chainValid: true })).toEqual([
+        "apikeys.revoked",
+        "organization.member.invited",
+      ]);
+      // Omitted: all three, in no narrowed order — the filter must not have a default.
+      expect(await actions({})).toHaveLength(3);
+    });
+  });
+
   test("a date range the rows fall outside of is empty, and one that contains them is not", async () => {
     await withTestDb(async ({ db }) => {
       const f = await seed(db);

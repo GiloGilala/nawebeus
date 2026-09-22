@@ -11,6 +11,7 @@
  * perfectly and 422s forever after — invisible to any test that reads one page.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { sql } from "drizzle-orm";
 import { writeAuditLog } from "../../services/audit";
 import { createTestApp } from "../helpers/test-client";
 import { withTestDb } from "../helpers/test-db";
@@ -192,6 +193,17 @@ describe.skipIf(!hasDb())("audit routes — with DB", () => {
         resourceId: "key-1",
         severity: "critical",
       });
+      // Second row, clean: without it, `?chainValid=false` returning everything would still
+      // match `[revoked]` and the filter would be untested.
+      await writeAuditLog({
+        db,
+        module: "core",
+        organizationId: org.id,
+        actorId: owner.id,
+        actorType: "user",
+        action: "account.deleted",
+        resourceId: owner.id,
+      });
 
       const filtered = await app.request(`/api/audit?actorId=${owner.id}&severity=critical`, {
         headers: { cookie },
@@ -217,6 +229,20 @@ describe.skipIf(!hasDb())("audit routes — with DB", () => {
       const wrongTypeBody = (await wrongActorType.json()) as { data: { events: unknown[] } };
       expect(wrongTypeBody.data.events).toEqual([]);
 
+      // The chain-state filter rides the same path. Flag the row the way the verifier would,
+      // then ask for broken and clean separately.
+      await db.execute(
+        sql`UPDATE unified_audit_log SET hash_chain_valid = false
+            WHERE organization_id = ${org.id} AND action = 'apikeys.revoked'`,
+      );
+      const broken = await app.request("/api/audit?chainValid=false", { headers: { cookie } });
+      expect(broken.status).toBe(200);
+      const brokenBody = (await broken.json()) as { data: { events: { action: string }[] } };
+      expect(brokenBody.data.events.map((e) => e.action)).toEqual(["apikeys.revoked"]);
+      const clean = await app.request("/api/audit?chainValid=true", { headers: { cookie } });
+      const cleanBody = (await clean.json()) as { data: { events: { action: string }[] } };
+      expect(cleanBody.data.events.map((e) => e.action)).toEqual(["account.deleted"]);
+
       const badModule = await app.request("/api/audit?module=nonsense", { headers: { cookie } });
       expect(badModule.status).toBe(422);
       const text = await badModule.text();
@@ -225,6 +251,11 @@ describe.skipIf(!hasDb())("audit routes — with DB", () => {
 
       const badActor = await app.request("/api/audit?actorId=1", { headers: { cookie } });
       expect(badActor.status).toBe(422);
+
+      // Outside the true/false pair: 422, never a coerced boolean. `z.coerce.boolean()` would
+      // read the string "false" as truthy and return the clean rows for the broken query.
+      const badChain = await app.request("/api/audit?chainValid=yes", { headers: { cookie } });
+      expect(badChain.status).toBe(422);
 
       const badLimit = await app.request("/api/audit?limit=1000", { headers: { cookie } });
       expect(badLimit.status).toBe(422);

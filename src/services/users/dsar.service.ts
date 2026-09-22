@@ -70,16 +70,10 @@ export async function requestDataExport(
   const expiresAt = new Date(Date.now() + DATA_EXPORT_WINDOW_MS);
 
   // 1. Audit FIRST — the self-citation rule (header comment).
-  //
-  // Module stays "core" like every other active writer: `unified_audit_log`
-  // check constraints require a hash-chain `checksum` for modules 'admin' /
-  // 'compliance' / 'system', and `writeAuditLog` does not compute the chain
-  // yet. Semantic (category + `compliance.dsar.*` action) travels in the
-  // low-cost columns; the row graduates to module 'compliance' with the
-  // tamper-evidence work that owns the checksum.
   await writeAuditLog({
     db,
-    module: "core",
+    // `compliance`, sealed into the hash chain on write (NWB-P1-014).
+    module: "compliance",
     action: "compliance.dsar.requested",
     resourceId: id,
     actorId: requestedBy,
