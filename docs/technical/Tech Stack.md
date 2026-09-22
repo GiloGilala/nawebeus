@@ -32,7 +32,7 @@ This document complements the **Architecture** document (which explains the "why
 
 | Layer | Technology | Version | Status | ADR |
 |-------|-----------|---------|--------|-----|
-| **Runtime** | Bun | 1.0+ | ✅ Selected | ADR-001 |
+| **Runtime** | Bun | 1.4+ | ✅ Selected | ADR-001 |
 | **Language** | TypeScript | 5.3+ | ✅ Selected | — |
 | **Web Framework** | TanStack Start | Latest | ✅ Selected | ADR-002 |
 | **API Framework** | Hono | Latest | ✅ Selected | ADR-002 |
