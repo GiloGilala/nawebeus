@@ -57,6 +57,26 @@ export class AccountSuspendedError extends AppError {
   readonly code = "ACCOUNT_SUSPENDED";
 }
 
+/**
+ * The session is valid but the account has not verified its email address
+ * (`users.status = 'pending_verification'`). Signing in is allowed — the
+ * verification screen needs a session to resend the link, change a mistyped
+ * address, or delete the account — so the gate sits in the auth middleware and
+ * exempts `/api/auth/*` and `/api/users/me*` (NWB-P1-004, closing the Phase 1
+ * "verification hard-block" note from NWB-P0-015). 403 like a suspension: the
+ * caller is known and the credentials were right, the account just may not act.
+ */
+export class EmailNotVerifiedError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "EMAIL_NOT_VERIFIED";
+
+  constructor(
+    message = "Please verify your email address before continuing. Check your inbox for the verification link, or request a new one.",
+  ) {
+    super(message);
+  }
+}
+
 export class ValidationError extends AppError {
   readonly statusCode = 422;
   readonly code = "VALIDATION_ERROR";
@@ -111,6 +131,36 @@ export class OwnershipTransferRequiredError extends AppError {
   }
 }
 
+/**
+ * The approval request exists and the caller may act on it, but its *state* refuses the action
+ * (NWB-P1-003). One class, four codes, so a client can tell the outcomes apart without parsing
+ * messages: `APPROVAL_ALREADY_REVIEWED` (the request is no longer pending — the API Reference's
+ * "content has already been approved or rejected"), `APPROVAL_VERSION_CONFLICT` (the optimistic
+ * `version` the caller acted on is stale — re-fetch and retry, per the model's concurrency rule),
+ * `APPROVAL_ALREADY_PENDING` (one open request per entity), and
+ * `APPROVAL_RECALL_WINDOW_CLOSED` (spec AC7: recall only before the first approval action). All
+ * 409 like `ConflictError`, because the resource's current state is what conflicts.
+ */
+export type ApprovalStateCode =
+  | "APPROVAL_ALREADY_REVIEWED"
+  | "APPROVAL_VERSION_CONFLICT"
+  | "APPROVAL_ALREADY_PENDING"
+  | "APPROVAL_RECALL_WINDOW_CLOSED";
+
+export class ApprovalStateError extends AppError {
+  readonly statusCode = 409;
+  readonly code: ApprovalStateCode;
+
+  constructor(
+    code: ApprovalStateCode,
+    message: string,
+    readonly details?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.code = code;
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";
@@ -149,6 +199,32 @@ export class LegalHoldError extends AppError {
   constructor(
     message: string,
     readonly holdId: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * An email transport could not hand a message to its provider. Not an `AppError`:
+ * no HTTP response is ever built from it — `emailService.send()` swallows it into
+ * a `failed` outcome on the direct path and the `email.deliver` worker turns it
+ * into an audit row (`retryable: false`) or a pg-boss retry (`retryable: true`).
+ * `retryable` is the transport's classification, made once where the provider's
+ * status and error code are known: 429, 5xx, timeouts and network failures are
+ * retryable; every other 4xx (bad sender, invalid recipient, malformed request)
+ * is final, because sending the same payload again would fail the same way.
+ */
+export class EmailDeliveryError extends Error {
+  readonly name = "EmailDeliveryError";
+
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    readonly details: {
+      readonly provider: string;
+      readonly status?: number;
+      readonly providerCode?: string;
+    },
   ) {
     super(message);
   }

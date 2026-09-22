@@ -21,6 +21,7 @@
     "db:reclaim-rate-limits": "bun src/scripts/reclaim-rate-limits.ts",
     "queue:worker": "bun src/scripts/queue-worker.ts",
     "queue:run": "bun src/scripts/queue-run.ts",
+    "email:smoke": "bun src/scripts/email-smoke.ts",
     "migrate": "drizzle-kit push",
     "seed": "bun run src/seed.ts",
     "test": "bun test",

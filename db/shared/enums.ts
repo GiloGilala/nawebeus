@@ -155,6 +155,9 @@ export const approvalActionEnum = pgEnum("approval_action", [
   "escalated",
   "delegated",
   "reminder_sent",
+  // Added by NWB-P1-003 (migration 0004): the status enum could say `expired` but the history
+  // enum could not record it, so the worker's terminal transition had no history row.
+  "expired",
 ]);
 
 /**

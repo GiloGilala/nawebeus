@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { loadAbility } from "../../services/auth/ability";
 import { signup } from "../../services/auth/signup";
+import { verifyEmail } from "../../services/auth/verification";
 import { createTestApp } from "../helpers/test-client";
 import { withTestDb } from "../helpers/test-db";
 
@@ -152,6 +153,13 @@ describe.skipIf(!hasDb())("POST /api/auth/signup — integration", () => {
         `,
       );
       expect((auditRows as any).rows?.[0]?.n).toBe("1");
+
+      // The owner must verify before acting on the org (NWB-P1-004's gate); the route never
+      // exposes the token, so redeem the one the token table holds through the real path.
+      const tokenRows = await db.execute<{ selector: string }>(
+        sql`SELECT selector FROM tokens WHERE user_id = ${userId} AND purpose = 'email_verification' AND status = 'active'`,
+      );
+      await verifyEmail(db, (tokenRows as any).rows[0].selector as string);
 
       // End-to-end: sign in as the new owner and invite a member —
       // this returned 403 before the F-01 fix (owner had no permissions).

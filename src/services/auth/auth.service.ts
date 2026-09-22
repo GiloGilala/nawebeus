@@ -35,10 +35,10 @@ const IP_BLOCK_DURATION_MS = 30 * 60 * 1000; // 30 min
 
 /**
  * Statuses allowed to hold a session (F-05 / NWB-P0-015). `pending_verification`
- * is deliberately included: the verification email is console-only in dev, so
- * hard-blocking there would strand users before Phase 2 ships a real provider.
- * The client is told via `emailVerified` and gates features itself; Phase 2 adds
- * the server-side gate together with real email delivery.
+ * is deliberately included: an unverified account signs in to a
+ * verification-limited session — the response says `emailVerified: false`, and
+ * `authMiddleware` (NWB-P1-004) answers 403 `EMAIL_NOT_VERIFIED` everywhere
+ * outside `/api/auth/*` and `/api/users/me*` until the address is verified.
  */
 const SIGN_IN_ALLOWED_STATUSES = ["active", "pending_verification"] as const;
 

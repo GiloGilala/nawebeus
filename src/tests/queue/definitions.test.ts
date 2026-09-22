@@ -15,10 +15,13 @@ import { MAINTENANCE_JOBS } from "../../jobs";
 import type { Config } from "../../lib/config";
 import {
   isQueueJobName,
+  isScheduledQueueJobName,
+  ON_DEMAND_QUEUE_JOB_NAMES,
   QUEUE_JOB_NAMES,
   QUEUE_JOBS,
   QUEUE_POLICY_DEFAULTS,
   type QueueJobName,
+  SCHEDULED_QUEUE_JOB_NAMES,
 } from "../../lib/queue";
 import { QUEUE_SCHEDULE_DEFAULTS, resolveSchedules } from "../../lib/scheduler";
 import { assertJobSetIsComplete, validateJobDefinitions } from "../../lib/worker";
@@ -54,14 +57,47 @@ describe("queue job set", () => {
     expect(isQueueJobName("maintenance.does-not-exist")).toBe(false);
   });
 
+  test("every queue is either scheduled or on-demand, never both, and the scheduled ones come first", () => {
+    // The email outbox (NWB-P1-004) is the first queue a cron does not drive. It still needs a
+    // worker — `assertJobSetIsComplete` covers all eight — but it must never gain a schedule row:
+    // an occurrence with a `null` payload is a job the handler cannot run.
+    expect([...QUEUE_JOB_NAMES]).toEqual([
+      ...SCHEDULED_QUEUE_JOB_NAMES,
+      ...ON_DEMAND_QUEUE_JOB_NAMES,
+    ]);
+    expect([...ON_DEMAND_QUEUE_JOB_NAMES]).toEqual([QUEUE_JOBS.emailDeliver]);
+    for (const name of SCHEDULED_QUEUE_JOB_NAMES) expect(isScheduledQueueJobName(name)).toBe(true);
+    for (const name of ON_DEMAND_QUEUE_JOB_NAMES) expect(isScheduledQueueJobName(name)).toBe(false);
+    expect(Object.keys(QUEUE_SCHEDULE_DEFAULTS).sort()).toEqual(
+      [...SCHEDULED_QUEUE_JOB_NAMES].sort(),
+    );
+  });
+
   test("organizations purge before accounts, and the reason is the owner FK (F-25/D16)", () => {
     const order = MAINTENANCE_JOBS.map((job) => job.name);
     expect(order.indexOf(QUEUE_JOBS.purgeExpiredOrganizations)).toBeLessThan(
       order.indexOf(QUEUE_JOBS.purgeExpiredAccounts),
     );
     expect(order.indexOf(QUEUE_JOBS.rateLimitReclaim)).toBe(0);
-    // Chain verification walks the night's complete set, so it runs after the last mutation.
-    expect(order.indexOf(QUEUE_JOBS.auditChainVerify)).toBe(order.length - 1);
+    // Chain verification walks the night's complete set, so it runs after the last mutation —
+    // last of the *scheduled* jobs; the on-demand outbox follows because it is not in the night.
+    expect(order.indexOf(QUEUE_JOBS.auditChainVerify)).toBe(SCHEDULED_QUEUE_JOB_NAMES.length - 1);
+    expect(order.indexOf(QUEUE_JOBS.emailDeliver)).toBe(order.length - 1);
+  });
+
+  test("the approval expiry is hourly and sits outside the nightly chain (NWB-P1-003)", () => {
+    // Hourly, because an approval window can be as short as an hour; second in the list, because
+    // it touches rows none of the purges reference and its 02:00 firing coincides with
+    // reclamation — the one slot that is not load-bearing.
+    expect(QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.approvalsExpireStale]).toBe("0 * * * *");
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    expect(order.indexOf(QUEUE_JOBS.approvalsExpireStale)).toBe(1);
+    const job = MAINTENANCE_JOBS.find((entry) => entry.name === QUEUE_JOBS.approvalsExpireStale);
+    expect(job?.audit).toEqual({
+      action: "approvals.expired",
+      category: "content",
+      resourceType: "approval_request",
+    });
   });
 
   test("invitations purge between the purges — member rows cascade on both ends (NWB-P1-016)", () => {
@@ -179,9 +215,10 @@ describe("queue policy", () => {
 });
 
 describe("resolveSchedules", () => {
-  test("returns one entry per declared queue, on the shipped crons, in one timezone", () => {
+  test("returns one entry per scheduled queue, on the shipped crons, in one timezone", () => {
     const schedules = resolveSchedules(scheduleConfig());
-    expect(schedules.map((entry) => entry.job)).toEqual([...QUEUE_JOB_NAMES]);
+    expect(schedules.map((entry) => entry.job)).toEqual([...SCHEDULED_QUEUE_JOB_NAMES]);
+    expect(schedules.map((entry) => entry.job)).not.toContain(QUEUE_JOBS.emailDeliver);
     for (const entry of schedules) {
       expect(entry.cron).toBe(QUEUE_SCHEDULE_DEFAULTS[entry.job]);
       expect(entry.tz).toBe("UTC");

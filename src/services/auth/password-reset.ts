@@ -34,6 +34,8 @@ export async function forgotPassword(
     const link = `${getConfig().APP_BASE_URL_RESOLVED}/reset-password?token=${rawToken}`;
 
     await emailService.send({
+      kind: "password_reset",
+      context: { userId: user.id },
       to: email,
       subject: "Reset your Nawebeus password",
       html: `

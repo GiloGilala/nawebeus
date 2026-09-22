@@ -132,6 +132,8 @@ export async function confirmMFASetup(
 
   if (userEmail) {
     await emailService.send({
+      kind: "mfa_enabled",
+      context: { userId },
       to: userEmail,
       subject: "Two-factor authentication enabled",
       html: `<p>Your Nawebeus account now has two-factor authentication enabled.</p>`,
