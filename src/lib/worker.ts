@@ -82,7 +82,20 @@ export interface JobContext {
 }
 
 /**
- * A unit of scheduled work: the queue it owns, the audit event its runs produce, and the handler.
+ * The parts of an audit event a job may derive from its payload: the tenant, the subject user, the
+ * resource, and payload-level metadata (merged *under* the wrapper's own `queue`/`jobId`/`attempt`
+ * keys, which always win). Everything else on the row — actor, action, severity, states — stays
+ * the wrapper's, so a handler cannot file a failure as a success by decorating its payload.
+ */
+export type JobAuditScope = Pick<
+  WriteAuditLogEntryParams,
+  "organizationId" | "targetUserId" | "resourceId"
+> & {
+  readonly metadata?: Record<string, unknown> | undefined;
+};
+
+/**
+ * A unit of queued work: the queue it owns, the audit event its runs produce, and the handler.
  *
  * `audit.action` follows the `unified_audit_log` convention (`<resource>.<verb>`, see
  * `db/shared/audit.ts`) and describes the *work*, not the mechanism: `rate-limits.reclaimed`,
@@ -102,6 +115,16 @@ export interface JobDefinition<TData extends object | null = object | null> {
      * and a job-only action would be invisible to `grep`-ing the registry.
      */
     readonly action: AuditActionName;
+    /**
+     * The action a run that did *not* succeed files under, when failure is a different event from
+     * success rather than the same event at a worse severity. Unset means `action` serves both,
+     * which is right for every maintenance job: a purge that died is still a purge, audited as
+     * failed. A job whose outcome *is* the subject — an email delivered or not — sets it, and the
+     * wrapper uses it on the throw path and for a partial outcome alike (`isPartialRun`), so a
+     * handler that returns `{ failed: 1 }` instead of throwing (nothing left to retry) still
+     * files the failure under the failure's name.
+     */
+    readonly failureAction?: AuditActionName | undefined;
     readonly category: AuditCategory;
     readonly resourceType: string;
     /**
@@ -111,6 +134,15 @@ export interface JobDefinition<TData extends object | null = object | null> {
      * NWB-P1-014, when the writer started sealing chained rows.
      */
     readonly module?: AuditModule | undefined;
+    /**
+     * Tenant and subject scope derived from the payload, merged into every audit row of the run.
+     * Unset means none, which is the truth for the maintenance jobs (one run sweeps every
+     * organization's rows — attributing it to one tenant would be a lie). An on-demand job whose
+     * payload carries `organizationId` uses this to file the row where the tenant's own audit
+     * query can see it. Runs inside the audit guard: a throwing `scope` costs the scope, never the
+     * job's outcome.
+     */
+    readonly scope?: ((data: TData) => JobAuditScope) | undefined;
   };
   handle(context: JobContext, data: TData): Promise<JobOutcome | undefined>;
 }
@@ -255,7 +287,8 @@ export async function runJobGuarded<TData extends object | null>(
     // A retry is still owed, so this is a warning; the last attempt spent is an alarm.
     const severity = attemptHasRetryLeft(attempt) ? "warning" : "critical";
 
-    await writeAuditSafely(deps, job, {
+    await writeAuditSafely(deps, job, data, {
+      action: job.audit.failureAction ?? job.audit.action,
       severity,
       reason: `${job.name} failed: ${message}`,
       changes: { error: message, attempt: attempt.attempt },
@@ -267,11 +300,15 @@ export async function runJobGuarded<TData extends object | null>(
     throw error;
   }
 
-  await writeAuditSafely(deps, job, {
+  const partial = isPartialRun(outcome);
+  await writeAuditSafely(deps, job, data, {
     // A partial run is not a failure — per-row refusals are reported, not
     // rethrown, and the next night retries the same rows — but it must not
-    // read as a clean night either.
-    severity: isPartialRun(outcome) ? "warning" : "info",
+    // read as a clean night either. A job that names its failures separately
+    // files a partial outcome under that name: for a single-subject job
+    // (one email) a reported failure *is* the failure.
+    action: partial ? (job.audit.failureAction ?? job.audit.action) : job.audit.action,
+    severity: partial ? "warning" : "info",
     afterState: outcome ?? { ok: true },
     metadata: auditMetadata(job, attempt),
   });
@@ -287,7 +324,7 @@ function attemptHasRetryLeft(attempt: JobAttempt): boolean {
 }
 
 function auditMetadata(
-  job: JobDefinition<object | null>,
+  job: Pick<AnyJobDefinition, "name">,
   attempt: JobAttempt,
 ): Record<string, unknown> {
   return {
@@ -309,25 +346,32 @@ function auditMetadata(
  * job retries, so the evidence gap is bounded by the retry. Either way the operator sees it on
  * stderr; P1-012 (observability) gives this line a home worth shipping to.
  */
-async function writeAuditSafely(
+async function writeAuditSafely<TData extends object | null>(
   deps: WorkerDeps,
-  job: JobDefinition<object | null>,
+  job: JobDefinition<TData>,
+  data: TData,
   event: Partial<WriteAuditLogEntryParams>,
 ): Promise<void> {
   try {
+    // No organizationId unless the job derives one from its payload: the maintenance queues are
+    // cross-tenant by design — one run sweeps every organization's expired rows, and attributing
+    // that to one tenant would be a lie. An outbox job knows exactly whose email it carried.
+    const { metadata: scopeMetadata, ...scope } = job.audit.scope ? job.audit.scope(data) : {};
     await deps.audit({
       db: deps.db,
       // `core` unless the job says otherwise: there is no `queue` module in the enum, so routine
       // runs file as `core` — but the chain exists now (NWB-P1-014), and a job about the system's
       // own integrity declares `system` on its definition instead of borrowing this default.
       module: job.audit.module ?? "core",
-      // No organizationId: these queues are cross-tenant by design — one run sweeps every
-      // organization's expired rows. Attributing the run to one tenant would be a lie.
+      ...scope,
       actorType: "system",
       action: job.audit.action,
       category: job.audit.category,
       resourceType: job.audit.resourceType,
       ...event,
+      ...(scopeMetadata || event.metadata
+        ? { metadata: { ...scopeMetadata, ...event.metadata } }
+        : {}),
     });
   } catch (error) {
     console.error(`[queue] audit write failed for "${job.name}": ${describeError(error)}`);

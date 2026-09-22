@@ -22,13 +22,18 @@ const server = Bun.serve({
  * here is config, not code: `QUEUE_WORKER_ENABLED` / `QUEUE_SCHEDULER_ENABLED` (set both false and
  * this becomes an API-only process; `bun run queue:worker` is the worker-only mirror).
  *
- * **A queue failure does not stop the API.** The request path has no queue dependency — nothing in
- * `src/server/**` enqueues yet — so a pg-boss that cannot install its schema must not take
- * authentication and org management down with it. The runtime therefore retries nothing here and
- * promises nothing here; it reports and steps aside. The dedicated worker process takes the
- * opposite stance on purpose (`src/scripts/queue-worker.ts` exits non-zero), so a deployment that
- * cares about job latency runs it under a supervisor and a deployment that does not can leave it to
- * the API process.
+ * **A queue failure does not stop the API.** The request path has no *hard* queue dependency — the
+ * one thing it enqueues, outbound email (`src/services/email`, NWB-P1-004), falls back to a direct
+ * send when the queue is absent or not yet created — so a pg-boss that cannot install its schema
+ * must not take authentication and org management down with it. The runtime therefore retries
+ * nothing here and promises nothing here; it reports and steps aside. The dedicated worker process
+ * takes the opposite stance on purpose (`src/scripts/queue-worker.ts` exits non-zero), so a
+ * deployment that cares about job latency runs it under a supervisor and a deployment that does
+ * not can leave it to the API process.
+ *
+ * The server above is already listening while this runs, so a signup arriving in the first
+ * second may find the `email.deliver` queue not created yet; that request's email takes the direct
+ * path (logged), every later one rides the outbox.
  */
 const worker = await startMaintenanceWorker({ db, config }).catch((error: unknown) => {
   console.error(`[queue] WORKER NOT STARTED — API continuing without it: ${describeError(error)}`);

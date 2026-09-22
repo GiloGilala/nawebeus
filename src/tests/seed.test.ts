@@ -109,6 +109,23 @@ describe.skipIf(!hasDb())("seed data", () => {
     expect(has("creator", "posts.publish")).toBe(false);
     expect(has("manager", "posts.publish")).toBe(true);
     expect(has("analyst", "posts.create")).toBe(false);
+    // Approvals (NWB-P1-003): everyone reads (the service scopes what), Creator and up submit,
+    // Manager and up decide — the same tiers the approval chain resolves role steps to.
+    for (const code of ["owner", "admin", "manager", "creator", "analyst", "viewer"]) {
+      expect(has(code, "approvals.read")).toBe(true);
+    }
+    for (const code of ["owner", "admin", "manager", "creator"]) {
+      expect(has(code, "approvals.create")).toBe(true);
+    }
+    for (const code of ["owner", "admin", "manager"]) {
+      expect(has(code, "approvals.decide")).toBe(true);
+    }
+    for (const code of ["analyst", "viewer"]) {
+      expect(has(code, "approvals.create")).toBe(false);
+    }
+    for (const code of ["creator", "analyst", "viewer"]) {
+      expect(has(code, "approvals.decide")).toBe(false);
+    }
     // Analytics: everyone reads; export is Manager/Analyst and above
     for (const code of ["owner", "admin", "manager", "creator", "analyst", "viewer"]) {
       expect(has(code, "analytics.read")).toBe(true);

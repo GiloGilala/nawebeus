@@ -4,7 +4,7 @@ import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { getConfig } from "../../lib/config";
 import type { Db } from "../../lib/db";
-import { AuthError, ForbiddenError } from "../../lib/errors";
+import { AuthError, EmailNotVerifiedError, ForbiddenError } from "../../lib/errors";
 import { getClientIp } from "../../lib/ip";
 import { runWithOrgContext } from "../../lib/org-context";
 import { type Actions, loadAbility, type Subjects } from "../../services/auth/ability";
@@ -57,7 +57,7 @@ export async function assertActivePrincipal(
   userId: string,
   orgId: string,
   opts?: { requireActiveMembership?: boolean },
-): Promise<void> {
+): Promise<{ status: string }> {
   const requireActiveMembership = opts?.requireActiveMembership !== false;
   const rows = await db.execute<{
     member_id: string | null;
@@ -99,6 +99,35 @@ export async function assertActivePrincipal(
   if (memberId === null) {
     throw new ForbiddenError("You are not a member of this organization");
   }
+
+  return { status: row.status };
+}
+
+/**
+ * The verified-email gate (NWB-P1-004 decision 3; closes NWB-P0-015's "server-side gate once
+ * real delivery exists").
+ *
+ * A `pending_verification` account may sign in — `assertAccountCanAuthenticate` allows it on
+ * purpose, and the sign-in response says `emailVerified: false` — but it may not *act*. The
+ * server answers 403 `EMAIL_NOT_VERIFIED` on every protected route except the two families the
+ * verification screen itself needs: `/api/auth/*` (resend the link, verify it, sign out, sessions,
+ * MFA) and `/api/users/me*` (read the profile, change a mistyped address, delete the account).
+ * Everything tenant-facing — organizations, members, invitations, approvals, audit, API keys, the
+ * admin user routes — waits for the click.
+ *
+ * Matched on the full path (`c.req.path`) rather than on which router installed the middleware,
+ * so a new router cannot opt out by accident: it is gated unless it lives under an exempt prefix.
+ */
+export function isVerificationExemptPath(path: string): boolean {
+  return (
+    path.startsWith("/api/auth/") || path === "/api/users/me" || path.startsWith("/api/users/me/")
+  );
+}
+
+function assertEmailVerifiedFor(path: string, status: string): void {
+  if (status !== "pending_verification") return;
+  if (isVerificationExemptPath(path)) return;
+  throw new EmailNotVerifiedError();
 }
 
 /**
@@ -143,7 +172,14 @@ function buildAuthMiddleware(principalOpts?: {
       const resolved = await resolveApiKey(db, presented);
       if (!resolved) throw new AuthError("Invalid or revoked API key");
 
-      await assertActivePrincipal(db, resolved.userId, resolved.organizationId, principalOpts);
+      const principal = await assertActivePrincipal(
+        db,
+        resolved.userId,
+        resolved.organizationId,
+        principalOpts,
+      );
+      // A key minted before verification is still a key of an unverified account.
+      assertEmailVerifiedFor(c.req.path, principal.status);
 
       c.set("user", { userId: resolved.userId, orgId: resolved.organizationId });
       c.set("authMethod", "api_key");
@@ -180,7 +216,10 @@ function buildAuthMiddleware(principalOpts?: {
     }
 
     // Verify membership — the JWT's orgId must match a real membership row
-    await assertActivePrincipal(db, payload.userId, payload.orgId, principalOpts);
+    const principal = await assertActivePrincipal(db, payload.userId, payload.orgId, principalOpts);
+    // Read from the row on every request, not from the token: verifying flips the gate open for
+    // the session the user already holds, without a fresh sign-in.
+    assertEmailVerifiedFor(c.req.path, principal.status);
 
     c.set("user", { userId: payload.userId, orgId: payload.orgId });
     c.set("authMethod", "session");

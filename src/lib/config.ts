@@ -93,6 +93,28 @@ function cronEnv() {
     .transform((v) => (v === undefined || v === "" ? undefined : v));
 }
 
+/** An optional string env var where blank means unset — `.env.example` ships these as `KEY=`. */
+function optionalEnv() {
+  return z
+    .string()
+    .optional()
+    .transform((v) => {
+      const trimmed = v?.trim();
+      return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+    });
+}
+
+/**
+ * A sender or reply-to address as an email provider accepts it: `addr@domain` or
+ * `Display Name <addr@domain>`. Shape only — whether the domain is verified with the provider is
+ * the provider's answer (a 403/422 at send time), not something config can know.
+ */
+function isMailbox(raw: string): boolean {
+  const named = /^[^<>@]+<([^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)>$/.exec(raw);
+  const address = named ? named[1] : raw;
+  return /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(address ?? "");
+}
+
 /** A bare PostgreSQL identifier — what `CREATE SCHEMA` will accept unquoted. */
 function isPostgresIdentifier(raw: string): boolean {
   return /^[a-z_][a-z0-9_$]{0,62}$/.test(raw);
@@ -188,15 +210,92 @@ const envSchema = z.object({
 
   /** Per-job cron overrides, five fields, read in `QUEUE_TIMEZONE`. Unset means the shipped default. */
   QUEUE_CRON_RATE_LIMIT_RECLAIM: cronEnv(),
+  QUEUE_CRON_APPROVALS_EXPIRE_STALE: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_ACCOUNTS: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_ORGANIZATIONS: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_INVITATIONS: cronEnv(),
   QUEUE_CRON_RETENTION_ENFORCE: cronEnv(),
   QUEUE_CRON_AUDIT_CHAIN_VERIFY: cronEnv(),
 
+  // ─── Email transport (DEC-028 · NWB-P1-004) ───────────────────────────────
+  //
+  // One provider per process. Which one is *derived* when not stated: a Resend key present means
+  // Resend, otherwise the console transport that prints every message to the log (what `bun run
+  // dev` uses, and how a developer reads a verification link locally). The derivation is
+  // deliberately refused in production — see the refinement below the schema.
+
+  /** `console` prints messages to the log; `resend` sends them. Unset: derived from `RESEND_API_KEY`. */
+  EMAIL_PROVIDER: z.enum(["console", "resend"]).optional(),
+  /** Resend API key (`re_…`). Its presence alone selects the Resend transport. */
+  RESEND_API_KEY: optionalEnv(),
+  /** Where the Resend transport posts. Overridable so a smoke test or a sandbox can point it at a stub. */
+  RESEND_API_BASE_URL: z
+    .string()
+    .default("https://api.resend.com")
+    .refine(isHttpUrl, { message: "RESEND_API_BASE_URL must be a single http(s) URL" })
+    .transform(stripTrailingSlashes),
+  /** The `From:` every message carries, e.g. `Nawebeus <no-reply@nawebeus.com>`. Required for Resend. */
+  EMAIL_FROM: optionalEnv().refine((v) => v === undefined || isMailbox(v), {
+    message: "EMAIL_FROM must be an email address, optionally as 'Display Name <addr@domain>'",
+  }),
+  /** Optional `Reply-To`; unset means replies go to `EMAIL_FROM`'s mailbox. */
+  EMAIL_REPLY_TO: optionalEnv().refine((v) => v === undefined || isMailbox(v), {
+    message: "EMAIL_REPLY_TO must be an email address, optionally as 'Display Name <addr@domain>'",
+  }),
+  /** How long one provider call may take before the transport calls it a retryable timeout. */
+  EMAIL_SEND_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(10_000),
+
   // Seed credentials
   SEED_ADMIN_EMAIL: z.string().email().default("admin@nawebeus.com"),
   SEED_ADMIN_PASSWORD: z.string().min(8).default("Admin@123456"),
+});
+
+/** The transport `emailService` will use once the optional keys have been resolved against each other. */
+export type EmailProvider = "console" | "resend";
+
+/** `EMAIL_PROVIDER` when stated; otherwise Resend if there is a key for it, else the console. */
+function resolveEmailProvider(env: {
+  EMAIL_PROVIDER?: EmailProvider | undefined;
+  RESEND_API_KEY?: string | undefined;
+}): EmailProvider {
+  return env.EMAIL_PROVIDER ?? (env.RESEND_API_KEY !== undefined ? "resend" : "console");
+}
+
+/**
+ * Cross-field email rules, expressed as config issues so they fail at boot with the standard
+ * "Config validation failed" line rather than at the first signup:
+ *
+ * - Resend needs a key and a sender. `EMAIL_PROVIDER=resend` with no key is a typo, not a choice.
+ * - **A production process does not get console email by omission.** An unset key would otherwise
+ *   turn every verification link, password reset and invitation into a log line, and nothing
+ *   would report it — signups would simply never verify. An operator who really wants that
+ *   (a staging box with no domain yet) says so with `EMAIL_PROVIDER=console`.
+ */
+const envSchemaWithEmailRules = envSchema.superRefine((env, ctx) => {
+  const provider = resolveEmailProvider(env);
+  if (provider === "resend") {
+    if (env.RESEND_API_KEY === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["RESEND_API_KEY"],
+        message: "required when EMAIL_PROVIDER=resend",
+      });
+    }
+    if (env.EMAIL_FROM === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["EMAIL_FROM"],
+        message: "required for the Resend transport (e.g. 'Nawebeus <no-reply@your-domain>')",
+      });
+    }
+  } else if (env.NODE_ENV === "production" && env.EMAIL_PROVIDER === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["EMAIL_PROVIDER"],
+      message:
+        "production needs a real email provider: set RESEND_API_KEY and EMAIL_FROM, or opt into log-only email explicitly with EMAIL_PROVIDER=console",
+    });
+  }
 });
 
 export type Config = z.infer<typeof envSchema> & {
@@ -207,6 +306,11 @@ export type Config = z.infer<typeof envSchema> & {
    * it is not settable directly; set `APP_BASE_URL` instead.
    */
   APP_BASE_URL_RESOLVED: string;
+  /**
+   * The email transport this process uses, after `EMAIL_PROVIDER` and `RESEND_API_KEY` have been
+   * resolved against each other. Derived, like the base URL: read this, never re-derive it.
+   */
+  EMAIL_PROVIDER_RESOLVED: EmailProvider;
 };
 
 /** A single http(s) URL — no lists, no `*`. */
@@ -227,7 +331,7 @@ function stripTrailingSlashes(raw: string): string {
 let _config: Config | undefined;
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
-  const result = envSchema.safeParse(env);
+  const result = envSchemaWithEmailRules.safeParse(env);
   if (!result.success) {
     const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
     throw new Error(`Config validation failed: ${errors}`);
@@ -235,7 +339,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   // `CORS_ORIGIN` is guaranteed non-empty by `isOriginList`, so the fallback is
   // always a real absolute origin.
   const appBaseUrl = stripTrailingSlashes(result.data.APP_BASE_URL ?? result.data.CORS_ORIGIN[0]!);
-  _config = { ...result.data, APP_BASE_URL_RESOLVED: appBaseUrl };
+  _config = {
+    ...result.data,
+    APP_BASE_URL_RESOLVED: appBaseUrl,
+    EMAIL_PROVIDER_RESOLVED: resolveEmailProvider(result.data),
+  };
   return _config;
 }
 
@@ -244,4 +352,22 @@ export function getConfig(): Config {
     return loadConfig();
   }
   return _config;
+}
+
+/**
+ * `getConfig()` for code that can do something sensible without one.
+ *
+ * `getConfig()` auto-loads and throws on an invalid environment, which is right for a server boot
+ * and wrong for a module that is merely *preferring* a configured value: the email service in a
+ * test process with no `DATABASE_URL` should fall back to the console transport, not turn a
+ * spy-wrapped `send()` into a config exception. The invalid environment still fails the boot —
+ * `src/index.ts` calls `loadConfig()` first — this only stops it failing twice.
+ */
+export function tryGetConfig(): Config | undefined {
+  if (_config) return _config;
+  try {
+    return loadConfig();
+  } catch {
+    return undefined;
+  }
 }

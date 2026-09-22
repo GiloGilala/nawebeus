@@ -126,6 +126,15 @@
 > paths (one statement, no extra round trip), so a suspension lands at the next request
 > rather than within 15 minutes. `pending_verification` stays allowed until Phase 2 ships
 > real email delivery, as the ticket's two-step plan requires.
+>
+> **Phase 2 checkbox flipped — 2026-09-22 (NWB-P1-004).** With Resend behind the transport,
+> `authMiddleware` now answers 403 `EMAIL_NOT_VERIFIED` for `pending_verification` accounts on
+> every protected route except `/api/auth/*` and `/api/users/me*` (both the cookie and the API-key
+> branch; the status is re-read per request, so verifying opens the gate for the session already
+> held). Invitation acceptance counts as verification. Two latent bugs in the verification path
+> surfaced when the gate made it load-bearing and were fixed in the same ticket: the signup
+> token row stored a truncated selector `consumeToken` could never match, and `verifyEmail`
+> updated a column `users` does not have. Ticket: `.scratch/p1-shared-infra/issues/09-email-transport-resend.md`.
 - **Objective:** `suspended` users cannot authenticate; `pending_verification` users can authenticate but only into a verification-limited session (see decision note); `deleted` remains excluded.
 - **Why:** a suspended account (admin action) currently retains full access (F-05); PRD requires verified-for-access.
 - **Current state:** `status` selected but unused (`auth.service.ts:73`).

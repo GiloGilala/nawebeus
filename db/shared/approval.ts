@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
 import {
@@ -111,7 +112,8 @@ import {
  * Validation rules enforced in application code (Zod):
  *   - chain is a non-empty array
  *   - every step has order >= 1
- *   - userId is null OR a 32-char id
+ *   - userId is null OR a user id (uuid; the column is varchar(64) since NWB-P1-003 — a
+ *     hyphenated uuid is 36 chars and did not fit the original varchar(32))
  *   - role is one of: 'manager', 'admin', 'owner'
  *   - isParallel is boolean
  *   - if multiple steps share the same order, isParallel must be true
@@ -172,19 +174,19 @@ import {
 export const approvalRequests = pgTable(
   "approval_requests",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Entity Reference ────────────────────────────────────────────────────
     entityType: approvableEntityTypeEnum("entity_type").notNull(),
 
     // Not FK — approval record must survive entity deletion
     // (deleted post's approval history must remain for audit purposes)
-    entityId: varchar("entity_id", { length: 32 }).notNull(),
+    entityId: varchar("entity_id", { length: 64 }).notNull(),
 
     // ─── Requester ───────────────────────────────────────────────────────────
     // Not FK — approval record outlives user records
-    requesterId: varchar("requester_id", { length: 32 }).notNull(),
+    requesterId: varchar("requester_id", { length: 64 }).notNull(),
 
     // ─── Approval Chain ──────────────────────────────────────────────────────
     // Canonical shape — see JSDoc above. Set at creation and never modified.
@@ -194,7 +196,7 @@ export const approvalRequests = pgTable(
     // NULL when: status is terminal (approved, rejected, expired, recalled)
     // Set when: status = 'pending' (next approver's turn)
     // Not FK — approval record outlives user records
-    currentApproverId: varchar("current_approver_id", { length: 32 }),
+    currentApproverId: varchar("current_approver_id", { length: 64 }),
 
     // Current step in the chain (1-based)
     // Bounded 1..100 to catch runaway chains from bad data
@@ -225,7 +227,7 @@ export const approvalRequests = pgTable(
 
     // Who was notified as the escalation recipient
     // Not FK — approval record outlives user records
-    escalatedToId: varchar("escalated_to_id", { length: 32 }),
+    escalatedToId: varchar("escalated_to_id", { length: 64 }),
 
     // ─── Concurrency ─────────────────────────────────────────────────────────
     // Optimistic locking counter — see JSDoc above.
@@ -293,6 +295,16 @@ export const approvalRequests = pgTable(
         AND ${table.currentApproverId} IS NOT NULL
       )`,
     ),
+
+    // ── One open request per entity ───────────────────────────────────────────
+
+    // The entities' `currentApprovalRequestId` is singular, and the service refuses a second
+    // pending request for the same entity (409 APPROVAL_ALREADY_PENDING). A check-then-insert
+    // cannot hold that under concurrency; this partial unique index can (NWB-P1-003). Closed
+    // requests are excluded so a resubmission after changes_requested is a fresh row.
+    uniqueIndex("uq_apr_pending_per_entity")
+      .on(table.organizationId, table.entityType, table.entityId)
+      .where(sql`${table.status} = 'pending'`),
 
     // ── Primary approver queue ────────────────────────────────────────────────
 
@@ -415,6 +427,16 @@ export const approvalRequests = pgTable(
  *     Written when: reminder worker fires (default: 24h after submission).
  *     actorId = 'system'
  *
+ *   'expired':
+ *     expiresAt passed with no decision (NWB-P1-003, migration 0004).
+ *     Written when: the `approvals.expire-stale` worker closes the request.
+ *     actorId = 'system'
+ *     request.status → 'expired' (terminal). The enum lacked this value
+ *     although the status enum had it, so an expiry left no history row on
+ *     an "append-only log of every action" — the drift is fixed, not worked
+ *     around. Escalation (the model's intermediate stage) waits for
+ *     notifications (NWB-P1-008).
+ *
  * comment field:
  *   Free-text comment from the actor.
  *   Required (DB-enforced) for:
@@ -433,10 +455,10 @@ export const approvalRequests = pgTable(
 export const approvalHistory = pgTable(
   "approval_history",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // FK to approval_requests — real FK (history row cannot outlive request)
-    approvalRequestId: varchar("approval_request_id", { length: 32 })
+    approvalRequestId: varchar("approval_request_id", { length: 64 })
       .notNull()
       .references(() => approvalRequests.id, { onDelete: "cascade" }),
 
@@ -445,7 +467,7 @@ export const approvalHistory = pgTable(
 
     // Not FK — history must survive actor leaving the org
     // 'system' literal string for system-generated actions (escalation, reminders)
-    actorId: varchar("actor_id", { length: 32 }).notNull(),
+    actorId: varchar("actor_id", { length: 64 }).notNull(),
 
     // ─── Content ─────────────────────────────────────────────────────────────
     // Required for 'rejected' and 'changes_requested' — enforced at DB layer

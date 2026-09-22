@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { DEFAULT_CORS_ORIGIN } from "../lib/config";
 import { success } from "../lib/response";
 import { apiKeyRootRouter } from "./api/api-keys";
+import { approvalRootRouter } from "./api/approvals";
 // Canonical Hono API — mounted at `/api/*` for mobile, webhooks and
 // third-party integrations. The web app's entry point is TanStack Start
 // Server Functions in `src/app/server-functions/*` which call `src/services/*`
@@ -32,6 +33,7 @@ function mountApiRouters(app: Hono): void {
   app.route("/api", orgRootRouter);
   app.route("/api", apiKeyRootRouter);
   app.route("/api", auditRootRouter);
+  app.route("/api", approvalRootRouter);
 }
 
 export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {

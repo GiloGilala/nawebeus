@@ -11,7 +11,7 @@ import {
   withAtomicWrites,
 } from "../../lib/transaction";
 import { anonymizeAuditInviteeEmail, writeAuditLog } from "../audit";
-import { createEmailVerificationToken, createUserRecord } from "../auth/user-record";
+import { createUserRecord } from "../auth/user-record";
 import { emailService } from "../email";
 import {
   assertNoActiveHoldForOrg,
@@ -232,6 +232,8 @@ export async function inviteMember(
   // One server-decided base for every emailed link (NWB-P0-021).
   const inviteLink = `${config.APP_BASE_URL_RESOLVED}/invite?token=${rawToken}`;
   await emailService.send({
+    kind: "invitation",
+    context: { organizationId: orgId, ...(userId ? { userId } : {}) },
     to: input.email,
     subject: `You've been invited to join ${orgName} on Nawebeus`,
     html: `
@@ -355,8 +357,6 @@ export interface AcceptInvitationResult {
   email: string;
   roleId: string;
   newUser: boolean;
-  /** Service-level only (like `SignupResult.emailVerificationToken`) — never exposed by routes. */
-  emailVerificationToken?: string;
 }
 
 /**
@@ -412,7 +412,6 @@ export async function acceptInvitation(
     }
 
     let newUser = false;
-    let emailVerificationToken: string | undefined;
 
     if (!userId) {
       // Register-into-org (FR-AUTH-006 step 9b). The registration fields are
@@ -454,12 +453,18 @@ export async function acceptInvitation(
       });
       userId = user.userId;
       newUser = true;
+      // Accepting the invitation *is* the verification (NWB-P1-004 decision 3): the link that
+      // brought them here was delivered to this address, and the token they presented proves
+      // they read it. Creating them `pending_verification` would put the verified-email gate in
+      // front of the workspace they were just invited into, for a second click on a second email
+      // that says nothing the first did not.
       await tx.execute(
-        sql`UPDATE users SET organization_id = ${invite.organizationId} WHERE id = ${userId}`,
+        sql`UPDATE users
+            SET organization_id = ${invite.organizationId},
+                status = 'active',
+                email_verified = true
+            WHERE id = ${userId}`,
       );
-      emailVerificationToken = (
-        await createEmailVerificationToken(tx, { userId, email: invitedEmail })
-      ).rawToken;
     } else {
       // Existing account (step 9a). D14 interim single-org semantics
       // (option (a)): refuse rather than silently re-home a primary org.
@@ -534,7 +539,6 @@ export async function acceptInvitation(
       email: invitedEmail,
       roleId,
       newUser,
-      ...(emailVerificationToken ? { emailVerificationToken } : {}),
     };
   });
 }

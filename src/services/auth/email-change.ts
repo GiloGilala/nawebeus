@@ -59,6 +59,8 @@ export async function requestEmailChange(
   const confirmLink = `${config.APP_BASE_URL_RESOLVED}/change-email/confirm?token=${rawToken}`;
 
   await emailService.send({
+    kind: "email_change",
+    context: { userId },
     to: input.newEmail,
     subject: "Confirm your new Nawebeus email address",
     html: `

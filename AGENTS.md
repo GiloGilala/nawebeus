@@ -48,6 +48,7 @@ bun run build           # typecheck + bundle to dist/
 bun run queue:worker    # workers + scheduler only, no HTTP server (ADR-007's other half)
 bun run queue:run --list            # the queues that exist, and what each one does
 bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same audit events
+bun run email:smoke -- --to you@example.com  # one real send through the configured transport (Resend needs a key; console needs --allow-console)
 ```
 
 ### Tests
@@ -62,7 +63,7 @@ bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same aud
   schemas are pinned by `src/tests/validation-schemas.test.ts` (Hono and SFs import the same
   object). `bun test` only — do not add Vitest or Jest.
 - **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
-- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 91.4% / 96.9% (NWB-P1-015). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
+- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 92.9% / 97.1% (NWB-P1-003). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
 ### CI
@@ -126,6 +127,9 @@ src/server/index.ts       ← Hono app factory (CORS, error handler, route mount
             `/users/admin` prefix so it can never shadow `/users/me*`; F-11/NWB-P0-029)
     orgs/   /orgs (incl. DELETE + /reactivate), /members, /roles
     api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
+    audit/  /audit (list, cursor-paged) + /audit/:id (NWB-P1-002)
+    approvals/ /approvals (submit + `?view=inbox|mine|all`), /approvals/:id,
+            /approvals/:id/{approve,reject,request-changes,recall} (NWB-P1-003)
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
 src/app/                  ← Web layer (TanStack Start): routes/ (file-based pages),
@@ -146,11 +150,17 @@ src/services/             ← Business logic (single source of truth)
   users/   user.service, admin.service, account-deletion.service
   orgs/    org.service, org-deletion.service, member.service, invitation.service,
            role-assignment.service, role-policy (hierarchy rules)
-  email.ts, audit.ts
+  audit/   actions (registry), write (sealed writes), chain, anonymize, query.service
+  approvals/ approval.service — chain resolution, decisions, recall, expiry sweep,
+           inbox/mine/all views (NWB-P1-003)
+  retention/ legal-holds.service, retention.service, backups.service (NWB-P1-010)
+  email/   types, console + resend transports, mask, service (queue-or-direct `emailService`),
+           index.ts as the only import path (NWB-P1-004)
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
-  rate-limit-reclaim.ts, purge-expired-accounts.ts, purge-expired-organizations.ts,
-  purge-expired-invitations.ts, audit-chain-verify.ts
+  rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), purge-expired-accounts.ts,
+  purge-expired-organizations.ts, purge-expired-invitations.ts, retention-enforce.ts,
+  audit-chain-verify.ts, email-deliver.ts (on-demand outbox, not scheduled)
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
   db.ts          ← Drizzle client factory + test DB helper
@@ -181,7 +191,9 @@ db/                       ← Drizzle schema modules
   schema.ts     ← re-exports active schema (shared + core + organization)
   core/         ← users, roles, permissions, sessions, tokens, oauth-accounts
   organization/ ← organizations, organization_members, role_history
-  shared/       ← enums, audit, analytics, alerts, templates, media, etc.
+  shared/       ← enums, audit, analytics, alerts, approval, contacts, templates, media
+  compliance/   ← legal_holds + backup_records adopted (NWB-P1-010); the other four
+                  models compile but stay out of schema.ts until their own tickets
 ```
 
 **Two files named `tokens.ts`** — `src/lib/tokens.ts` holds the low-level
@@ -199,11 +211,35 @@ directory you care about) for the complete set.
   processes can be built from one tree: `bun run dev`/`src/index.ts` (API + workers + scheduler),
   `bun run queue:worker` (workers only, and it **exits non-zero** if pg-boss cannot start, because
   there the queue is the whole job), and `QUEUE_ENABLED=false` (API only). `src/index.ts` does the
-  opposite on the same failure — logs `WORKER NOT STARTED` and keeps serving, because nothing in
-  `src/server/**` enqueues yet and an API hostage to a background runtime is unoperatable. Handlers
+  opposite on the same failure — logs `WORKER NOT STARTED` and keeps serving, because an API
+  hostage to a background runtime is unoperatable (the one request-path enqueue, the email
+  outbox, falls back to a direct send when the queue is absent — see the email fact). Handlers
   never touch pg-boss: they declare a `JobDefinition` (`name`, `audit`, `policy`, `handle`) and the
   base in `src/lib/worker.ts` supplies the audit events, the attempt number, and the rethrow that
   makes pg-boss retry with backoff. Swallow a handler error there and every job silently "succeeds".
+- **Email is Resend over `fetch`, behind one interface, through a durable outbox** (DEC-028 ·
+  NWB-P1-004, `src/services/email/`) — every caller uses `emailService.send({ kind, context, to,
+  subject, html })` and **never awaits delivery**: with a started queue (`getQueue()`) the call
+  files an `email.deliver` job and returns `queued`; with none — or if the enqueue itself throws
+  (the boot race in `src/index.ts`, pg-boss down) — it sends directly and returns `sent`/`failed`.
+  It never throws for a provider failure, so a Resend outage cannot 500 a signup, reset or
+  invite. `EmailTransport` has two implementations: `ConsoleEmailTransport` (dev/tests, prints the
+  message — that is where a local verification link comes from) and `ResendEmailTransport`
+  (`POST /emails`, Bearer key, the `em_…` message id minted at enqueue as `Idempotency-Key` so a
+  retry after a dropped response cannot double-send; `EmailDeliveryError.retryable` is true for
+  429/5xx/timeout/network and false for other 4xx). The job (`src/jobs/email-deliver.ts`, the
+  one **on-demand** queue: `ON_DEMAND_QUEUE_JOB_NAMES`, absent from `resolveSchedules()`) returns
+  non-retryable failures as an outcome → `email.delivery_failed`, and throws retryable ones →
+  pg-boss retries (`retryLimit 6`, backoff from 60 s ≈ 1 h; `deleteAfterSeconds 3600` because
+  payloads carry raw token links and the queue must not become where plaintext lingers). Audit
+  rows (`email.delivered` / `email.delivery_failed`, via the worker base's `audit.failureAction` +
+  `audit.scope(data)` hooks) carry the masked recipient (`j***@example.com`), `kind`, provider
+  and its id — never the address or the body. Config: `EMAIL_PROVIDER` (`console`|`resend`,
+  derived from `RESEND_API_KEY` when unset), `EMAIL_FROM` (required for Resend), `EMAIL_REPLY_TO`,
+  `RESEND_API_BASE_URL`, `EMAIL_SEND_TIMEOUT_MS`; **production refuses to boot on console-by-
+  omission** — say `EMAIL_PROVIDER=console` if that is really what you mean. The `resend` SDK is
+  deliberately not a dependency (one endpoint; `fetch` is injected so tests pin the exact request).
+  Tests spy with `spyOn(emailService, "send")`; the singleton must stay a plain object.
 - **Worker audit events are `module: "core"`, actor type `system`, with `organization_id` NULL** —
   `core` because the 15-value module enum has no `queue` value, not because of the chain: the
   hash chain exists since NWB-P1-014, and `admin`/`system`/`compliance` rows are sealed on write,
@@ -223,8 +259,10 @@ directory you care about) for the complete set.
   scrub touches exactly the columns the checksum does NOT cover, under a transaction-local flag,
   and the two exceptions are disjoint — no DELETE; TRUNCATE stays a role-permission concern).
   Never write chained modules via raw SQL — the registry scan fails it.
-- **The nightly order is load-bearing: reclamation → organizations → accounts → audit-chain
-  verification** — a user who still
+- **The nightly order is load-bearing: reclamation → organizations → invitations → accounts →
+  retention enforcement → audit-chain verification** (02:00 / 02:15 / 02:30 / 02:45 / 02:55 /
+  03:00 UTC, `QUEUE_SCHEDULE_DEFAULTS` in `src/lib/scheduler.ts`, each overridable by
+  `QUEUE_CRON_*`) — a user who still
   owns an organization cannot be hard-deleted (`organizations.owner_id` is `NOT NULL` + restrictive,
   F-25/D16), so the org purge has to clear that reference first for the same night's erasure of the
   *owner* to land. Since NWB-P1-013 a blocked row costs only itself: both purges delete per row
@@ -233,7 +271,47 @@ directory you care about) for the complete set.
   hostage for the night — and a nonzero `failed` makes the run's audit row `warning` (the
   partial-run convention, `isPartialRun` in `src/lib/worker.ts`). `src/tests/queue/jobs.test.ts`
   proves the isolation, the report shape, and the order. Verification runs last because it walks
-  the night's complete set (`src/tests/queue/definitions.test.ts` pins it).
+  the night's complete set (`src/tests/queue/definitions.test.ts` pins it). The one job outside
+  that chain is `approvals.expire-stale` (**hourly**, `0 * * * *`, second in `QUEUE_JOB_NAMES`):
+  it touches rows none of the purges reference, and an approval window can be as short as an
+  hour, so a nightly slot would have been no enforcement at all (NWB-P1-003).
+- **The approval workflow is one service, three permissions, and a row-level gate** (NWB-P1-003,
+  `src/services/approvals/approval.service.ts`) — `approvals.read` (everyone), `approvals.create`
+  (creator and up), `approvals.decide` (manager and up) decide who reaches an endpoint; the *row*
+  decides whose turn it is. The chain is resolved **at request time** to concrete users: a named
+  user must be an active member at or above the step's tier (manager 60 / admin 80 / owner 90),
+  a role step expands to every eligible member as a parallel group, the requester is never in it
+  (no self-approval), and an unroutable chain is a 422 naming the step, not a stored request
+  nobody can act on. Sequential steps all approve; a parallel group needs any one member. Reject
+  and request-changes **close** the request (resubmit = new request); recall is the requester's
+  and only until the first approval lands (409 `APPROVAL_RECALL_WINDOW_CLOSED`). Exactly one
+  pending request per `(organization, entity_type, entity_id)` — the partial unique index
+  `uq_apr_pending_per_entity` (migration 0004) is the arbiter under concurrency, surfaced as 409
+  `APPROVAL_ALREADY_PENDING`. Every decision is `SELECT … FOR UPDATE` + `UPDATE … WHERE
+  version = $read` inside `withAtomicWrites`; a mismatch is 409 `APPROVAL_VERSION_CONFLICT`,
+  never a silent overwrite (`ApprovalStateError` in `src/lib/errors.ts` carries the code). Ids are
+  `apr_`/`aph_` + 21 chars, so the routes check `APPROVAL_ID_PATTERN`, not `uuidParam`, and the
+  cursor shape is widened the way the audit list's is. Timestamps are written as
+  `clock_timestamp()` on purpose (see the comment above `requestId()`) so same-transaction rows
+  still order by insertion. Cross-tenant and not-visible reads are 404, never 403. Deferred, on
+  the record in the ticket: admin override (BR-EH-04), claim/delegate/escalate, reminders and
+  notifications (P1-008), a GIN index on the chain JSONB.
+- **Legal holds freeze erasure at the worker, not the database** (NWB-P1-010) — `legal_holds`
+  targets exactly one user XOR one organization (DB CHECK; never global), `reason` is required,
+  and blocking is subject-wide regardless of `data_type`. Every purge path checks it per row
+  (`assertNoActiveHold*` in `src/services/retention/legal-holds.service.ts`, called from the
+  account scrub, the org purge's `beforeDelete`, the invite expiry, and the retention enforcers)
+  and throws `LegalHoldError` (423 `LEGAL_HOLD`), which `deleteRowsPerRow` counts into the
+  **required** `held` on every purge outcome (`held ⊆ failed`, so a held row makes the night's
+  audit row `warning` on purpose — erasure deferred is erasure outstanding). No trigger: a
+  trigger would also block operator remediation. Holds expire at read time and release
+  idempotently. `retention.enforce` (02:55) deletes what a *clock* ended — DSAR packages past
+  `expires_at`, sessions dead **and** stale (> 1 year), tokens expired/consumed > 30 days — flips
+  past-window `backup_records` to `expired` (the app tracks backups, never performs them; records
+  are never deleted), and runs the audit **census**: per-module row counts compared with the
+  previous run's own `after_state.census.counts`; any decrease writes a `critical`
+  `retention.census.decrease_detected` row. Audit rows are never deleted by anything here.
+  Add a new purge path without the hold hook and you have reopened the gap this ticket closed.
 - **`loadConfig()` must run before `getConfig()`** — `config.ts` uses a singleton. `src/index.ts` calls it at startup; tests call `loadConfig()` inline (the always-required JWT secrets are supplied by `src/tests/preload.ts`).
 - **Auth is cookie-first, with API keys as a Bearer alternative** — the browser flow sets an access token (15-min JWT) and refresh token (7-day JWT) as HTTP-only cookies (`nawebeus_access`, `nawebeus_refresh`) in the signin route. The access cookie path is `/`; the refresh cookie path is `/api/auth` (so a Server Function cannot read the refresh cookie — keep the payload/cookie hybrid on `refreshServerFn`). Machine clients send `Authorization: Bearer nwb_<env>_<publicKey>_<secret>` instead, which `authMiddleware` resolves to the same user + org. A Bearer header takes precedence over the cookie **on Hono only**.
 - **Server Functions authenticate with session cookies only** (tanstack-start.md §1.2, §9.2) —
@@ -254,11 +332,27 @@ directory you care about) for the complete set.
   `verifyMfaChallengeLogin`, and again on **every** request in `authMiddleware`
   (`assertActivePrincipal`, one statement covering account + status + membership, for both the
   cookie and API-key paths). Allowed: `active`, `pending_verification` (the response carries
-  `emailVerified: false`; the hard server-side gate lands with real email in Phase 2).
-  `suspended` → 403 `ACCOUNT_SUSPENDED`; `deleted`/unknown → generic 401 so the status is never
-  disclosed to a caller without the password. NWB-P0-015.
+  `emailVerified: false`). `suspended` → 403 `ACCOUNT_SUSPENDED`; `deleted`/unknown → generic
+  401 so the status is never disclosed to a caller without the password. NWB-P0-015.
+- **`pending_verification` is a verification-limited session, gated in the middleware** (NWB-P1-004)
+  — after the status re-read, `authMiddleware` answers 403 `EMAIL_NOT_VERIFIED` on every route
+  except `/api/auth/*` and `/api/users/me*` (resend, verify, sign-out, sessions, MFA, email-change
+  for the typo-at-signup case, account deletion stay reachable), on both the cookie and the
+  API-key branch. Because the status is re-read per request, verifying opens the gate for the
+  session already held. Invitation acceptance **is** verification: a new invitee is created
+  `active` + `email_verified` and no second token is minted (the invite link proved the address).
+  Test fixtures that sign up and then act must verify through the real `verifyEmail` (redeem the
+  `tokens` row), never by editing `users` — `src/tests/auth/email-verification-gate.test.ts` is
+  the pattern; in dev the link is in the console transport's log output.
+- **A path no test drives end-to-end is unverified, however many unit tests touch its pieces**
+  — the verified-email gate exposed two bugs that had shipped with signup itself: the signup
+  token row stored `rawToken.slice(0, 32)` as its selector while `consumeToken` looks up the whole
+  token (every emailed signup link failed; only *resend* worked), and `verifyEmail` updated a
+  `users.email_verified_at` column the schema does not have (42703 → 500 on every successful
+  match). Each piece had passing tests; nothing signed up, clicked the link and used the session.
+  When a ticket adds a gate or a consumer to a path, write the loop test first (NWB-P1-004).
 - **Organization deletion is soft, with a reachable undo** — `deleteOrganization` (`src/services/orgs/org-deletion.service.ts`) stamps `deleted_at`/`scheduled_deletion_at` 30 days out, suspends every membership, revokes the org's API keys and all members' sessions; `reactivateOrganization` restores the memberships and keys but **never the sessions** (a revoked session is a credential that may have leaked). Ownership is checked against `organizations.owner_id`, not a role row — DEC-039 makes Owner a transferred singleton on the organization itself. **`POST /orgs/:orgId/reactivate` is the one route that uses `authMiddlewareAllowingInactiveMembership`**: deletion suspends the owner's own membership, so the normal `assertActivePrincipal` check would 403 the only person who can undo it, making the grace period unreachable. That middleware relaxes *only* the `status='active'` requirement — account existence, soft-delete, `users.status` and "holds a membership row here" all still apply — and the route carries no `requireAbility` because `loadAbility` reads active memberships only, so a deleted org yields an empty ability by construction. Do not reuse it elsewhere. NWB-P0-023.
-- **`purgeExpiredOrganizations` actually completes; `purgeExpiredAccounts` is gated instead** — every FK referencing `organizations.id` is CASCADE or SET NULL, so the org purge has no restrictive edge (users are *detached*, never deleted with the workspace). The account purge has one (`organizations.owner_id`), which is why `deleteAccount` refuses an owner up front (D16/F-25). Relaxing that gate for soft-deleted orgs reintroduces the 23503 — a soft-deleted org still holds the reference; a negative-control test pins this. The unblock is the hard purge: delete org → grace expires → `purgeExpiredOrganizations` → `deleteAccount` → `purgeExpiredAccounts`. Neither purge is scheduled yet (F-18); wire both with the Phase 2 queue.
+- **`purgeExpiredOrganizations` actually completes; `purgeExpiredAccounts` is gated instead** — every FK referencing `organizations.id` is CASCADE or SET NULL, so the org purge has no restrictive edge (users are *detached*, never deleted with the workspace). The account purge has one (`organizations.owner_id`), which is why `deleteAccount` refuses an owner up front (D16/F-25). Relaxing that gate for soft-deleted orgs reintroduces the 23503 — a soft-deleted org still holds the reference; a negative-control test pins this. The unblock is the hard purge: delete org → grace expires → `purgeExpiredOrganizations` → `deleteAccount` → `purgeExpiredAccounts`. Both run nightly since NWB-P1-001 (F-18 closed); the order above is why organizations go first.
 - **Account deletion keeps its grace window in `users.scheduled_deletion_at`** — nullable
   `timestamptz` written by `deleteAccount`, read by `reactivateAccount` /
   `purgeExpiredAccounts` / `getAccountDeletionStatus`. The column was missing until NWB-P0-024,
@@ -331,7 +425,7 @@ examples onto `auth.orgId`. Do not copy fashion/clients samples. Do not introduc
 or Cloudinary/S3. Do not put business logic in Server Functions. Keep the local
 `createServerFn` shim; keep ValidationError at 422.
 
-The `db/` folder contains aspirational schema modules (`billing/`, `campaigns/`, `commerce/`, `compliance/`, `engagement/`, `influencer/`, `monitoring/`, `pr/`, `publishing/`, `social-accounts/`) that are **excluded from TypeScript compilation** in `tsconfig.json`. They are not wired into `db/schema.ts` yet.
+The `db/` folder contains aspirational schema modules (`billing/`, `campaigns/`, `commerce/`, `engagement/`, `influencer/`, `monitoring/`, `pr/`, `publishing/`, `social-accounts/`) that are **excluded from TypeScript compilation** in `tsconfig.json`. They are not wired into `db/schema.ts` yet. `compliance/` compiles since NWB-P1-010, but only `legal_holds` and `backup_records` are re-exported from `db/schema.ts` — granularity lives in that file, not in tsconfig.
 
 ### Issue tracker
 

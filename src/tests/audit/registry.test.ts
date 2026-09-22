@@ -202,12 +202,22 @@ describe("audit action registry", () => {
     // `src/lib/worker.ts` takes `category`/`resourceType` from the job definition, so this is the one
     // place where a duplicated value could disagree with the registry and nobody would notice.
     for (const job of MAINTENANCE_JOBS) {
-      const spec = auditActionSpec(job.audit.action);
-      expect(job.audit.category, `${job.name}: category`).toBe(spec.category);
-      // `?? ""` because a job definition's `resourceType` is a required string while the registry's may
-      // be null ("no single resource"): an action with no resource could never agree with a job that
-      // names one, and that asymmetry is worth failing on rather than casting away.
-      expect(job.audit.resourceType, `${job.name}: resourceType`).toBe(spec.resourceType ?? "");
+      // A job that names its failures separately (`failureAction`, NWB-P1-004) files both events
+      // with the same category/resourceType, so both registry entries must agree with it.
+      const actions = [
+        job.audit.action,
+        ...(job.audit.failureAction ? [job.audit.failureAction] : []),
+      ];
+      for (const action of actions) {
+        const spec = auditActionSpec(action);
+        expect(job.audit.category, `${job.name}: category (${action})`).toBe(spec.category);
+        // `?? ""` because a job definition's `resourceType` is a required string while the registry's may
+        // be null ("no single resource"): an action with no resource could never agree with a job that
+        // names one, and that asymmetry is worth failing on rather than casting away.
+        expect(job.audit.resourceType, `${job.name}: resourceType (${action})`).toBe(
+          spec.resourceType ?? "",
+        );
+      }
     }
   });
 });

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { signup } from "../../services/auth/signup";
+import { verifyEmail } from "../../services/auth/verification";
 import { createTestApp } from "../helpers/test-client";
 import { withTestDb } from "../helpers/test-db";
 
@@ -73,6 +74,9 @@ describe.skipIf(!hasDb())("Org routes — integration (F-02)", () => {
         termsAccepted: true,
         privacyAccepted: true,
       } as any);
+      // Signup leaves the account pending; the verified-email gate (NWB-P1-004) would 403 the
+      // PATCH below before the permission check ever ran, so verify through the real path.
+      await verifyEmail(db, member.emailVerificationToken);
 
       // Re-home the member into the owner's org with the admin role
       // (carries org.update per the DEC-039 matrix; NWB-P0-014).
@@ -139,6 +143,7 @@ describe.skipIf(!hasDb())("Org routes — integration (F-02)", () => {
         termsAccepted: true,
         privacyAccepted: true,
       } as any);
+      await verifyEmail(db, member.emailVerificationToken);
 
       // viewer holds org.read but not org.update
       const roleRows = await db.execute<{ id: string }>(

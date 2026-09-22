@@ -4,6 +4,7 @@ import { loadConfig } from "../../lib/config";
 import type { Db } from "../../lib/db";
 import { loadAbility } from "../../services/auth/ability";
 import { signup } from "../../services/auth/signup";
+import { verifyEmail } from "../../services/auth/verification";
 import { createTestApp } from "../helpers/test-client";
 import { withTestDb } from "../helpers/test-db";
 import {
@@ -96,6 +97,8 @@ async function buildOrg(db: Db, roles: string[]): Promise<Fixture> {
     privacyAccepted: true,
   } as any);
   const orgId = created.organization.id;
+  // The owner acts through the API below; an unverified owner is refused at the door (NWB-P1-004).
+  await verifyEmail(db, created.emailVerificationToken);
 
   const users: Record<string, { id: string; email: string; memberId: string }> = {};
   for (const roleCode of roles) {

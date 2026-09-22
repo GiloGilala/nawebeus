@@ -87,6 +87,14 @@ export async function createUserRecord(
  * Returns the raw token — the only form that can go into a link. Callers send
  * the email **after** the surrounding transaction commits: a failed send must
  * not roll back a committed account.
+ *
+ * The `selector` is the **whole** raw token, exactly as `createToken`
+ * (`./tokens.ts`) stores it and `consumeToken` looks it up. Until NWB-P1-004
+ * this row stored `rawToken.slice(0, 32)`, so the link every signup emailed
+ * failed with "Invalid or expired verification token" — only the *resend* path
+ * (which goes through `createToken`) ever produced a redeemable link, and
+ * nothing in the suite redeemed one. The verified-email gate made that fatal,
+ * which is how it was found.
  */
 export async function createEmailVerificationToken(
   tx: DbOrTx,
@@ -102,7 +110,7 @@ export async function createEmailVerificationToken(
         user_id, token_type, selector, hashed_validator, status, purpose, target_email, expires_at
       )
       VALUES (
-        ${input.userId}, 'email_verification', ${rawToken.slice(0, 32)}, ${tokenHash},
+        ${input.userId}, 'email_verification', ${rawToken}, ${tokenHash},
         'active', 'email_verification', ${input.email}, ${expiresAt.toISOString()}
       )
     `,
