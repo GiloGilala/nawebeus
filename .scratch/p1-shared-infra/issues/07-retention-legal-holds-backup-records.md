@@ -1,7 +1,7 @@
 # NWB-P1-010 — Retention worker + legal holds + backup records
 
 Type: task
-Status: claimed (2026-09-22 — the retention-thread culmination: P1-013/015/016 all deferred here; 4 scope questions answered by operator before filing)
+Status: done (2026-09-22 — merged in PR #17 as `657e2b7`; re-verified at `main` 4645d03 on 2026-09-22: typecheck + build + **582/582** `bun test` with a live PostgreSQL 14.23, `coverage:check` green at 92.3% services / 97.0% lib. `bun run lint` was **red** at that head — one formatting error in `src/services/audit/actions.ts` shipped with the commit and failed CI run 35710191299's Lint step; fixed in the close-out, see Comments)
 Blocked by: NWB-P1-001 ✅ (the queue base the sixth job rides on)
 Phase: P1 (roadmap Phase 2)
 Size: M
@@ -135,21 +135,21 @@ Don't:
 
 ## Acceptance
 
-- [ ] Past-window DSAR packages, dead+stale sessions, and expired/consumed+aged tokens are
+- [x] Past-window DSAR packages, dead+stale sessions, and expired/consumed+aged tokens are
       gone after the job; every live/kept row is byte-identical. Proven by a liveness matrix,
       not by row counts alone.
-- [ ] The census alarms exactly on decrease (critical row, compliance), stays silent on
+- [x] The census alarms exactly on decrease (critical row, compliance), stays silent on
       increase, and bootstraps without alarm. Proven by test with planted counts.
-- [ ] An active hold blocks its subject's rows in all three purges and the retention deletes;
+- [x] An active hold blocks its subject's rows in all three purges and the retention deletes;
       released/expired holds block nothing; hold-hits report in `errors` + `held`, and the
       run reads `warning`. Proven by a hold matrix, both target kinds.
-- [ ] Backup lifecycle: record → complete/fail → past-window `expired`; records are never
+- [x] Backup lifecycle: record → complete/fail → past-window `expired`; records are never
       deleted. Proven by test.
-- [ ] Migration 0003 is generate-clean, migrate-twice idempotent, and push-convergent; tests
+- [x] Migration 0003 is generate-clean, migrate-twice idempotent, and push-convergent; tests
       execute it in-transaction (no suite depends on ambient tables).
-- [ ] The sixth job is registered, scheduled, env-overridable, and runnable via `queue:run`;
+- [x] The sixth job is registered, scheduled, env-overridable, and runnable via `queue:run`;
       verify is still last and the pin says so.
-- [ ] Gates: `bun test` ±`DATABASE_URL`, `typecheck`, `biome`, `build`, `coverage:check`.
+- [x] Gates: `bun test` ±`DATABASE_URL`, `typecheck`, `biome`, `build`, `coverage:check`.
 
 ## Notes
 
@@ -162,3 +162,38 @@ Don't:
 - Login-attempt records (§9.4 90d) and export files (24h) remain unenforced: no table / not
   rows. If either gains storage, its enforcer joins this worker — the `tables` roll-up is
   built for that.
+
+## Comments
+
+**2026-09-22 — close-out (bookkeeping only; the code landed in PR #17 as `657e2b7`).** The
+ticket was merged with its `Status:` still reading `claimed` while `spec.md` already said done;
+this entry reconciles the two and records what the merge actually left behind.
+
+- **Delivered as decided.** Migration `0003` (`legal_holds` XOR target + `backup_records`, the two
+  enums, varchar-64 ids), `src/services/retention/` (`legal-holds`, `retention`, `backups`), hold
+  hooks on all four purge paths (account, org, invite expiry, retention enforcers) via
+  `LegalHoldError` (423) counted into the required `held` on `PerRowDeleteResult`, the sixth job
+  `retention.enforce` at `55 2 * * *` (+ `QUEUE_CRON_RETENTION_ENFORCE`), the census with its
+  self-referential baseline, and the five registry actions. `src/tests/retention/` carries the
+  liveness matrix, the hold matrix and the backup lifecycle (979 lines, 19 tests).
+- **Gates, re-run at `main` 4645d03 on a fresh embedded PostgreSQL 14.23** (migrate ×2 from zero
+  → ledger 4, `seed`, then): `bun test` **582/582**, `typecheck` clean, `build` clean,
+  `coverage:check` green at **92.3% services / 97.0% lib**.
+- **Found at close-out: `main` was red.** `bun run lint` (`biome check .`) reported **1 error** —
+  the `backups.recorded` description line in `src/services/audit/actions.ts` exceeded the print
+  width, so the commit's "lint (0 errors)" claim did not hold, and CI run 35710191299 on the merge
+  commit failed its Lint step (the test job was skipped as a consequence). Same class as
+  NWB-P0-027 and the reason NWB-P0-022 (branch protection) still matters: a red check does not
+  block a merge. Fixed by `biome format --write` on that one file in the P1-003 branch; `bun run
+  lint` exits 0 again (548 warnings, 0 errors).
+- **AGENTS.md was not refreshed by the commit** although this ticket's Do-list called for it:
+  the tree lacked `src/services/retention/` and `src/jobs/retention-enforce.ts`, the nightly-order
+  key fact still read "reclamation → organizations → accounts → verification" (missing the
+  invitations slot from P1-016 *and* this ticket's retention slot), the coverage line quoted
+  P1-015's numbers, and the F-18 paragraph still said neither purge was scheduled. All refreshed
+  in the same close-out commit, plus a key-fact bullet for legal holds / retention.
+- **Residuals carried, not lost:** `api_keys.name` after purge (decision §1, its own ticket);
+  analytics raw purge (needs aggregate verification); login-attempt records and export files
+  (no table / not rows); routes for holds and backup recording (later phase, super_admin);
+  `approval_requests`/`approval_history` are FK-less to `organizations`, so an org purge orphans
+  its approval rows — NWB-P1-003 notes it, and the `tables` roll-up is where an enforcer joins.

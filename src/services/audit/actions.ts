@@ -181,7 +181,8 @@ export const AUDIT_ACTIONS = {
     resourceType: "user",
   },
   "backups.recorded": {
-    description: "A backup run was recorded for lifecycle tracking; the app tracks, never performs.",
+    description:
+      "A backup run was recorded for lifecycle tracking; the app tracks, never performs.",
     category: "compliance",
     resourceType: "backup",
   },
