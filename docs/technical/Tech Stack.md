@@ -59,7 +59,7 @@ This document complements the **Architecture** document (which explains the "why
 | **Realtime** | WebSockets (Hono native) | — | ✅ Selected | — |
 | **Push Notifications** | Expo Notifications (FCM/APNs) | Latest | ✅ Selected | — |
 | **Hosting** | Self-hosted VPS (Nigeria) + WireGuard | — | ✅ Selected | ADR-008 |
-| **Deployment** | Coolify + Docker | Latest | ✅ Selected | — |
+| **Deployment** | Coolify | Latest | ✅ Selected | — |
 | **Reverse Proxy** | Nginx | Latest | ✅ Selected | — |
 | **CDN / Security** | Cloudflare | — | ✅ Selected | — |
 | **Testing (Unit)** | Bun test | Built-in | ✅ Selected | — |
