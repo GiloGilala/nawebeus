@@ -57,7 +57,7 @@ bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same aud
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
 - **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
-- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 92.3% / 97.0% (NWB-P1-010). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
+- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 92.9% / 97.1% (NWB-P1-003). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
 ### CI
@@ -113,6 +113,9 @@ src/server/index.ts       ← Hono app factory (CORS, error handler, route mount
             `/users/admin` prefix so it can never shadow `/users/me*`; F-11/NWB-P0-029)
     orgs/   /orgs (incl. DELETE + /reactivate), /members, /roles
     api-keys/ /api-keys (create + list), /api-keys/:id/rotate, DELETE /api-keys/:id
+    audit/  /audit (list, cursor-paged) + /audit/:id (NWB-P1-002)
+    approvals/ /approvals (submit + `?view=inbox|mine|all`), /approvals/:id,
+            /approvals/:id/{approve,reject,request-changes,recall} (NWB-P1-003)
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
 src/app/                  ← Web layer (TanStack Start): routes/ (file-based pages),
@@ -133,12 +136,15 @@ src/services/             ← Business logic (single source of truth)
   orgs/    org.service, org-deletion.service, member.service, invitation.service,
            role-assignment.service, role-policy (hierarchy rules)
   audit/   actions (registry), write (sealed writes), chain, anonymize, query.service
+  approvals/ approval.service — chain resolution, decisions, recall, expiry sweep,
+           inbox/mine/all views (NWB-P1-003)
   retention/ legal-holds.service, retention.service, backups.service (NWB-P1-010)
   email.ts
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
-  rate-limit-reclaim.ts, purge-expired-accounts.ts, purge-expired-organizations.ts,
-  purge-expired-invitations.ts, retention-enforce.ts, audit-chain-verify.ts
+  rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), purge-expired-accounts.ts,
+  purge-expired-organizations.ts, purge-expired-invitations.ts, retention-enforce.ts,
+  audit-chain-verify.ts
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
   db.ts          ← Drizzle client factory + test DB helper
@@ -218,7 +224,31 @@ directory you care about) for the complete set.
   hostage for the night — and a nonzero `failed` makes the run's audit row `warning` (the
   partial-run convention, `isPartialRun` in `src/lib/worker.ts`). `src/tests/queue/jobs.test.ts`
   proves the isolation, the report shape, and the order. Verification runs last because it walks
-  the night's complete set (`src/tests/queue/definitions.test.ts` pins it).
+  the night's complete set (`src/tests/queue/definitions.test.ts` pins it). The one job outside
+  that chain is `approvals.expire-stale` (**hourly**, `0 * * * *`, second in `QUEUE_JOB_NAMES`):
+  it touches rows none of the purges reference, and an approval window can be as short as an
+  hour, so a nightly slot would have been no enforcement at all (NWB-P1-003).
+- **The approval workflow is one service, three permissions, and a row-level gate** (NWB-P1-003,
+  `src/services/approvals/approval.service.ts`) — `approvals.read` (everyone), `approvals.create`
+  (creator and up), `approvals.decide` (manager and up) decide who reaches an endpoint; the *row*
+  decides whose turn it is. The chain is resolved **at request time** to concrete users: a named
+  user must be an active member at or above the step's tier (manager 60 / admin 80 / owner 90),
+  a role step expands to every eligible member as a parallel group, the requester is never in it
+  (no self-approval), and an unroutable chain is a 422 naming the step, not a stored request
+  nobody can act on. Sequential steps all approve; a parallel group needs any one member. Reject
+  and request-changes **close** the request (resubmit = new request); recall is the requester's
+  and only until the first approval lands (409 `APPROVAL_RECALL_WINDOW_CLOSED`). Exactly one
+  pending request per `(organization, entity_type, entity_id)` — the partial unique index
+  `uq_apr_pending_per_entity` (migration 0004) is the arbiter under concurrency, surfaced as 409
+  `APPROVAL_ALREADY_PENDING`. Every decision is `SELECT … FOR UPDATE` + `UPDATE … WHERE
+  version = $read` inside `withAtomicWrites`; a mismatch is 409 `APPROVAL_VERSION_CONFLICT`,
+  never a silent overwrite (`ApprovalStateError` in `src/lib/errors.ts` carries the code). Ids are
+  `apr_`/`aph_` + 21 chars, so the routes check `APPROVAL_ID_PATTERN`, not `uuidParam`, and the
+  cursor shape is widened the way the audit list's is. Timestamps are written as
+  `clock_timestamp()` on purpose (see the comment above `requestId()`) so same-transaction rows
+  still order by insertion. Cross-tenant and not-visible reads are 404, never 403. Deferred, on
+  the record in the ticket: admin override (BR-EH-04), claim/delegate/escalate, reminders and
+  notifications (P1-008), a GIN index on the chain JSONB.
 - **Legal holds freeze erasure at the worker, not the database** (NWB-P1-010) — `legal_holds`
   targets exactly one user XOR one organization (DB CHECK; never global), `reason` is required,
   and blocking is subject-wide regardless of `data_type`. Every purge path checks it per row

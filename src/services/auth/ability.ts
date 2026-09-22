@@ -2,7 +2,22 @@ import { type Ability, AbilityBuilder, createMongoAbility } from "@casl/ability"
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
-export type Actions = "create" | "read" | "update" | "delete" | "manage";
+/**
+ * The verbs a permission string can end in. The CRUD four plus `manage` (CASL's wildcard), and
+ * the non-CRUD verbs the seed catalog actually grants: `publish`/`export` (there since the role
+ * matrix) and `decide` (approvals, NWB-P1-003). `loadAbility` splits `<subject>.<verb>` and
+ * passes the verb straight through, so this union is what `requireAbility` may ask for — a verb
+ * missing here is a compile error at the route, not a silent 403.
+ */
+export type Actions =
+  | "create"
+  | "read"
+  | "update"
+  | "delete"
+  | "manage"
+  | "publish"
+  | "export"
+  | "decide";
 export type Subjects = string;
 
 type AppAbility = Ability<[Actions, Subjects]>;

@@ -21,6 +21,7 @@ import {
   type WorkerHandle,
 } from "../lib/worker";
 import { writeAuditLog } from "../services/audit";
+import { approvalsExpireStaleJob } from "./approvals-expire-stale";
 import { auditChainVerifyJob } from "./audit-chain-verify";
 import { purgeExpiredAccountsJob } from "./purge-expired-accounts";
 import { purgeExpiredInvitationsJob } from "./purge-expired-invitations";
@@ -31,10 +32,12 @@ import { retentionEnforceJob } from "./retention-enforce";
 /**
  * Every job this application runs, in the order the nightly schedule expects — reclamation, then
  * organizations, then invitations, then accounts, then retention enforcement, then chain
- * verification (see `src/lib/scheduler.ts` for why that order is load-bearing).
+ * verification (see `src/lib/scheduler.ts` for why that order is load-bearing). The hourly
+ * approval expiry sits second, outside that chain (see `QUEUE_JOB_NAMES`).
  */
 export const MAINTENANCE_JOBS: readonly AnyJobDefinition[] = [
   rateLimitReclaimJob,
+  approvalsExpireStaleJob,
   purgeExpiredOrganizationsJob,
   purgeExpiredInvitationsJob,
   purgeExpiredAccountsJob,

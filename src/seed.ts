@@ -185,6 +185,26 @@ async function seed() {
       action: "read",
       name: "View Audit Log",
     },
+    // Approvals (NWB-P1-003) — the shared workflow; `decide` covers approve, reject and
+    // request-changes. The row itself decides *whose* turn it is; this only reaches the endpoint.
+    {
+      string: "approvals.read",
+      resource: "approvals",
+      action: "read",
+      name: "View Approval Requests",
+    },
+    {
+      string: "approvals.create",
+      resource: "approvals",
+      action: "create",
+      name: "Submit for Approval",
+    },
+    {
+      string: "approvals.decide",
+      resource: "approvals",
+      action: "decide",
+      name: "Approve, Reject or Request Changes",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -242,14 +262,23 @@ async function seed() {
   //   owner    everything, incl. billing.* and org.delete (sole billing owner)
   //   admin    everything except billing.* and org.delete
   //   manager  team management (members.*, users.read/update, roles.read),
-  //            content incl. approval (posts.publish), analytics export
-  //   creator  create/submit content (posts.* except publish), read-only elsewhere
+  //            content incl. approval (posts.publish, approvals.decide), analytics export
+  //   creator  create/submit content (posts.* except publish, approvals.create), read-only
+  //            elsewhere
   //   analyst  read-only + analytics.export; no content creation
   //   viewer   read-only dashboards/reports
   //
   // Hierarchy rules ("Manager scope: roles below Manager only", Owner never
   // demoted, last Owner/Admin stays) are enforced in code, not here.
-  const everyone = ["org.read", "settings.read", "posts.read", "analytics.read"];
+  const everyone = [
+    "org.read",
+    "settings.read",
+    "posts.read",
+    "analytics.read",
+    // Reading approvals is scoped by the service (own requests, own inbox); the org-wide view
+    // needs `approvals.decide` (NWB-P1-003).
+    "approvals.read",
+  ];
   const teamManagement = [
     "members.read",
     "members.create",
@@ -259,8 +288,8 @@ async function seed() {
     "users.update",
     "roles.read",
   ];
-  const contentCreation = ["posts.create", "posts.update", "posts.delete"];
-  const contentApproval = ["posts.publish"];
+  const contentCreation = ["posts.create", "posts.update", "posts.delete", "approvals.create"];
+  const contentApproval = ["posts.publish", "approvals.decide"];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [
     "org.update",

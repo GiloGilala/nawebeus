@@ -74,6 +74,9 @@ export interface JobSchedule {
  */
 export const QUEUE_SCHEDULE_DEFAULTS: Record<QueueJobName, string> = {
   [QUEUE_JOBS.rateLimitReclaim]: "0 2 * * *",
+  // Hourly, not nightly: an approval window can be as short as an hour (NWB-P1-003), so the
+  // enforcement lag has to be of the same order. Cheap when there is nothing to close.
+  [QUEUE_JOBS.approvalsExpireStale]: "0 * * * *",
   [QUEUE_JOBS.purgeExpiredOrganizations]: "15 2 * * *",
   [QUEUE_JOBS.purgeExpiredInvitations]: "30 2 * * *",
   [QUEUE_JOBS.purgeExpiredAccounts]: "45 2 * * *",
@@ -95,6 +98,15 @@ export function resolveSchedules(config: Config = getConfig()): JobSchedule[] {
       cron:
         config.QUEUE_CRON_RATE_LIMIT_RECLAIM ??
         QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.rateLimitReclaim],
+      tz,
+      data: null,
+      missed: "once",
+    },
+    {
+      job: QUEUE_JOBS.approvalsExpireStale,
+      cron:
+        config.QUEUE_CRON_APPROVALS_EXPIRE_STALE ??
+        QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.approvalsExpireStale],
       tz,
       data: null,
       missed: "once",

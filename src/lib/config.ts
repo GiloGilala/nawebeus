@@ -188,6 +188,7 @@ const envSchema = z.object({
 
   /** Per-job cron overrides, five fields, read in `QUEUE_TIMEZONE`. Unset means the shipped default. */
   QUEUE_CRON_RATE_LIMIT_RECLAIM: cronEnv(),
+  QUEUE_CRON_APPROVALS_EXPIRE_STALE: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_ACCOUNTS: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_ORGANIZATIONS: cronEnv(),
   QUEUE_CRON_PURGE_EXPIRED_INVITATIONS: cronEnv(),

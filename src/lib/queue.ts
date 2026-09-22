@@ -29,6 +29,8 @@ import { describeError } from "./errors";
 export const QUEUE_JOBS = {
   /** NWB-P0-013's reclamation of expired `rate_limits` buckets. */
   rateLimitReclaim: "maintenance.rate-limit-reclaim",
+  /** NWB-P1-003 — hourly closure of approval requests still pending past their window. */
+  approvalsExpireStale: "approvals.expire-stale",
   /** F-18 — hard deletion of accounts past their 30-day grace window (NDPR erasure). */
   purgeExpiredAccounts: "retention.purge-expired-accounts",
   /** NWB-P0-023 — hard deletion of organizations past their 30-day grace window. */
@@ -49,9 +51,14 @@ export type QueueJobName = (typeof QUEUE_JOBS)[keyof typeof QUEUE_JOBS];
  * then retention enforcement, then chain verification. The job set and the schedule table are
  * both compared against this list, so the order is the invariant, not a style choice — see
  * `src/tests/queue/definitions.test.ts`.
+ *
+ * The approval expiry is the one hourly job; it sits second because it is outside the nightly
+ * chain (its rows reference nothing the purges touch) and its 02:00 firing coincides with
+ * reclamation, which is the only slot that is not load-bearing.
  */
 export const QUEUE_JOB_NAMES: readonly QueueJobName[] = [
   QUEUE_JOBS.rateLimitReclaim,
+  QUEUE_JOBS.approvalsExpireStale,
   QUEUE_JOBS.purgeExpiredOrganizations,
   QUEUE_JOBS.purgeExpiredInvitations,
   QUEUE_JOBS.purgeExpiredAccounts,

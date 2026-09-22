@@ -111,6 +111,36 @@ export class OwnershipTransferRequiredError extends AppError {
   }
 }
 
+/**
+ * The approval request exists and the caller may act on it, but its *state* refuses the action
+ * (NWB-P1-003). One class, four codes, so a client can tell the outcomes apart without parsing
+ * messages: `APPROVAL_ALREADY_REVIEWED` (the request is no longer pending — the API Reference's
+ * "content has already been approved or rejected"), `APPROVAL_VERSION_CONFLICT` (the optimistic
+ * `version` the caller acted on is stale — re-fetch and retry, per the model's concurrency rule),
+ * `APPROVAL_ALREADY_PENDING` (one open request per entity), and
+ * `APPROVAL_RECALL_WINDOW_CLOSED` (spec AC7: recall only before the first approval action). All
+ * 409 like `ConflictError`, because the resource's current state is what conflicts.
+ */
+export type ApprovalStateCode =
+  | "APPROVAL_ALREADY_REVIEWED"
+  | "APPROVAL_VERSION_CONFLICT"
+  | "APPROVAL_ALREADY_PENDING"
+  | "APPROVAL_RECALL_WINDOW_CLOSED";
+
+export class ApprovalStateError extends AppError {
+  readonly statusCode = 409;
+  readonly code: ApprovalStateCode;
+
+  constructor(
+    code: ApprovalStateCode,
+    message: string,
+    readonly details?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.code = code;
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

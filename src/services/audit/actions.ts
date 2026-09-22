@@ -101,6 +101,39 @@ export const AUDIT_ACTIONS = {
     resourceType: "api_key",
     legacyName: true,
   },
+  "approvals.approved": {
+    description:
+      "An approver approved the current step; the chain advanced or the request closed approved.",
+    category: "content",
+    resourceType: "approval_request",
+  },
+  "approvals.changes_requested": {
+    description:
+      "An approver returned the request for edits (comment required); a resubmission is a new request.",
+    category: "content",
+    resourceType: "approval_request",
+  },
+  "approvals.expired": {
+    description: "Hourly close of pending approval requests past their expiry window (NWB-P1-003).",
+    category: "content",
+    resourceType: "approval_request",
+  },
+  "approvals.recalled": {
+    description: "The requester withdrew a pending request before the first approval action (AC7).",
+    category: "content",
+    resourceType: "approval_request",
+  },
+  "approvals.rejected": {
+    description: "An approver rejected the request (comment required); the request is closed.",
+    category: "content",
+    resourceType: "approval_request",
+  },
+  "approvals.requested": {
+    description:
+      "An approval request was opened for an entity with a resolved approver chain and a content snapshot.",
+    category: "content",
+    resourceType: "approval_request",
+  },
   "audit-chain.verified": {
     description:
       "Nightly hash-chain verification walked the admin/system/compliance chains; `after_state.failed` counts broken rows.",

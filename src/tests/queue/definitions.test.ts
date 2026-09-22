@@ -64,6 +64,21 @@ describe("queue job set", () => {
     expect(order.indexOf(QUEUE_JOBS.auditChainVerify)).toBe(order.length - 1);
   });
 
+  test("the approval expiry is hourly and sits outside the nightly chain (NWB-P1-003)", () => {
+    // Hourly, because an approval window can be as short as an hour; second in the list, because
+    // it touches rows none of the purges reference and its 02:00 firing coincides with
+    // reclamation — the one slot that is not load-bearing.
+    expect(QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.approvalsExpireStale]).toBe("0 * * * *");
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    expect(order.indexOf(QUEUE_JOBS.approvalsExpireStale)).toBe(1);
+    const job = MAINTENANCE_JOBS.find((entry) => entry.name === QUEUE_JOBS.approvalsExpireStale);
+    expect(job?.audit).toEqual({
+      action: "approvals.expired",
+      category: "content",
+      resourceType: "approval_request",
+    });
+  });
+
   test("invitations purge between the purges — member rows cascade on both ends (NWB-P1-016)", () => {
     const order = MAINTENANCE_JOBS.map((job) => job.name);
     // After the org purge (invites of just-purged workspaces are already gone), before the

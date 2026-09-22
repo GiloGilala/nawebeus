@@ -7,10 +7,9 @@
 formalization + query API), NWB-P1-013 (per-row purge deletes + honest partial-run reporting, found
 while delivering P1-001), NWB-P1-014 (audit hash chain), NWB-P1-015 (anonymization on purge) and
 NWB-P1-016 (lapsed-invitation expiry, split out of P1-015's residuals) all **done 2026-09-21/22**.
-Live: **NWB-P1-010** (retention + legal holds + backup records) is **done 2026-09-22**.
-**NWB-P1-003** (approval service) is measured with four scope questions open but its
-draft was never filed (the `issues/06` slot it was promised went to P1-016). The other seven
-tickets are not started.
+**NWB-P1-010** (retention + legal holds + backup records) and **NWB-P1-003** (approval
+service — the exit gate's "approval queue works end to end") are both **done 2026-09-22**. The
+other seven tickets are not started.
 
 **Goal:** land the cross-cutting services every domain module needs. Per the execution plan this is
 "the single largest multiplier in the plan" — nothing downstream starts before the exit gate.
@@ -31,7 +30,7 @@ correlation id from log to audit row · all purge/reclamation workers running on
 | --- | --- | --- | --- | --- |
 | NWB-P1-001 | Queue + scheduler + worker base (pg-boss) | L | [issues/01-queue-scheduler-worker-base.md](issues/01-queue-scheduler-worker-base.md) | **done** |
 | NWB-P1-002 | Audit service formalization + query API (closes F-19's read half) | M | [issues/03-audit-formalization-and-query-api.md](issues/03-audit-formalization-and-query-api.md) | **done** 2026-09-21 — registry + typed writes + `GET /api/audit`(:id); chain → P1-014, retention → P1-010, anonymization → P1-015 |
-| NWB-P1-003 | Approval service (request/submit/approve/reject/expire-stale) | L | to file | measured 2026-09-21, 4 scope questions open (approver model, chain semantics, expiry worker, permissions) — draft never filed (`issues/06` went to P1-016) |
+| NWB-P1-003 | Approval service (request/submit/approve/reject/expire-stale) | L | [issues/08-approval-service.md](issues/08-approval-service.md) | **done** 2026-09-22 — `src/services/approvals`, `/api/approvals` (submit, inbox/mine/all, approve/reject/request-changes/recall), `approvals.read/create/decide`, hourly `approvals.expire-stale` (7th job), migration 0004 |
 | NWB-P1-013 | Purge batches must delete per row (org-owner FK aborts a night of erasures) | M | [issues/02-purge-batches-must-be-per-row.md](issues/02-purge-batches-must-be-per-row.md) | **done** 2026-09-21 — `deleteRowsPerRow` + `{deleted, failed, errors}` + partial-run `warning`; unblocks P1-010 |
 | NWB-P1-014 | Audit hash chain: checksums on write + scheduled verification | M | [issues/04-audit-hash-chain.md](issues/04-audit-hash-chain.md) | **done** 2026-09-21 — sealed on write, nightly verify, append-only trigger; + `chainValid` read filter follow-up |
 | NWB-P1-015 | Anonymize audit actor context on hard purge (F-29 / BR-AUTH-043) | S–M | [issues/05-audit-anonymization-on-purge.md](issues/05-audit-anonymization-on-purge.md) | **done** 2026-09-21 — subject scrub in `beforeDelete`, 0002 trigger exception, `auditAnonymized` |
