@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { checkRateLimit, RATE_LIMIT_RECLAIM_GRACE_MS, reclaimRateLimits } from "../lib/rate-limit";
+import { RateLimitError } from "@/lib/errors";
+import {
+  assertRateLimit,
+  checkRateLimit,
+  RATE_LIMIT_RECLAIM_GRACE_MS,
+  RATE_LIMITS,
+  reclaimRateLimits,
+} from "../lib/rate-limit";
 import { withTestDb } from "./helpers/test-db";
 
 const hasDb = () => !!process.env.DATABASE_URL;
@@ -86,6 +93,32 @@ describe.skipIf(!hasDb())("checkRateLimit", () => {
       expect(await fillPastBudget(db, hot)).toEqual([false, false, false, true]);
       expect(await checkRateLimit(db, cold, MAX, WINDOW_MS)).toBe(false);
       expect((await readBucket(db, cold))?.count).toBe(1);
+    });
+  });
+});
+
+describe("RATE_LIMITS policy", () => {
+  test("matches tanstack-start.md §18 category budgets", () => {
+    expect(RATE_LIMITS.authPerMinute).toEqual({ max: 5, windowMs: 60_000 });
+    expect(RATE_LIMITS.apiWritePerMinute.max).toBe(50);
+    expect(RATE_LIMITS.dsarPerDay.max).toBe(5);
+  });
+});
+
+describe.skipIf(!hasDb())("assertRateLimit", () => {
+  test("throws RateLimitError once the budget is exceeded", async () => {
+    await withTestDb(async ({ db }) => {
+      const key = freshKey("assert");
+      for (let i = 0; i < MAX; i++) {
+        await assertRateLimit(db, key, MAX, WINDOW_MS);
+      }
+      try {
+        await assertRateLimit(db, key, MAX, WINDOW_MS);
+        expect(true).toBe(false);
+      } catch (e) {
+        expect(e).toBeInstanceOf(RateLimitError);
+        expect((e as RateLimitError).statusCode).toBe(429);
+      }
     });
   });
 });

@@ -1,10 +1,22 @@
 /**
  * TanStack Start Server Functions — Users domain
+ *
+ * Thin adapters over `src/services/users/*` and auth email-change. Org id is
+ * taken from the session, never the payload.
  */
 
-import { z } from "zod";
 import { ValidationError } from "@/lib/errors";
 import { validatePassword } from "@/lib/password";
+import {
+  adminUpdateByIdSchema,
+  changePasswordSchema,
+  dataExportIdSchema,
+  deleteAccountSchema,
+  emailChangeConfirmSchema,
+  emailChangeRequestSchema,
+  updateMeSchema,
+  userIdSchema,
+} from "@/lib/validation";
 import { changePassword } from "@/services/auth/auth.service";
 import { confirmEmailChange, requestEmailChange } from "@/services/auth/email-change";
 import {
@@ -18,29 +30,18 @@ import {
   listUsers,
   updateUserAsAdmin,
 } from "@/services/users/admin.service";
+import { getDataExport, requestDataExport } from "@/services/users/dsar.service";
 import { getUser, updateUser } from "@/services/users/user.service";
 import { createServerFn } from "../lib/createServerFn";
-import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
-
-const updateMeSchema = z.object({
-  firstName: z.string().min(1).max(100).optional(),
-  lastName: z.string().min(1).max(100).optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  profileImage: z.string().url().optional().or(z.literal("")),
-  phone: z.string().optional(),
-  timezone: z.string().optional(),
-  bio: z.string().max(500).optional(),
-  jobTitle: z.string().max(100).optional(),
-});
-
-const adminUpdateSchema = z.object({
-  userId: z.string().min(1),
-  firstName: z.string().min(1).max(100).optional(),
-  lastName: z.string().min(1).max(100).optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  status: z.enum(["active", "suspended", "pending_verification", "deleted"]).optional(),
-  roleId: z.string().uuid().optional(),
-});
+import {
+  assertServerAbility,
+  assertServerRateLimit,
+  getServerAuth,
+  getServerClientIp,
+  getServerDb,
+  getServerHeaders,
+  withServerOrgContext,
+} from "./helpers";
 
 export const getMeServerFn = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await getServerAuth();
@@ -55,49 +56,43 @@ export const getMeServerFn = createServerFn({ method: "GET" }).handler(async () 
 export const updateMeServerFn = createServerFn({ method: "POST" })
   .validator(updateMeSchema)
   .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof updateMeSchema.parse>;
     const auth = await getServerAuth();
     const db = getServerDb();
-    const user = await withServerOrgContext(auth, () => updateUser(db, auth.userId, data));
+    const user = await withServerOrgContext(auth, () => updateUser(db, auth.userId, parsed));
     return { user };
   });
 
 export const changePasswordServerFn = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      currentPassword: z.string().min(1),
-      newPassword: z.string().min(1),
-    }),
-  )
-  .handler(async ({ data }) => {
-    const auth = await getServerAuth();
-    const complexity = validatePassword(data.newPassword, { email: "" });
+  .validator((data: unknown) => {
+    const parsed = changePasswordSchema.parse(data);
+    const complexity = validatePassword(parsed.newPassword, { email: "" });
     if (!complexity.valid) {
       throw new ValidationError(
         "New password does not meet complexity requirements",
         complexity.errors.map((msg) => ({ field: "newPassword", message: msg })),
       );
     }
+    return parsed;
+  })
+  .handler(async ({ data }) => {
+    const parsed = data as { currentPassword: string; newPassword: string };
+    const auth = await getServerAuth();
     const db = getServerDb();
     await withServerOrgContext(auth, () =>
-      changePassword(db, auth.userId, data.currentPassword, data.newPassword),
+      changePassword(db, auth.userId, parsed.currentPassword, parsed.newPassword),
     );
     return { changed: true as const };
   });
 
 export const deleteAccountServerFn = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      reason: z.string().max(500).optional(),
-      confirmText: z
-        .string()
-        .refine((v) => v === "DELETE", { message: 'Type "DELETE" to confirm' }),
-    }),
-  )
+  .validator(deleteAccountSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { reason?: string; confirmText: string };
     const auth = await getServerAuth();
     const db = getServerDb();
     const result = await withServerOrgContext(auth, () =>
-      deleteAccount(db, auth.userId, data.reason ? { reason: data.reason } : undefined),
+      deleteAccount(db, auth.userId, parsed.reason ? { reason: parsed.reason } : undefined),
     );
     return { scheduledDeletionAt: result.scheduledDeletionAt };
   });
@@ -110,48 +105,81 @@ export const reactivateAccountServerFn = createServerFn({ method: "POST" }).hand
 });
 
 export const requestEmailChangeServerFn = createServerFn({ method: "POST" })
-  .validator(z.object({ newEmail: z.string().email() }))
+  .validator(emailChangeRequestSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { newEmail: string };
     const auth = await getServerAuth();
     const db = getServerDb();
     const result = await withServerOrgContext(auth, () =>
-      requestEmailChange(db, auth.userId, { newEmail: data.newEmail }),
+      requestEmailChange(db, auth.userId, { newEmail: parsed.newEmail }),
     );
     return result;
   });
 
 export const confirmEmailChangeServerFn = createServerFn({ method: "POST" })
-  .validator(z.object({ token: z.string().min(1) }))
+  .validator(emailChangeConfirmSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { token: string };
     const db = getServerDb();
-    // confirmEmailChange is not org-scoped — it validates the token itself
-    // so we don't need withServerOrgContext here.
-    const result = await confirmEmailChange(db, { token: data.token });
+    const result = await confirmEmailChange(db, { token: parsed.token });
     return result;
+  });
+
+export const requestDataExportServerFn = createServerFn({ method: "POST" }).handler(async () => {
+  const auth = await getServerAuth();
+  await assertServerRateLimit({
+    category: "dsar",
+    userId: auth.userId,
+  });
+  const db = getServerDb();
+  const ip = getServerClientIp();
+  const userAgent = getServerHeaders().userAgent;
+  const receipt = await withServerOrgContext(auth, () =>
+    requestDataExport(db, {
+      userId: auth.userId,
+      organizationId: auth.orgId,
+      ...(ip ? { actorIp: ip } : {}),
+      ...(userAgent ? { actorUserAgent: userAgent } : {}),
+    }),
+  );
+  return receipt;
+});
+
+export const getDataExportServerFn = createServerFn({ method: "GET" })
+  .validator(dataExportIdSchema)
+  .handler(async ({ data }) => {
+    const parsed = data as { requestId: string };
+    const auth = await getServerAuth();
+    const db = getServerDb();
+    const payload = await withServerOrgContext(auth, () =>
+      getDataExport(db, auth.userId, parsed.requestId),
+    );
+    return payload;
   });
 
 export const listUsersServerFn = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await getServerAuth();
   assertServerAbility(auth, "read", "users");
   const db = getServerDb();
-  // First page only — the admin screen has no cursor UI until Phase 7.
   const users = (await withServerOrgContext(auth, () => listUsers(db, auth.orgId))).items;
   return { users };
 });
 
 export const getUserByIdServerFn = createServerFn({ method: "GET" })
-  .validator(z.object({ userId: z.string().min(1) }))
+  .validator(userIdSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { userId: string };
     const auth = await getServerAuth();
     assertServerAbility(auth, "read", "users");
     const db = getServerDb();
-    const user = await withServerOrgContext(auth, () => getUserById(db, auth.orgId, data.userId));
+    const user = await withServerOrgContext(auth, () => getUserById(db, auth.orgId, parsed.userId));
     return { user };
   });
 
 export const updateUserAsAdminServerFn = createServerFn({ method: "POST" })
-  .validator(adminUpdateSchema)
+  .validator(adminUpdateByIdSchema)
   .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof adminUpdateByIdSchema.parse>;
     const auth = await getServerAuth();
     assertServerAbility(auth, "update", "users");
     const db = getServerDb();
@@ -159,13 +187,13 @@ export const updateUserAsAdminServerFn = createServerFn({ method: "POST" })
       updateUserAsAdmin(
         db,
         auth.orgId,
-        data.userId,
+        parsed.userId,
         {
-          ...(data.firstName ? { firstName: data.firstName } : {}),
-          ...(data.lastName ? { lastName: data.lastName } : {}),
-          ...(data.displayName ? { displayName: data.displayName } : {}),
-          ...(data.status ? { status: data.status } : {}),
-          ...(data.roleId ? { roleId: data.roleId } : {}),
+          ...(parsed.firstName ? { firstName: parsed.firstName } : {}),
+          ...(parsed.lastName ? { lastName: parsed.lastName } : {}),
+          ...(parsed.displayName ? { displayName: parsed.displayName } : {}),
+          ...(parsed.status ? { status: parsed.status } : {}),
+          ...(parsed.roleId ? { roleId: parsed.roleId } : {}),
         },
         auth.userId,
       ),
@@ -174,11 +202,12 @@ export const updateUserAsAdminServerFn = createServerFn({ method: "POST" })
   });
 
 export const deleteUserServerFn = createServerFn({ method: "POST" })
-  .validator(z.object({ userId: z.string().min(1) }))
+  .validator(userIdSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { userId: string };
     const auth = await getServerAuth();
     assertServerAbility(auth, "delete", "users");
     const db = getServerDb();
-    await withServerOrgContext(auth, () => deleteUser(db, auth.orgId, data.userId, auth.userId));
+    await withServerOrgContext(auth, () => deleteUser(db, auth.orgId, parsed.userId, auth.userId));
     return { deleted: true as const };
   });

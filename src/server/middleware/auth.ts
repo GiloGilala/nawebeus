@@ -52,7 +52,7 @@ const BEARER_PREFIX = "Bearer ";
  *
  * One statement, three answers, so the extra guard costs no extra round trip.
  */
-async function assertActivePrincipal(
+export async function assertActivePrincipal(
   db: Db,
   userId: string,
   orgId: string,

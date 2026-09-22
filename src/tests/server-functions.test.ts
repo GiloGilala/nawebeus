@@ -1,16 +1,8 @@
 /**
  * TanStack Start Server Functions — integration parity with Hono `/api/*`.
  *
- * ADR-002: the web goes via Server Functions (in-process, no HTTP hop);
- * mobile / webhooks go via Hono at `/api/*`. Both share `services/`.
- *
- * This suite proves the Server Functions:
- *   - validate at the boundary with Zod (same schemas as Hono)
- *   - call `services/` directly (no `fetch`)
- *   - respect auth (cookie / Bearer) and RBAC via the same helpers Hono uses
- *
- * The transactional `setServerDbForTest` + `setServerHeadersForTest` helpers let
- * these run inside the same `BEGIN … ROLLBACK` harness as the Hono tests.
+ * ADR-002 + tanstack-start.md: validate with the shared Zod schemas, call
+ * services in-process, session-cookie auth only, tenant id from the session.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -22,14 +14,17 @@ import {
   listOrgsServerFn,
   signinServerFn,
   signupServerFn,
+  updateOrgServerFn,
 } from "@/app/server-functions";
 import {
   clearServerDbForTest,
   clearServerHeadersForTest,
   setServerDbForTest,
+  setServerHeadersForTest,
 } from "@/app/server-functions/helpers";
 import { getConfig } from "@/lib/config";
 import { createTestDb } from "@/lib/db";
+import { UnauthorizedError, ValidationError } from "@/lib/errors";
 import { signAccessToken } from "@/services/auth/jwt";
 
 const hasDb = () => !!process.env.DATABASE_URL;
@@ -37,10 +32,6 @@ const hasDb = () => !!process.env.DATABASE_URL;
 function randomEmail() {
   return `sf-${crypto.randomUUID().slice(0, 8)}@example.com`;
 }
-
-// ---------------------------------------------------------------------------
-// Validation — no DB needed
-// ---------------------------------------------------------------------------
 
 describe("Server Functions — validation (no DB)", () => {
   test("signupServerFn with invalid email throws ValidationError", async () => {
@@ -55,13 +46,15 @@ describe("Server Functions — validation (no DB)", () => {
           privacyAccepted: true,
         } as never,
       });
-      expect(true).toBe(false); // should not reach
+      expect(true).toBe(false);
     } catch (e) {
-      expect((e as Error).message).toContain("Invalid email");
+      expect(e).toBeInstanceOf(ValidationError);
+      expect((e as ValidationError).statusCode).toBe(422);
+      expect((e as ValidationError).details?.some((d) => /email/i.test(d.message))).toBe(true);
     }
   });
 
-  test("signupServerFn with weak password throws", async () => {
+  test("signupServerFn with weak password throws ValidationError", async () => {
     try {
       await signupServerFn({
         data: {
@@ -75,16 +68,18 @@ describe("Server Functions — validation (no DB)", () => {
       });
       expect(true).toBe(false);
     } catch (e) {
+      expect(e).toBeInstanceOf(ValidationError);
       expect((e as Error).message).toMatch(/complexity|Validation/i);
     }
   });
 
-  test("signinServerFn with invalid email throws", async () => {
+  test("signinServerFn with invalid email throws ValidationError", async () => {
     try {
       await signinServerFn({ data: { email: "bad", password: "x" } as never });
       expect(true).toBe(false);
     } catch (e) {
-      expect((e as Error).message).toBeDefined();
+      expect(e).toBeInstanceOf(ValidationError);
+      expect((e as ValidationError).statusCode).toBe(422);
     }
   });
 });
@@ -110,7 +105,6 @@ describe.skipIf(!hasDb())("Server Functions — integration (with DB)", () => {
       expect(signup.user.email).toBe(email);
       expect(signup.organization.slug).toBeDefined();
 
-      // Sign in via Server Function — same service as POST /api/auth/signin, no HTTP hop
       const signin = await signinServerFn({ data: { email, password } });
       expect((signin as { requiresMfa: boolean }).requiresMfa).toBe(false);
       expect((signin as { user: { id: string } }).user.id).toBe(signup.user.id);
@@ -120,19 +114,45 @@ describe.skipIf(!hasDb())("Server Functions — integration (with DB)", () => {
     }
   });
 
-  test("protected Server Function without auth throws, with auth succeeds", async () => {
+  test("protected Server Function without a session cookie throws UnauthorizedError", async () => {
     const { db, done } = await createTestDb();
     setServerDbForTest(db as never);
     try {
-      // No headers injected → getServerAuth() should throw
       try {
         await getMeServerFn();
         expect(true).toBe(false);
       } catch (e) {
-        expect((e as Error).message).toMatch(/No access token|Invalid/i);
+        expect(e).toBeInstanceOf(UnauthorizedError);
       }
+    } finally {
+      clearServerDbForTest();
+      await done();
+    }
+  });
 
-      // Create a user+org via service directly, then mint a real access token
+  test("Bearer API keys are rejected — server functions are session-cookie only", async () => {
+    const { db, done } = await createTestDb();
+    setServerDbForTest(db as never);
+    setServerHeadersForTest({ authorization: "Bearer nwb_test_key" });
+    try {
+      try {
+        await getMeServerFn();
+        expect(true).toBe(false);
+      } catch (e) {
+        expect(e).toBeInstanceOf(UnauthorizedError);
+        expect((e as Error).message).toMatch(/session cookies/i);
+      }
+    } finally {
+      clearServerHeadersForTest();
+      clearServerDbForTest();
+      await done();
+    }
+  });
+
+  test("protected Server Function with a session cookie succeeds", async () => {
+    const { db, done } = await createTestDb();
+    setServerDbForTest(db as never);
+    try {
       const email = randomEmail();
       const password = "ValidPass123!";
       const signup = await signupServerFn({
@@ -146,24 +166,70 @@ describe.skipIf(!hasDb())("Server Functions — integration (with DB)", () => {
         },
       });
       const userId = signup.user.id;
-      // The user's org is the one just created — fetch it
       const orgRows = await db.execute<{ organization_id: string }>(
         sql`SELECT organization_id FROM users WHERE id = ${userId} LIMIT 1`,
       );
       const orgId = (orgRows as unknown as { rows: Array<{ organization_id: string }> }).rows[0]!
         .organization_id;
 
-      // Ensure the user is active and has a membership (signup already created it)
-      // Mint a valid access token exactly as sign-in does
       const token = await signAccessToken(userId, orgId, getConfig().JWT_ACCESS_SECRET);
-      // Inject the cookie header for the next call — this is what TanStack Start's getRequest() would return
-      const { setServerHeadersForTest } = await import("@/app/server-functions/helpers");
       setServerHeadersForTest({ cookie: `nawebeus_access=${encodeURIComponent(token)}` });
       try {
         const me = await getMeServerFn();
         expect(me.user.email).toBe(email);
         const orgs = await listOrgsServerFn();
         expect(orgs.orgs.length).toBeGreaterThan(0);
+      } finally {
+        clearServerHeadersForTest();
+      }
+    } finally {
+      clearServerDbForTest();
+      await done();
+    }
+  });
+
+  test("updateOrgServerFn ignores a client-supplied orgId (tenant from session)", async () => {
+    const { db, done } = await createTestDb();
+    setServerDbForTest(db as never);
+    try {
+      const email = randomEmail();
+      const signup = await signupServerFn({
+        data: {
+          email,
+          password: "ValidPass123!",
+          fullName: "Tenant Test",
+          organizationName: `TenantOrg-${crypto.randomUUID().slice(0, 6)}`,
+          termsAccepted: true,
+          privacyAccepted: true,
+        },
+      });
+      const userId = signup.user.id;
+      const orgRows = await db.execute<{ organization_id: string }>(
+        sql`SELECT organization_id FROM users WHERE id = ${userId} LIMIT 1`,
+      );
+      const orgId = (orgRows as unknown as { rows: Array<{ organization_id: string }> }).rows[0]!
+        .organization_id;
+      const token = await signAccessToken(userId, orgId, getConfig().JWT_ACCESS_SECRET);
+      setServerHeadersForTest({ cookie: `nawebeus_access=${encodeURIComponent(token)}` });
+      try {
+        // Extra `orgId` in the payload must not select a tenant — the session org
+        // is the only one that can be written (tanstack-start.md §10.3).
+        try {
+          const updated = await updateOrgServerFn({
+            data: {
+              orgId: "00000000-0000-0000-0000-000000000000",
+              name: "Renamed From Session",
+            } as never,
+          });
+          expect(updated.org.id).toBe(orgId);
+          expect(updated.org.name).toBe("Renamed From Session");
+        } catch (e) {
+          // Unknown keys may be rejected as ValidationError, or the owner may
+          // lack `update:org` in an unseeded transaction — either is not a tenant leak.
+          expect((e as Error).message).toMatch(
+            /Validation|Missing permission|Forbidden|Unrecognized/i,
+          );
+        }
       } finally {
         clearServerHeadersForTest();
       }
@@ -195,22 +261,15 @@ describe.skipIf(!hasDb())("Server Functions — integration (with DB)", () => {
       const orgId = (orgRows as unknown as { rows: Array<{ organization_id: string }> }).rows[0]!
         .organization_id;
       const token = await signAccessToken(userId, orgId, getConfig().JWT_ACCESS_SECRET);
-      const { setServerHeadersForTest } = await import("@/app/server-functions/helpers");
       setServerHeadersForTest({ cookie: `nawebeus_access=${encodeURIComponent(token)}` });
       try {
-        // Seed a permission so the owner can create keys — the seed data provides this,
-        // but for an isolated transactional test we ensure the role has apikeys.create
-        // by directly checking ability; if missing, this will throw Forbidden, which is expected without seed perms.
-        // We therefore only assert that the Server Function at least reaches the service layer (not a 404 or fetch).
         try {
           const created = await createApiKeyServerFn({
             data: { name: `key-${crypto.randomUUID().slice(0, 6)}`, scopes: [] },
           });
-          // If permissions allow, we get a plaintext key exactly once
           expect(created.apiKey.key).toBeDefined();
           expect(created.warning).toContain("Store this key now");
         } catch (e) {
-          // Without seeded permissions, the owner has no `create:apikeys` — the important assertion is that it was an RBAC check, not a transport error
           expect((e as Error).message).toMatch(/Missing permission|Forbidden/i);
         }
       } finally {

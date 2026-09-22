@@ -2,6 +2,7 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
+import { messageForAppError } from "@/app/lib/client-errors";
 import { signupServerFn } from "@/app/server-functions/auth";
 
 export const Route = createFileRoute("/auth/sign-up")({
@@ -33,7 +34,7 @@ function SignUpPage() {
       });
       setMessage(`Created org ${result.organization.slug} — user ${result.user.email}`);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      setMessage(messageForAppError(err));
     }
   };
 

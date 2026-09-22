@@ -1,14 +1,10 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { ValidationError } from "@/lib/errors";
 import { success } from "@/lib/response";
+import { parseWithValidation, resendVerificationSchema, verifyEmailSchema } from "@/lib/validation";
 import { sendVerificationEmail, verifyEmail } from "@/services/auth/verification";
 
 const router = new Hono();
-
-const resendSchema = z.object({
-  email: z.string().email("Invalid email format"),
-});
 
 router.post("/resend-verification", async (c) => {
   let body: unknown;
@@ -18,18 +14,11 @@ router.post("/resend-verification", async (c) => {
     throw new ValidationError("Invalid JSON body");
   }
 
-  const parsed = resendSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join("."),
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
+  const parsed = parseWithValidation(resendVerificationSchema, body);
 
   const db = c.var.db;
   // No Origin header: the emailed link's base is server-decided (NWB-P0-021).
-  await sendVerificationEmail(db, parsed.data.email);
+  await sendVerificationEmail(db, parsed.email);
 
   // Always return the same message to avoid email enumeration
   return c.json(
@@ -40,12 +29,7 @@ router.post("/resend-verification", async (c) => {
 });
 
 router.get("/verify-email", async (c) => {
-  const token = c.req.query("token");
-  if (!token) {
-    throw new ValidationError("Token is required", [
-      { field: "token", message: "Token is required" },
-    ]);
-  }
+  const { token } = parseWithValidation(verifyEmailSchema, { token: c.req.query("token") });
 
   const db = c.var.db;
   const result = await verifyEmail(db, token);

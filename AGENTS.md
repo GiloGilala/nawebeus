@@ -57,6 +57,11 @@ bun run email:smoke -- --to you@example.com  # one real send through the configu
 - Run a single test file: `bun test src/tests/auth/signup.test.ts`
 - DB-backed tests use `withTestDb(...)` — wraps each test in a `BEGIN`/`ROLLBACK` transaction so the database is automatically cleaned between tests. No manual cleanup needed.
 - Tests that don't need the DB use `createTestApp()` (from `src/tests/helpers/test-client.ts`), which injects a no-op database that throws if queried.
+- Server Function tests (`src/tests/server-functions.test.ts`) call the functions in-process
+  (`setServerDbForTest` / `setServerHeadersForTest`). Validation cases run without a database;
+  session/tenant/API-key cases `describe.skipIf(!process.env.DATABASE_URL)`. Shared Zod
+  schemas are pinned by `src/tests/validation-schemas.test.ts` (Hono and SFs import the same
+  object). `bun test` only — do not add Vitest or Jest.
 - **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
 - **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 92.9% / 97.1% (NWB-P1-003). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
@@ -104,6 +109,14 @@ Anything in the planning docs that points at `src/app/auth/…`, `src/app/users/
 `src/app/orgs/…` or `src/app/api-keys/…` as a *route* path is historical — those copies were
 deleted in NWB-P0-026 and the canonical tree is `src/server/api/**`.
 
+**Server Functions are thin transport** (`docs/technical/Tech Stack.md` = tanstack-start.md
+v1.1, §13). A Server Function may **validate** (Zod `.validator`) and **delegate** to
+`src/services/*` — nothing else. No HTTP hop to `/api/*`. File layout stays
+`src/app/server-functions/` (ADR-002); do **not** relocate to `app/routes/.../api/`
+and do **not** install `@tanstack/react-start` / Query / Form until the Vite plugin is
+wired (`src/app/lib/createServerFn.ts` is the local shim so `bun.lock` stays frozen).
+Hono remains `/api/*`. `ValidationError` is **422**, not the guide's 400.
+
 ```
 src/index.ts              ← Bun.serve entry point
 src/server/index.ts       ← Hono app factory (CORS, error handler, route mounting)
@@ -120,10 +133,11 @@ src/server/index.ts       ← Hono app factory (CORS, error handler, route mount
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
 src/app/                  ← Web layer (TanStack Start): routes/ (file-based pages),
-                            server-functions/ (in-process services calls + auth helpers),
+                            server-functions/ (thin Zod + services calls; auth/orgs/users/api-keys),
                             router.tsx, start.ts, routeTree.gen.ts
-src/app/lib/createServerFn.ts ← local shim used by every Server Function (no framework
-                            dependency is installed; the app is not yet runnable end to end)
+src/app/lib/createServerFn.ts ← local shim: `.validator(Zod)` maps ZodError → ValidationError 422.
+                            Do not add `@tanstack/react-start` to package.json.
+src/app/lib/client-errors.ts ← messageForAppError — one client mapper for SF + Hono AppErrors
 src/server/middleware/    ← Hono middleware
   auth.ts      ← session-cookie OR API-key Bearer verification + CASL ability load
   rbac.ts      ← requireAbility(action, subject) guard
@@ -152,8 +166,13 @@ src/lib/                  ← Infrastructure
   db.ts          ← Drizzle client factory + test DB helper
   org-context.ts ← AsyncLocalStorage for orgId/userId per-request
   errors.ts      ← Typed error hierarchy → HTTP status mapping
+                   (UnauthorizedError extends AuthError; ValidationError is 422)
+  logger.ts      ← structured JSON to stderr; redacts secrets/PII; never console.log
+  validation/    ← Zod schemas shared by Hono `/api/*` and Server Functions
+                   auth/orgs/users/api-keys/common.schemas.ts + parse.ts
+                   (`parseWithValidation` / `validationErrorFromZod`)
   response.ts    ← { data } / { error } envelope helpers
-  rate-limit.ts  ← sliding-window limiter backed by the `rate_limits` table
+  rate-limit.ts  ← checkRateLimit + RATE_LIMITS + assertRateLimit (`rate_limits` table)
   queue.ts       ← pg-boss client: config-driven construction, start/stop singleton, queue policy
   scheduler.ts   ← the cron side: schedule table, per-job env overrides, converge-not-init
   worker.ts      ← the worker base: register, audit both outcomes, rethrow for retry
@@ -164,6 +183,8 @@ src/tests/                ← Bun tests
   preload.ts ← runs before any test file (bunfig.toml); supplies the always-required
                JWT secrets so suites don't each set/delete them
   route-invariants.test.ts ← static scan: every `:orgId` route must carry requireOrgMatch
+  server-functions.test.ts ← SF validation (no DB) + integration (skipIf !DATABASE_URL)
+  validation-schemas.test.ts, logger.test.ts, client-errors.test.ts
   helpers/  test-db.ts (withTestDb), test-client.ts (createTestApp),
             test-factory.ts (data factories)
 db/                       ← Drizzle schema modules
@@ -292,7 +313,18 @@ directory you care about) for the complete set.
   `retention.census.decrease_detected` row. Audit rows are never deleted by anything here.
   Add a new purge path without the hold hook and you have reopened the gap this ticket closed.
 - **`loadConfig()` must run before `getConfig()`** — `config.ts` uses a singleton. `src/index.ts` calls it at startup; tests call `loadConfig()` inline (the always-required JWT secrets are supplied by `src/tests/preload.ts`).
-- **Auth is cookie-first, with API keys as a Bearer alternative** — the browser flow sets an access token (15-min JWT) and refresh token (7-day JWT) as HTTP-only cookies (`nawebeus_access`, `nawebeus_refresh`) in the signin route. The access cookie path is `/`; the refresh cookie path is `/api/auth`. Machine clients send `Authorization: Bearer nwb_<env>_<publicKey>_<secret>` instead, which `authMiddleware` resolves to the same user + org. A Bearer header takes precedence over the cookie.
+- **Auth is cookie-first, with API keys as a Bearer alternative** — the browser flow sets an access token (15-min JWT) and refresh token (7-day JWT) as HTTP-only cookies (`nawebeus_access`, `nawebeus_refresh`) in the signin route. The access cookie path is `/`; the refresh cookie path is `/api/auth` (so a Server Function cannot read the refresh cookie — keep the payload/cookie hybrid on `refreshServerFn`). Machine clients send `Authorization: Bearer nwb_<env>_<publicKey>_<secret>` instead, which `authMiddleware` resolves to the same user + org. A Bearer header takes precedence over the cookie **on Hono only**.
+- **Server Functions authenticate with session cookies only** (tanstack-start.md §1.2, §9.2) —
+  `getServerAuth` (`src/app/server-functions/helpers.ts`) reads `nawebeus_access` and **rejects**
+  `Authorization: Bearer` with `UnauthorizedError`. API keys belong on Hono `/api/*`. Tenant id
+  (`auth.orgId`) is taken from the session, **never** from the client payload (tanstack-start.md
+  §10.3) — `updateOrgSchema` has no `orgId` field on purpose. Authorization is CASL via
+  `assertServerAbility` / `loadAbility`, never `user.role`. Shared errors
+  (`ValidationError` 422 / `UnauthorizedError` / `ForbiddenError` / `NotFoundError` / `AppError`)
+  are thrown and **propagated** — do not swallow. Rate limits reuse `checkRateLimit` /
+  `RATE_LIMITS` and apply only where Hono already does; skip when there is no IP (tests).
+  Web pages map errors with `messageForAppError`; dashboard loaders redirect only on
+  `error instanceof AuthError`.
 - **API keys are stored as a digest, never the secret** — only the SHA-256 of the 256-bit secret is persisted. The 128-bit `public_key` exists so verification is a single indexed lookup rather than a scan-and-compare over every stored hash. The full key is returned exactly once, at creation.
 - **API key abilities are narrowed, never widened** — `apiKeyAbility(base, permissionLevel, scopes)` rebuilds the owner's ability, filtered by permission level (`read_only`/`read` → `read`; `write` → `read`,`create`,`update`, deliberately not `delete`; `admin` → no action narrowing) and by `scopes` (subject allow-list; empty means all subjects). It can only ever remove rules the owner already holds.
 - **`users.status` is enforced twice, from one predicate** — `assertAccountCanAuthenticate()`
@@ -352,7 +384,8 @@ directory you care about) for the complete set.
   (org-scoped, 404 cross-tenant with no request row created) and returns the receipt
   only — the payload only ever travels the subject's own channel
   (`GET /api/users/me/data-export/:requestId`). Self-service POST is rate-limited
-  5/day per user (`dsar:req:<userId>`).
+  5/day per user (`dsar:req:<userId>`, `RATE_LIMITS.dsarPerDay`) on both Hono
+  `POST /api/users/me/data-export` and `requestDataExportServerFn`.
 - **Session rotation on every refresh** — the old session is revoked and a new one created. Reusing a refresh token after rotation is detected and rejected.
 - **Token binding** — each session stores `session_token_hash` (SHA-256 of the refresh token). On refresh and sign-out the presented token's hash must match the session row.
 - **AsyncLocalStorage carries org context** — `runWithOrgContext()` is called by `authMiddleware` and wraps the rest of the request. Any service needing the current org/user calls `getOrgContext()`.
@@ -384,6 +417,13 @@ directory you care about) for the complete set.
 ### Docs are aspirational
 
 The docs under `docs/technical/` (Engineering Standards, File Structure, Tech Stack, etc.) describe a much larger planned architecture (TanStack Start web app, Expo mobile client, shared-types, Redis cache, Paystack billing, etc.). The **actual codebase is a smaller MVP** focused on auth, users, orgs, and RBAC. Do not treat the doc structure as the current reality — the code in `src/` is the source of truth.
+
+**Exception — Server Function rules.** `docs/technical/Tech Stack.md` (title: tanstack-start.md
+v1.1) is the guide for Server Functions, and those rules **are applied** in
+`src/app/server-functions/` + `src/lib/validation/`. Map the guide's `business_profile_id`
+examples onto `auth.orgId`. Do not copy fashion/clients samples. Do not introduce Vitest/Jest
+or Cloudinary/S3. Do not put business logic in Server Functions. Keep the local
+`createServerFn` shim; keep ValidationError at 422.
 
 The `db/` folder contains aspirational schema modules (`billing/`, `campaigns/`, `commerce/`, `engagement/`, `influencer/`, `monitoring/`, `pr/`, `publishing/`, `social-accounts/`) that are **excluded from TypeScript compilation** in `tsconfig.json`. They are not wired into `db/schema.ts` yet. `compliance/` compiles since NWB-P1-010, but only `legal_holds` and `backup_records` are re-exported from `db/schema.ts` — granularity lives in that file, not in tsconfig.
 

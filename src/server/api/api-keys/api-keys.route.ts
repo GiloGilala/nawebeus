@@ -1,10 +1,16 @@
 import { type Context, Hono } from "hono";
-import { z } from "zod";
 import { getConfig } from "@/lib/config";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 import { getClientIp } from "@/lib/ip";
 import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
+import {
+  apiKeyIdSchema,
+  createApiKeySchema,
+  expiresAtFromDays,
+  listApiKeysQuerySchema,
+  parseWithValidation,
+} from "@/lib/validation";
 import type { ApiKeyStatus } from "@/server/auth/types/api-key-types";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireAbility } from "@/server/middleware/rbac";
@@ -16,40 +22,12 @@ const router = new Hono();
 // here exactly as session cookies are.
 router.use("/api-keys/*", authMiddleware);
 
-/** `api_keys.id` is a uuid — reject anything else before it reaches Postgres. */
-const uuidSchema = z
-  .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Must be a UUID");
-
-const createSchema = z.object({
-  name: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(2000).optional(),
-  keyType: z.enum(["read", "write", "admin"]).default("read"),
-  environment: z.enum(["production", "staging", "development"]).default("production"),
-  permissionLevel: z.enum(["read", "write", "admin", "read_only"]).default("read_only"),
-  securityLevel: z.enum(["low", "medium", "high", "standard"]).default("standard"),
-  scopes: z.array(z.string().trim().min(1)).max(50).default([]),
-  expiresInDays: z.number().int().positive().max(3650).optional(),
-  rotationStrategy: z.enum(["manual", "automatic", "periodic", "none"]).default("none"),
-});
-
-const listQuerySchema = z.object({
-  status: z.enum(["active", "inactive", "revoked"]).default("active"),
-});
-
 async function readJsonBody(c: Context): Promise<unknown> {
   try {
     return await c.req.json();
   } catch {
     return {};
   }
-}
-
-function validationDetails(error: z.ZodError): { field: string; message: string }[] {
-  return error.issues.map((issue) => ({
-    field: issue.path.map(String).join(".") || "(root)",
-    message: issue.message,
-  }));
 }
 
 /** Audit attribution: a key acting on keys is recorded as a key, not a person. */
@@ -72,15 +50,8 @@ router.post("/api-keys", requireAbility("create", "apikeys"), async (c) => {
   const { userId, orgId } = c.var.user;
   const db = c.var.db;
 
-  const parsed = createSchema.safeParse(await readJsonBody(c));
-  if (!parsed.success) {
-    throw new ValidationError("Invalid API key request", validationDetails(parsed.error));
-  }
-  const input = parsed.data;
-
-  const expiresAt = input.expiresInDays
-    ? new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000)
-    : null;
+  const input = parseWithValidation(createApiKeySchema, await readJsonBody(c));
+  const expiresAt = expiresAtFromDays(input.expiresInDays);
 
   // Hoisted so the truthiness check narrows the type for the spread below.
   const createdIp = getClientIp(c, getConfig());
@@ -113,18 +84,15 @@ router.post("/api-keys", requireAbility("create", "apikeys"), async (c) => {
 router.get("/api-keys", requireAbility("read", "apikeys"), async (c) => {
   const { orgId } = c.var.user;
 
-  const parsed = listQuerySchema.safeParse({
+  const parsed = parseWithValidation(listApiKeysQuerySchema, {
     status: c.req.query("status") ?? "active",
   });
-  if (!parsed.success) {
-    throw new ValidationError("Invalid status filter", validationDetails(parsed.error));
-  }
 
   const page = parsePagination(new URL(c.req.url));
   const { items: apiKeys, pageInfo } = await listApiKeys(
     c.var.db,
     orgId,
-    parsed.data.status as ApiKeyStatus,
+    parsed.status as ApiKeyStatus,
     page,
   );
   return c.json(success({ apiKeys }, paginationMeta(pageInfo)));
@@ -135,12 +103,9 @@ router.post("/api-keys/:id/rotate", requireAbility("update", "apikeys"), async (
   const { orgId } = c.var.user;
   const db = c.var.db;
 
-  const id = uuidSchema.safeParse(c.req.param("id"));
-  if (!id.success) {
-    throw new ValidationError("Invalid API key id", validationDetails(id.error));
-  }
+  const id = parseWithValidation(apiKeyIdSchema, { id: c.req.param("id") });
 
-  const result = await rotateApiKey(db, orgId, id.data, {
+  const result = await rotateApiKey(db, orgId, id.id, {
     ...actorOf(c),
     organizationId: orgId,
   });
@@ -160,12 +125,9 @@ router.delete("/api-keys/:id", requireAbility("delete", "apikeys"), async (c) =>
   const { orgId } = c.var.user;
   const db = c.var.db;
 
-  const id = uuidSchema.safeParse(c.req.param("id"));
-  if (!id.success) {
-    throw new ValidationError("Invalid API key id", validationDetails(id.error));
-  }
+  const id = parseWithValidation(apiKeyIdSchema, { id: c.req.param("id") });
 
-  const result = await revokeApiKey(db, orgId, id.data, {
+  const result = await revokeApiKey(db, orgId, id.id, {
     ...actorOf(c),
     organizationId: orgId,
   });
@@ -174,7 +136,7 @@ router.delete("/api-keys/:id", requireAbility("delete", "apikeys"), async (c) =>
     throw new ConflictError("API key is already revoked");
   }
 
-  return c.json(success({ revoked: true, id: id.data }));
+  return c.json(success({ revoked: true, id: id.id }));
 });
 
 export { router as apiKeysRouter };

@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { getClientIp } from "@/lib/ip";
 import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
+import { adminUpdateSchema, parseWithValidation } from "@/lib/validation";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireAbility } from "@/server/middleware/rbac";
@@ -14,14 +14,6 @@ import {
   updateUserAsAdmin,
 } from "@/services/users/admin.service";
 import { requestDataExport } from "@/services/users/dsar.service";
-
-const adminUpdateSchema = z.object({
-  firstName: z.string().min(1).max(100).optional(),
-  lastName: z.string().min(1).max(100).optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  status: z.enum(["active", "suspended", "pending_verification", "deleted"]).optional(),
-  roleId: z.string().uuid().optional(),
-});
 
 const router = new Hono();
 
@@ -51,7 +43,7 @@ router.patch("/:userId", authMiddleware, requireAbility("update", "users"), asyn
   } catch {
     body = {};
   }
-  const parsed = adminUpdateSchema.parse(body);
+  const parsed = parseWithValidation(adminUpdateSchema, body);
   const user = await updateUserAsAdmin(db, orgId, userId, parsed, actingUserId);
   return c.json(success({ user }));
 });

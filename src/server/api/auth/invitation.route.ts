@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { getConfig } from "@/lib/config";
-import { RateLimitError, ValidationError } from "@/lib/errors";
+import { RateLimitError } from "@/lib/errors";
 import { getClientIp } from "@/lib/ip";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { success } from "@/lib/response";
+import { acceptInvitationBodySchema, parseWithValidation } from "@/lib/validation";
 import { acceptInvitation, getInvitationByToken } from "@/services/orgs/invitation.service";
 
 /**
@@ -14,14 +14,6 @@ import { acceptInvitation, getInvitationByToken } from "@/services/orgs/invitati
  * keep token probing infeasible; limits mirror the signin IP budget
  * (20 / 30 min) with a stricter per-token accept budget.
  */
-
-const acceptInvitationSchema = z.object({
-  password: z.string().min(1).max(128).optional(),
-  fullName: z.string().min(1).max(200).optional(),
-  termsAccepted: z.boolean().optional(),
-  privacyAccepted: z.boolean().optional(),
-  marketingOptIn: z.boolean().optional(),
-});
 
 const VALIDATE_MAX = 20;
 const ACCEPT_MAX = 10;
@@ -59,16 +51,9 @@ router.post("/invitations/:token/accept", async (c) => {
   } catch {
     body = {};
   }
-  const parsed = acceptInvitationSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join(".") || "_root",
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
+  const parsed = parseWithValidation(acceptInvitationBodySchema, body);
 
-  const result = await acceptInvitation(db, { token, ...parsed.data });
+  const result = await acceptInvitation(db, { token, ...parsed });
   return c.json(
     success({
       membership: {

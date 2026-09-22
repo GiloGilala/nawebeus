@@ -1,9 +1,34 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { RateLimitError } from "@/lib/errors";
 
 export interface RateLimitConfig {
   max: number;
   windowMs: number;
+}
+
+/**
+ * Category budgets from tanstack-start.md §18. Server functions and Hono
+ * routes share these so the two transports enforce identically.
+ */
+export const RATE_LIMITS = {
+  authPerMinute: { max: 5, windowMs: 60_000 },
+  authPerHour: { max: 20, windowMs: 3_600_000 },
+  apiReadPerMinute: { max: 100, windowMs: 60_000 },
+  apiWritePerMinute: { max: 50, windowMs: 60_000 },
+  dsarPerDay: { max: 5, windowMs: 24 * 60 * 60 * 1000 },
+} as const;
+
+export async function assertRateLimit(
+  db: NodePgDatabase<Record<string, any>>,
+  key: string,
+  max: number,
+  windowMs: number,
+  message = "Too many requests. Try again later.",
+): Promise<void> {
+  if (await checkRateLimit(db, key, max, windowMs)) {
+    throw new RateLimitError(message, Math.ceil(windowMs / 1000));
+  }
 }
 
 /** Set after the first failure so a broken limiter warns once, not per request. */

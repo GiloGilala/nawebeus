@@ -2,36 +2,26 @@
  * Shared helpers for TanStack Start Server Functions.
  *
  * These utilities give Server Functions the same capabilities Hono middleware
- * provides for the `/api/*` mobile/webhook routes: cookie/Bearer auth,
- * org-membership verification, CASL ability loading, and org-context scoping.
+ * provides for the `/api/*` mobile/webhook routes: session-cookie auth
+ * (tanstack-start.md §9.2 — no API keys), org-membership verification, CASL
+ * ability loading, and org-context scoping.
  *
  * ADR-002 / Architecture §5.1: the web app calls `services/` directly in-process
  * via Server Functions — no HTTP hop to `/api/*`. Every Server Function validates
  * its inputs with Zod and throws typed `AppError`s, exactly as the Hono routes do.
- *
- * The Hono API (`src/server/api/*`) remains the entry point for mobile, webhooks
- * and third-party integrations. The web app's entry point is these Server Functions.
- * Both share the single `services/` layer and run in one Bun process (ADR-007).
  */
-
-import { sql } from "drizzle-orm";
 
 import { getConfig } from "@/lib/config";
 import { type Db, getDb } from "@/lib/db";
-import { AuthError, ForbiddenError } from "@/lib/errors";
+import { AuthError, ForbiddenError, RateLimitError, UnauthorizedError } from "@/lib/errors";
+import { getClientIp, normaliseIp } from "@/lib/ip";
 import { runWithOrgContext } from "@/lib/org-context";
+import { assertRateLimit, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import type { AppAbility } from "@/server/middleware/auth";
+import { assertActivePrincipal } from "@/server/middleware/auth";
 import { loadAbility } from "@/services/auth/ability";
-import { apiKeyAbility, recordApiKeyUsage, resolveApiKey } from "@/services/auth/api-key";
 import { type AccessPayload, verifyToken } from "@/services/auth/jwt";
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Test injection: server functions use the global pool in production, but tests
-// run inside a transaction via `createTestDb()` and inject that handle here.
-// Call `setServerDbForTest(db)` in `beforeAll` and `clearServerDbForTest()` after.
-// Same for request headers — `getServerAuth()` reads cookies/Authorization from
-// TanStack Start's `getRequest()` in production, but tests inject a header bag.
-// ──────────────────────────────────────────────────────────────────────────────
 let testDb: Db | null = null;
 let testHeaders: ServerRequestHeaders | null = null;
 
@@ -55,23 +45,17 @@ export function getServerDb(): Db {
   return testDb ?? getDb();
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Request extraction — works inside Vinxi/TanStack Start (getRequest) and falls
-// back to an explicit header bag for unit/integration tests.
-// ──────────────────────────────────────────────────────────────────────────────
 export interface ServerRequestHeaders {
   cookie?: string | undefined;
   authorization?: string | undefined;
   origin?: string | undefined;
   userAgent?: string | undefined;
   xForwardedFor?: string | undefined;
+  xRealIp?: string | undefined;
 }
 
 function tryGetTanstackRequest(): Request | null {
   try {
-    // Dynamic import boundary: succeeds inside a TanStack Start handler, throws
-    // (or returns undefined) in plain Hono / `bun test` contexts.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require("@tanstack/start-server-core") as {
       getRequest?: () => Request;
     };
@@ -97,112 +81,76 @@ function parseCookies(cookieHeader: string | undefined | null): Record<string, s
 
 function headerBagFromRequest(req: Request | null): ServerRequestHeaders {
   if (!req) return {};
-  const cookie = req.headers.get("cookie") ?? undefined;
-  const authorization = req.headers.get("authorization") ?? undefined;
-  const origin = req.headers.get("origin") ?? undefined;
-  const userAgent = req.headers.get("user-agent") ?? undefined;
-  const xForwardedFor = req.headers.get("x-forwarded-for") ?? undefined;
-  return { cookie, authorization, origin, userAgent, xForwardedFor };
+  return {
+    cookie: req.headers.get("cookie") ?? undefined,
+    authorization: req.headers.get("authorization") ?? undefined,
+    origin: req.headers.get("origin") ?? undefined,
+    userAgent: req.headers.get("user-agent") ?? undefined,
+    xForwardedFor: req.headers.get("x-forwarded-for") ?? undefined,
+    xRealIp: req.headers.get("x-real-ip") ?? undefined,
+  };
 }
 
 export function getServerHeaders(explicit?: ServerRequestHeaders): ServerRequestHeaders {
   if (explicit) return explicit;
   if (testHeaders) return testHeaders;
-  const req = tryGetTanstackRequest();
-  return headerBagFromRequest(req);
+  return headerBagFromRequest(tryGetTanstackRequest());
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Auth: mirrors `src/server/middleware/auth.ts` without Hono's `c.var`.
-// ──────────────────────────────────────────────────────────────────────────────
 export interface ServerAuth {
   userId: string;
   orgId: string;
   ability: AppAbility;
-  authMethod: "session" | "api_key";
-  apiKeyId?: string | undefined;
-}
-
-async function assertActiveMembership(db: Db, userId: string, orgId: string): Promise<void> {
-  const rows = await db.execute<{ id: string }>(
-    sql`SELECT id FROM organization_members
-        WHERE user_id = ${userId}
-          AND organization_id = ${orgId}
-          AND status = 'active'
-          AND deleted_at IS NULL
-        LIMIT 1`,
-  );
-  if (((rows as unknown as { rows?: unknown[] }).rows?.length ?? 0) === 0) {
-    throw new ForbiddenError("You are not a member of this organization");
-  }
+  authMethod: "session";
 }
 
 /**
- * Resolve the caller from either a Bearer API key or the `nawebeus_access`
- * session cookie — the same two paths Hono's `authMiddleware` supports.
+ * Resolve the caller from the `nawebeus_access` session cookie.
  *
- * Throws `AuthError` / `ForbiddenError` on failure, matching the Hono behaviour
- * so error-handler mapping stays consistent.
+ * Server functions are web-only and authenticate with session cookies
+ * (tanstack-start.md §1.2, §9.2). API keys belong on Hono `/api/*`.
  */
-export async function getServerAuth(headers?: ServerRequestHeaders): Promise<ServerAuth> {
+export async function getServerAuth(
+  headers?: ServerRequestHeaders,
+  opts?: { requireActiveMembership?: boolean },
+): Promise<ServerAuth> {
   const db = getServerDb();
   const config = getConfig();
   const h = getServerHeaders(headers);
 
-  // Bearer API key path (ADR-002: mobile & third-party go via Hono, but the web's
-  // Server Functions also accept a key so a programmatic caller can use them).
-  const authHeader = h.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const presented = authHeader.slice("Bearer ".length).trim();
-    if (!presented) throw new AuthError("Malformed Authorization header");
-    const resolved = await resolveApiKey(db, presented);
-    if (!resolved) throw new AuthError("Invalid or revoked API key");
-    await assertActiveMembership(db, resolved.userId, resolved.organizationId);
-    const base = await loadAbility(db, resolved.userId, resolved.organizationId);
-    const ability = apiKeyAbility(base, resolved.permissionLevel, resolved.scopes);
-    // Fire-and-forget usage record; failure must not block the request
-    void recordApiKeyUsage(db, resolved.id, {
-      ip: null,
-      userAgent: h.userAgent ?? null,
-    }).catch(() => {});
-    return {
-      userId: resolved.userId,
-      orgId: resolved.organizationId,
-      ability,
-      authMethod: "api_key",
-      apiKeyId: resolved.id,
-    };
+  if (h.authorization?.startsWith("Bearer ")) {
+    throw new UnauthorizedError(
+      "Server functions authenticate via session cookies. Use the Hono /api/* routes for API keys.",
+    );
   }
 
-  // Session cookie path — the web's normal path.
   const cookies = parseCookies(h.cookie);
   const accessToken = cookies["nawebeus_access"];
-  if (!accessToken) throw new AuthError("No access token provided");
+  if (!accessToken) throw new UnauthorizedError("No access token provided");
 
   let payload: AccessPayload;
   try {
     const result = await verifyToken(accessToken, config.JWT_ACCESS_SECRET);
-    if (result.type !== "access") throw new AuthError("Invalid token type");
+    if (result.type !== "access") throw new UnauthorizedError("Invalid token type");
     payload = result;
   } catch (e) {
     if (e instanceof AuthError) throw e;
-    throw new AuthError("Invalid or expired access token");
+    throw new UnauthorizedError("Invalid or expired access token");
   }
 
-  await assertActiveMembership(db, payload.userId, payload.orgId);
+  await assertActivePrincipal(db, payload.userId, payload.orgId, opts);
   const ability = await loadAbility(db, payload.userId, payload.orgId);
   return {
     userId: payload.userId,
     orgId: payload.orgId,
     ability,
     authMethod: "session",
-    apiKeyId: undefined,
   };
 }
 
 /**
  * Like `getServerAuth` but returns `null` instead of throwing, for routes that
- * are optionally authenticated (currently unused, but useful for SSR loaders).
+ * are optionally authenticated (SSR loaders).
  */
 export async function tryGetServerAuth(headers?: ServerRequestHeaders): Promise<ServerAuth | null> {
   try {
@@ -212,30 +160,80 @@ export async function tryGetServerAuth(headers?: ServerRequestHeaders): Promise<
   }
 }
 
-/**
- * Run a callback with AsyncLocalStorage org context set — the same scoping Hono's
- * authMiddleware uses via `runWithOrgContext`, so any downstream `getOrgContext()`
- * call inside `services/` works identically for both entry points.
- */
 export async function withServerOrgContext<T>(auth: ServerAuth, fn: () => Promise<T>): Promise<T> {
   return runWithOrgContext({ orgId: auth.orgId, userId: auth.userId }, fn);
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Ability helper — mirrors `requireAbility` middleware
-// ──────────────────────────────────────────────────────────────────────────────
 export function assertServerAbility(auth: ServerAuth, action: string, subject: string): void {
   if (!auth.ability.can(action as never, subject as never)) {
     throw new ForbiddenError(`Missing permission: ${action} ${subject}`);
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Cookie helpers for Server Functions that need to set/clear auth cookies.
-// TanStack Start server functions run in the server and can set `Set-Cookie`
-// headers via the response. When Vinxi is present we use its `setHeader`; else
-// we no-op (tests inspect the returned tokens directly).
-// ──────────────────────────────────────────────────────────────────────────────
+/** Client IP from the request, never from the payload (tanstack-start.md §10.3). */
+export function getServerClientIp(headers?: ServerRequestHeaders): string | null {
+  const h = getServerHeaders(headers);
+  try {
+    const config = getConfig();
+    return getClientIp(
+      {
+        req: {
+          header: (name: string) => {
+            const key = name.toLowerCase();
+            if (key === "x-forwarded-for") return h.xForwardedFor;
+            if (key === "x-real-ip") return h.xRealIp;
+            return undefined;
+          },
+        },
+      },
+      config,
+    );
+  } catch {
+    return normaliseIp(h.xForwardedFor ?? h.xRealIp);
+  }
+}
+
+export function cookieValue(name: string, headers?: ServerRequestHeaders): string | undefined {
+  return parseCookies(getServerHeaders(headers).cookie)[name];
+}
+
+/**
+ * Rate-limit a Server Function identically to Hono (tanstack-start.md §18).
+ * Keyed by user when authenticated, otherwise by IP. Missing identity fails
+ * open the same way `checkRateLimit` does on a storage error — tests without
+ * an IP must not share one global bucket.
+ */
+export async function assertServerRateLimit(opts: {
+  category: "auth" | "read" | "write" | "dsar";
+  userId?: string;
+  ip?: string | null;
+}): Promise<void> {
+  const db = getServerDb();
+  if (opts.category === "dsar") {
+    if (!opts.userId) return;
+    await assertRateLimit(
+      db,
+      `dsar:req:${opts.userId}`,
+      RATE_LIMITS.dsarPerDay.max,
+      RATE_LIMITS.dsarPerDay.windowMs,
+      "Data export is limited to 5 requests per day.",
+    );
+    return;
+  }
+  if (opts.category === "auth") {
+    const ip = opts.ip;
+    if (!ip) return;
+    if (await checkRateLimit(db, `ip:${ip}`, 20, 30 * 60 * 1000)) {
+      throw new RateLimitError("Too many authentication attempts.", 30 * 60);
+    }
+    return;
+  }
+  if (!opts.userId) return;
+  const budget =
+    opts.category === "read" ? RATE_LIMITS.apiReadPerMinute : RATE_LIMITS.apiWritePerMinute;
+  await assertRateLimit(db, `sf:${opts.category}:${opts.userId}`, budget.max, budget.windowMs);
+}
+
 export function setServerAuthCookies(opts: {
   accessToken: string;
   refreshToken: string;
@@ -273,11 +271,10 @@ export function setServerAuthCookies(opts: {
       return;
     }
     if (mod.setResponseHeader) {
-      // Fallback — second call may overwrite first on some runtimes
       mod.setResponseHeader("Set-Cookie", `${accessCookie}, ${refreshCookie}`);
     }
   } catch {
-    // Outside TanStack Start (tests / Hono) — caller should set cookies via Hono's `setCookie`
+    // Outside TanStack Start (tests / Hono)
   }
 }
 

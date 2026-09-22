@@ -1,20 +1,13 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { getOrgContext } from "@/lib/org-context";
 import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
+import { parseWithValidation, updateMemberSchema } from "@/lib/validation";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireOrgMatch } from "@/server/middleware/org-match";
 import { requireAbility } from "@/server/middleware/rbac";
 import { getMember, listMembers, removeMember, updateMember } from "@/services/orgs/member.service";
-
-const updateMemberSchema = z.object({
-  roleId: z.string().uuid().optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  jobTitle: z.string().max(200).optional(),
-  department: z.string().max(200).optional(),
-});
 
 const router = new Hono();
 
@@ -49,7 +42,7 @@ router.patch(
     } catch {
       body = {};
     }
-    const parsed = updateMemberSchema.parse(body);
+    const parsed = parseWithValidation(updateMemberSchema, body);
     const { userId: actingUserId } = await getOrgContext();
     const member = await updateMember(db, orgId, memberId, parsed, actingUserId);
     return c.json(success({ member }));

@@ -13,6 +13,18 @@ export class AuthError extends AppError {
   readonly code = "AUTH_ERROR" as string;
 }
 
+/**
+ * Canonical 401 for the shared error contract (tanstack-start.md §14).
+ * Extends `AuthError` so existing `instanceof AuthError` checks still match.
+ */
+export class UnauthorizedError extends AuthError {
+  readonly code = "UNAUTHORIZED";
+
+  constructor(message = "Unauthorized") {
+    super(message);
+  }
+}
+
 export class InvalidCredentialsError extends AppError {
   readonly statusCode = 401;
   readonly code = "INVALID_CREDENTIALS";

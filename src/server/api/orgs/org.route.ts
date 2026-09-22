@@ -1,19 +1,12 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { ForbiddenError } from "@/lib/errors";
 import { success } from "@/lib/response";
+import { deleteOrgSchema, parseWithValidation, updateOrgSchema } from "@/lib/validation";
 import { authMiddleware, authMiddlewareAllowingInactiveMembership } from "@/server/middleware/auth";
 import { requireOrgMatch } from "@/server/middleware/org-match";
 import { requireAbility } from "@/server/middleware/rbac";
 import { getOrg, isOrgMember, listUserOrgs, updateOrg } from "@/services/orgs/org.service";
 import { deleteOrganization, reactivateOrganization } from "@/services/orgs/org-deletion.service";
-
-const updateOrgSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).optional(),
-  logoUrl: z.string().url().optional().or(z.literal("")),
-});
 
 const router = new Hono();
 
@@ -53,15 +46,11 @@ router.patch(
     } catch {
       body = {};
     }
-    const parsed = updateOrgSchema.parse(body);
+    const parsed = parseWithValidation(updateOrgSchema, body);
     const org = await updateOrg(db, orgId, parsed);
     return c.json(success({ org }));
   },
 );
-
-const deleteOrgSchema = z.object({
-  reason: z.string().max(2000).optional(),
-});
 
 // DELETE /orgs/:orgId — soft delete, 30-day grace (PRD 8.2.1, NWB-P0-023).
 //
@@ -86,7 +75,7 @@ router.delete(
     } catch {
       body = {};
     }
-    const parsed = deleteOrgSchema.parse(body);
+    const parsed = parseWithValidation(deleteOrgSchema, body);
     const result = await deleteOrganization(db, orgId, userId, parsed);
     return c.json(success({ organization: { id: orgId, ...result } }));
   },
