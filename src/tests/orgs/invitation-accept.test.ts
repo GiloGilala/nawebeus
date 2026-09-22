@@ -97,29 +97,37 @@ describe.skipIf(!hasDb())("Invitation accept flow (F-08 / NWB-P0-016)", () => {
       expect(member.invitation_token_hash).not.toBeNull();
       expect(member.accepted_at).not.toBeNull();
 
-      const userRows = await db.execute<{ organization_id: string; status: string }>(
-        sql`SELECT organization_id, status FROM users WHERE id = ${result.userId}`,
+      const userRows = await db.execute<{
+        organization_id: string;
+        status: string;
+        email_verified: boolean;
+      }>(
+        sql`SELECT organization_id, status, email_verified FROM users WHERE id = ${result.userId}`,
       );
       expect(rowOf(userRows).organization_id).toBe(org.id); // single-org model
-      expect(rowOf(userRows).status).toBe("pending_verification");
+      // Accepting the invitation is the verification (NWB-P1-004): the link reached this address,
+      // so the account is born active and the verified-email gate never stands in front of the
+      // workspace they were invited into. No second token, no second email.
+      expect(rowOf(userRows).status).toBe("active");
+      expect(rowOf(userRows).email_verified).toBe(true);
 
       const tokenRows = await db.execute<{ id: string }>(
-        sql`SELECT id FROM tokens WHERE user_id = ${result.userId} AND token_type = 'email_verification' AND status = 'active'`,
+        sql`SELECT id FROM tokens WHERE user_id = ${result.userId} AND token_type = 'email_verification'`,
       );
-      expect((tokenRows as unknown as { rows: unknown[] }).rows).toHaveLength(1);
+      expect((tokenRows as unknown as { rows: unknown[] }).rows).toHaveLength(0);
 
       const auditRows = await db.execute<{ action: string }>(
         sql`SELECT action FROM unified_audit_log WHERE action = 'organization.member.accepted' AND resource_id = ${invite.memberId}`,
       );
       expect((auditRows as unknown as { rows: unknown[] }).rows).toHaveLength(1);
 
-      // The invitee can sign in immediately (pending_verification is allowed),
-      // landing in the inviting org (orgId derives from users.organization_id).
+      // The invitee can sign in immediately, already verified, landing in the
+      // inviting org (orgId derives from users.organization_id).
       const session = await signIn(db, "signup-via-invite@test.com", TEST_PASSWORD, {
         ip: "127.0.0.1-test-invite",
       });
       expect(session.orgId).toBe(org.id);
-      expect(session.emailVerified).toBe(false);
+      expect(session.emailVerified).toBe(true);
 
       // Second accept of the same token → 409, not a silent re-activation.
       await expect(

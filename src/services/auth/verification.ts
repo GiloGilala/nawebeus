@@ -54,6 +54,8 @@ export async function sendVerificationEmail(
   const link = `${getConfig().APP_BASE_URL_RESOLVED}/api/auth/verify-email?token=${rawToken}`;
 
   await emailService.send({
+    kind: "verification",
+    context: { userId: user.id },
     to: email,
     subject: "Verify your Nawebeus email",
     html: `
@@ -92,10 +94,13 @@ export async function verifyEmail(
     throw new NotFoundError("User not found");
   }
 
+  // `users` has no `email_verified_at` column (see `db/core/users.ts`); the moment is the
+  // `auth.email_verification.completed` audit row below. Naming the column here made every
+  // verification a 42703 → 500 until NWB-P1-004, when the gate made the path load-bearing.
   await db.execute(
     sql`
       UPDATE users
-      SET email_verified = true, email_verified_at = now(), status = 'active'
+      SET email_verified = true, status = 'active'
       WHERE id = ${token.userId} AND email_verified = false
     `,
   );

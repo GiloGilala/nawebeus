@@ -224,6 +224,19 @@ export const AUDIT_ACTIONS = {
     category: "compliance",
     resourceType: "data_export_request",
   },
+  "email.delivered": {
+    description:
+      "An outbound email was accepted by the transport (Resend or console); recipient masked, template kind and provider id recorded.",
+    category: "user_management",
+    resourceType: "email",
+  },
+  "email.delivery_failed": {
+    description:
+      "An outbound email could not be handed to the transport — a retry is owed (warning) or the budget is spent or the rejection is final (critical/warning).",
+    category: "user_management",
+    resourceType: "email",
+    severity: "warning",
+  },
   "invitations.purged": {
     description:
       "Nightly hard-delete of invitations lapsed past the grace window; invitee addresses scrubbed from their audit rows.",

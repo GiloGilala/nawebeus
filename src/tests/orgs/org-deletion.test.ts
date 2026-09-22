@@ -13,6 +13,7 @@ import { sql } from "drizzle-orm";
 import { loadConfig } from "../../lib/config";
 import type { Db } from "../../lib/db";
 import { signup } from "../../services/auth/signup";
+import { verifyEmail } from "../../services/auth/verification";
 import {
   deleteOrganization,
   getOrgDeletionStatus,
@@ -68,6 +69,8 @@ async function buildOrg(db: Db) {
   } as any);
   const orgId = created.organization.id as string;
   const ownerId = created.user.id as string;
+  // The owner acts through the API below; an unverified owner is refused at the door (NWB-P1-004).
+  await verifyEmail(db, created.emailVerificationToken);
 
   const member = await createTestUser(db, { email: `orgmember-${uid}@example.com` });
   await addMemberWithRole(db, { organizationId: orgId, userId: member.id, roleCode: "admin" });

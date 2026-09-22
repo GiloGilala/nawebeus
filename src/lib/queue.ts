@@ -41,22 +41,27 @@ export const QUEUE_JOBS = {
   retentionEnforce: "retention.enforce",
   /** NWB-P1-014 — nightly verification of the audit hash chains. */
   auditChainVerify: "integrity.audit-chain-verify",
+  /**
+   * NWB-P1-004 — the email outbox. On demand, not on a cron: `emailService.send()` files one job
+   * per message and the worker hands it to the provider with retries (DEC-028, Resend).
+   */
+  emailDeliver: "email.deliver",
 } as const;
 
 export type QueueJobName = (typeof QUEUE_JOBS)[keyof typeof QUEUE_JOBS];
 
 /**
- * Every queue name, **in the order the nightly schedule runs them** (see
+ * The queues a cron drives, **in the order the nightly schedule runs them** (see
  * `src/lib/scheduler.ts`): reclamation, then organizations, then invitations, then accounts,
- * then retention enforcement, then chain verification. The job set and the schedule table are
- * both compared against this list, so the order is the invariant, not a style choice — see
+ * then retention enforcement, then chain verification. The schedule table is compared against
+ * this list, so the order is the invariant, not a style choice — see
  * `src/tests/queue/definitions.test.ts`.
  *
  * The approval expiry is the one hourly job; it sits second because it is outside the nightly
  * chain (its rows reference nothing the purges touch) and its 02:00 firing coincides with
  * reclamation, which is the only slot that is not load-bearing.
  */
-export const QUEUE_JOB_NAMES: readonly QueueJobName[] = [
+export const SCHEDULED_QUEUE_JOB_NAMES = [
   QUEUE_JOBS.rateLimitReclaim,
   QUEUE_JOBS.approvalsExpireStale,
   QUEUE_JOBS.purgeExpiredOrganizations,
@@ -64,6 +69,28 @@ export const QUEUE_JOB_NAMES: readonly QueueJobName[] = [
   QUEUE_JOBS.purgeExpiredAccounts,
   QUEUE_JOBS.retentionEnforce,
   QUEUE_JOBS.auditChainVerify,
+] as const satisfies readonly QueueJobName[];
+
+/** A queue the scheduler owns — the only names `QUEUE_SCHEDULE_DEFAULTS` may be keyed by. */
+export type ScheduledQueueJobName = (typeof SCHEDULED_QUEUE_JOB_NAMES)[number];
+
+/**
+ * The queues something *other* than a cron fills — a request path, a service. They have workers
+ * and policies like every other queue, but no row in the schedule table, and `resolveSchedules()`
+ * must never learn about them: a scheduled occurrence with an empty payload would be a job the
+ * handler cannot run.
+ */
+export const ON_DEMAND_QUEUE_JOB_NAMES = [
+  QUEUE_JOBS.emailDeliver,
+] as const satisfies readonly QueueJobName[];
+
+/**
+ * Every queue name — scheduled first (in schedule order), then on-demand. The job set
+ * (`src/jobs/index.ts`) is compared against this list; a queue with no worker is a silent hole.
+ */
+export const QUEUE_JOB_NAMES: readonly QueueJobName[] = [
+  ...SCHEDULED_QUEUE_JOB_NAMES,
+  ...ON_DEMAND_QUEUE_JOB_NAMES,
 ];
 
 /** `true` for a known queue name — the guard scripts and tests use instead of a cast. */
@@ -71,13 +98,20 @@ export function isQueueJobName(value: string): value is QueueJobName {
   return (QUEUE_JOB_NAMES as readonly string[]).includes(value);
 }
 
+/** `true` for a queue a cron drives — what `removeSchedules()` and the CLI's schedule view iterate. */
+export function isScheduledQueueJobName(value: string): value is ScheduledQueueJobName {
+  return (SCHEDULED_QUEUE_JOB_NAMES as readonly string[]).includes(value);
+}
+
 /**
- * Per-queue retry and expiry policy. Declared as a *queue* option (not per send) because these
- * jobs are created by the scheduler, which has no place to pass them.
+ * Per-queue retry, expiry and retention policy. Declared as a *queue* option (not per send)
+ * because most of these jobs are created by the scheduler, which has no place to pass them —
+ * and because retention (`deleteAfterSeconds`) is a property of what a queue's payloads contain,
+ * not of one send.
  */
 export type QueuePolicy = Pick<
   QueueOptions,
-  "retryLimit" | "retryDelay" | "retryBackoff" | "expireInSeconds"
+  "retryLimit" | "retryDelay" | "retryBackoff" | "expireInSeconds" | "deleteAfterSeconds"
 >;
 
 /**
@@ -196,10 +230,11 @@ export async function stopQueue(
  *
  * The queue must exist: `boss.work()` does not create it, and v12's `send()` throws
  * `Queue <name> does not exist` otherwise — which is why `registerJobs()` (worker.ts) creates the
- * queue before it attaches a worker. Domain tickets that enqueue from a request path
- * (NWB-P1-003's approval expiry, P2's publish dispatch) go through here or pass the caller's
- * transaction to pg-boss (`send(name, data, { db: tx })`) when the enqueue must commit with the
- * business write — ADR-028's rationale for choosing the library in the first place.
+ * queue before it attaches a worker. Domain code that enqueues from a request path (the email
+ * outbox in `src/services/email/service.ts` is the first; P2's publish dispatch is next) goes
+ * through here or passes the caller's transaction to pg-boss (`send(name, data, { db: tx })`)
+ * when the enqueue must commit with the business write — ADR-028's rationale for choosing the
+ * library in the first place.
  */
 export async function enqueueJob(
   boss: QueueClient,

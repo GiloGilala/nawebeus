@@ -10,8 +10,10 @@
  *      become an account-enumeration oracle (a wrong password on a suspended
  *      account is still the generic 401).
  *   3. `pending_verification` may sign in, and the response says
- *      `emailVerified: false` so the client can gate features itself (the hard
- *      server-side gate arrives with real email delivery in Phase 2).
+ *      `emailVerified: false` so the client can show the verify screen. The
+ *      server-side gate landed with real email delivery (NWB-P1-004): every
+ *      route outside `/api/auth/*` and `/api/users/me*` answers 403
+ *      `EMAIL_NOT_VERIFIED` — see `email-verification-gate.test.ts`.
  *   4. Reactive/re-suspension takes effect at the next request, for both the
  *      session-cookie path and the API-key path.
  */

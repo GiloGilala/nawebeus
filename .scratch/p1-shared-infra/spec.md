@@ -7,9 +7,10 @@
 formalization + query API), NWB-P1-013 (per-row purge deletes + honest partial-run reporting, found
 while delivering P1-001), NWB-P1-014 (audit hash chain), NWB-P1-015 (anonymization on purge) and
 NWB-P1-016 (lapsed-invitation expiry, split out of P1-015's residuals) all **done 2026-09-21/22**.
-**NWB-P1-010** (retention + legal holds + backup records) and **NWB-P1-003** (approval
-service — the exit gate's "approval queue works end to end") are both **done 2026-09-22**. The
-other seven tickets are not started.
+**NWB-P1-010** (retention + legal holds + backup records), **NWB-P1-003** (approval
+service — the exit gate's "approval queue works end to end") and **NWB-P1-004** (Resend email
+transport + durable outbox + verified-email gate) are all **done 2026-09-22**. The other six
+tickets are not started.
 
 **Goal:** land the cross-cutting services every domain module needs. Per the execution plan this is
 "the single largest multiplier in the plan" — nothing downstream starts before the exit gate.
@@ -35,11 +36,11 @@ correlation id from log to audit row · all purge/reclamation workers running on
 | NWB-P1-014 | Audit hash chain: checksums on write + scheduled verification | M | [issues/04-audit-hash-chain.md](issues/04-audit-hash-chain.md) | **done** 2026-09-21 — sealed on write, nightly verify, append-only trigger; + `chainValid` read filter follow-up |
 | NWB-P1-015 | Anonymize audit actor context on hard purge (F-29 / BR-AUTH-043) | S–M | [issues/05-audit-anonymization-on-purge.md](issues/05-audit-anonymization-on-purge.md) | **done** 2026-09-21 — subject scrub in `beforeDelete`, 0002 trigger exception, `auditAnonymized` |
 | NWB-P1-016 | Expire lapsed invitations (split out of P1-015's residuals) | S–M | [issues/06-expired-invitation-cleanup.md](issues/06-expired-invitation-cleanup.md) | **done** 2026-09-22 — `expireInvitations` + resource-scoped invitee scrub, 5th job |
-| NWB-P1-004 | Email transport: Resend adapter behind `EmailTransport` | M | to file | ready-for-agent |
+| NWB-P1-004 | Email transport: Resend adapter behind `EmailTransport` | M | [issues/09-email-transport-resend.md](issues/09-email-transport-resend.md) | **done** 2026-09-22 — `src/services/email/` (Resend over `fetch`, console for dev), `email.deliver` outbox on pg-boss (8th job, on-demand) with direct-send fallback, `email.delivered`/`email.delivery_failed` audit with masked recipient, 403 `EMAIL_NOT_VERIFIED` gate, invitation acceptance = verified; fixed two latent verification bugs the gate exposed. **Exit-gate evidence pending operator run** — see below |
 | NWB-P1-005 | Media/storage service | L | to file | **blocked on D6** |
 | NWB-P1-006 | Templates service | M | to file | ready-for-agent |
 | NWB-P1-007 | Contacts service | M | to file | ready-for-agent |
-| NWB-P1-008 | Notification engine core | L | to file | ready-for-agent (needs P1-004) |
+| NWB-P1-008 | Notification engine core | L | to file | ready-for-agent (P1-004 ✅ — `emailService.send({ kind, context, to, subject, html })` is the seam) |
 | NWB-P1-009 | Feature flags + system config | M | to file | ready-for-agent |
 | NWB-P1-010 | Retention + legal holds + backup records | M | [issues/07-retention-legal-holds-backup-records.md](issues/07-retention-legal-holds-backup-records.md) | **done** 2026-09-22 — holds block all four purge paths; `retention.enforce` nightly 02:55; census + backup records; adopts `legal_holds` + `backup_records` |
 | NWB-P1-011 | Impersonation sessions | M | to file | ready-for-agent (needs P1-002) |
@@ -47,6 +48,26 @@ correlation id from log to audit row · all purge/reclamation workers running on
 
 Tickets are filed as one file per ticket when picked up, per `docs/agents/issue-tracker.md`; the
 rows above without a file are the roadmap's own §12 list, not yet specced.
+
+## Exit-gate evidence: "email actually sends via Resend in a dev sandbox"
+
+The tooling is delivered; the send itself needs a Resend API key and a verified sending domain,
+which the agent sandbox does not have and must not be given in chat. **Operator action:**
+
+```sh
+# in a shell with RESEND_API_KEY and EMAIL_FROM set (EMAIL_FROM on a domain verified in Resend)
+bun run email:smoke -- --to you@example.com
+```
+
+The script sends one message through the configured transport (no queue, no audit) and prints
+`evidence line for spec.md: <date> · resend · <id> · <masked recipient>`. Paste that line here:
+
+- **Evidence:** _pending — not yet run against a real key._
+
+Everything short of the network hop is covered by tests: the request/response mapping against a
+fake `fetch` and a real `Bun.serve` socket (`src/tests/email.test.ts`), the outbox round trip on
+live pg-boss (`src/tests/queue/loop.test.ts`), and the delivery job's audit rows
+(`src/tests/queue/email-deliver.test.ts`).
 
 ## What P1-001 gave the phase
 

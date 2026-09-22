@@ -18,6 +18,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
+import { createEmailDeliverJob } from "../../jobs/email-deliver";
 import type { Db } from "../../lib/db";
 import {
   createQueueClient,
@@ -36,6 +37,7 @@ import {
   type WorkerDeps,
 } from "../../lib/worker";
 import type { AuditActionName, WriteAuditLogEntryParams } from "../../services/audit";
+import { createEmailService, type EmailEnvelope } from "../../services/email";
 
 const hasDb = () => !!process.env.DATABASE_URL;
 const url = process.env.DATABASE_URL ?? "";
@@ -306,6 +308,93 @@ describe.skipIf(!hasDb())("queue loop against a live pg-boss", () => {
     // "run it nightly and stop worrying about a restart mid-hour", and the reason `scheduler.ts`
     // invents no deduplication key of its own. Cited from the library rather than counted here:
     // counting would race the slot boundary and flake for the right reason.
+  }, 60_000);
+
+  test("the email outbox end to end: send() files a job, the worker delivers it, the audit row is scoped (NWB-P1-004)", async () => {
+    // The on-demand queue, on the real library: `emailService.send()` → pg-boss → the worker →
+    // the (fake) transport → an `email.delivered` event carrying the payload's tenant and a masked
+    // recipient. This is the durable path every request takes when the runtime is up.
+    const delivered: EmailEnvelope[] = [];
+    const auditEvents: WriteAuditLogEntryParams[] = [];
+    const job = createEmailDeliverJob({
+      deliver: async (envelope) => {
+        delivered.push(envelope);
+        return { provider: "fake", providerMessageId: `fake_${delivered.length}` };
+      },
+      providerName: () => "fake",
+    });
+    const deps: WorkerDeps = {
+      db: {} as unknown as Db,
+      audit: async (params) => {
+        auditEvents.push(params);
+      },
+    };
+
+    await ensureQueues(boss, [job]);
+    const queue = await boss.getQueue(QUEUE_JOBS.emailDeliver);
+    // The policy landed on the queue row, including the one-hour retention of completed jobs.
+    expect(queue).toMatchObject({
+      retryLimit: 6,
+      retryDelay: 60,
+      retryBackoff: true,
+      expireInSeconds: 60,
+      deleteAfterSeconds: 3_600,
+    });
+
+    try {
+      await attachWorkers(boss, deps, [job], { pollingIntervalSeconds: 0.5 });
+
+      const service = createEmailService({ outbox: () => boss, newMessageId: () => "em_loop_1" });
+      const result = await service.send({
+        kind: "invitation",
+        to: "loop-invitee@example.com",
+        subject: "Loop",
+        html: "<p>loop</p>",
+        context: { organizationId: "org_loop", userId: "usr_loop" },
+      });
+      expect(result).toEqual({
+        status: "queued",
+        sent: false,
+        messageId: "em_loop_1",
+        recipient: "loop-invitee@example.com",
+      });
+      // Nothing was sent inline: the request path returned before any transport ran.
+      expect(delivered).toHaveLength(0);
+
+      await waitFor("the outbox worker to deliver", 15_000, () => delivered.length >= 1);
+      await waitFor("the audit event", 5_000, () => auditEvents.length >= 1);
+
+      expect(delivered[0]).toMatchObject({
+        messageId: "em_loop_1",
+        kind: "invitation",
+        to: ["loop-invitee@example.com"],
+        organizationId: "org_loop",
+        userId: "usr_loop",
+      });
+      expect(auditEvents[0]).toMatchObject({
+        action: "email.delivered",
+        severity: "info",
+        organizationId: "org_loop",
+        targetUserId: "usr_loop",
+        resourceId: "em_loop_1",
+        afterState: { delivered: 1, provider: "fake", providerMessageId: "fake_1" },
+      });
+      expect(auditEvents[0]?.metadata).toMatchObject({
+        queue: QUEUE_JOBS.emailDeliver,
+        kind: "invitation",
+        recipient: "l***@example.com",
+      });
+      expect(JSON.stringify(auditEvents[0])).not.toContain("loop-invitee@example.com");
+
+      await waitFor("pg-boss to mark the job completed", 10_000, async () => {
+        const rows = await boss.findJobs<EmailEnvelope>(QUEUE_JOBS.emailDeliver, {
+          data: { messageId: "em_loop_1" },
+        });
+        return rows.some((row) => row.state === "completed");
+      });
+    } finally {
+      await boss.offWork(QUEUE_JOBS.emailDeliver);
+    }
   }, 60_000);
 });
 

@@ -39,7 +39,12 @@ function captureEmails() {
       html: m.html,
       to: Array.isArray(m.to) ? m.to.join(",") : m.to,
     });
-    return { sent: true, messageId: `em_test_${sent.length}`, recipient: String(m.to) };
+    return {
+      status: "sent" as const,
+      sent: true,
+      messageId: `em_test_${sent.length}`,
+      recipient: String(m.to),
+    };
   });
   return { sent, restore: () => spy.mockRestore() };
 }

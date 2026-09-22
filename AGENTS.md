@@ -48,6 +48,7 @@ bun run build           # typecheck + bundle to dist/
 bun run queue:worker    # workers + scheduler only, no HTTP server (ADR-007's other half)
 bun run queue:run --list            # the queues that exist, and what each one does
 bun run queue:run <queue-name> ['{"json":"data"}']   # run one job now, same audit events
+bun run email:smoke -- --to you@example.com  # one real send through the configured transport (Resend needs a key; console needs --allow-console)
 ```
 
 ### Tests
@@ -139,12 +140,13 @@ src/services/             ← Business logic (single source of truth)
   approvals/ approval.service — chain resolution, decisions, recall, expiry sweep,
            inbox/mine/all views (NWB-P1-003)
   retention/ legal-holds.service, retention.service, backups.service (NWB-P1-010)
-  email.ts
+  email/   types, console + resend transports, mask, service (queue-or-direct `emailService`),
+           index.ts as the only import path (NWB-P1-004)
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
   rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), purge-expired-accounts.ts,
   purge-expired-organizations.ts, purge-expired-invitations.ts, retention-enforce.ts,
-  audit-chain-verify.ts
+  audit-chain-verify.ts, email-deliver.ts (on-demand outbox, not scheduled)
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
   db.ts          ← Drizzle client factory + test DB helper
@@ -188,11 +190,35 @@ directory you care about) for the complete set.
   processes can be built from one tree: `bun run dev`/`src/index.ts` (API + workers + scheduler),
   `bun run queue:worker` (workers only, and it **exits non-zero** if pg-boss cannot start, because
   there the queue is the whole job), and `QUEUE_ENABLED=false` (API only). `src/index.ts` does the
-  opposite on the same failure — logs `WORKER NOT STARTED` and keeps serving, because nothing in
-  `src/server/**` enqueues yet and an API hostage to a background runtime is unoperatable. Handlers
+  opposite on the same failure — logs `WORKER NOT STARTED` and keeps serving, because an API
+  hostage to a background runtime is unoperatable (the one request-path enqueue, the email
+  outbox, falls back to a direct send when the queue is absent — see the email fact). Handlers
   never touch pg-boss: they declare a `JobDefinition` (`name`, `audit`, `policy`, `handle`) and the
   base in `src/lib/worker.ts` supplies the audit events, the attempt number, and the rethrow that
   makes pg-boss retry with backoff. Swallow a handler error there and every job silently "succeeds".
+- **Email is Resend over `fetch`, behind one interface, through a durable outbox** (DEC-028 ·
+  NWB-P1-004, `src/services/email/`) — every caller uses `emailService.send({ kind, context, to,
+  subject, html })` and **never awaits delivery**: with a started queue (`getQueue()`) the call
+  files an `email.deliver` job and returns `queued`; with none — or if the enqueue itself throws
+  (the boot race in `src/index.ts`, pg-boss down) — it sends directly and returns `sent`/`failed`.
+  It never throws for a provider failure, so a Resend outage cannot 500 a signup, reset or
+  invite. `EmailTransport` has two implementations: `ConsoleEmailTransport` (dev/tests, prints the
+  message — that is where a local verification link comes from) and `ResendEmailTransport`
+  (`POST /emails`, Bearer key, the `em_…` message id minted at enqueue as `Idempotency-Key` so a
+  retry after a dropped response cannot double-send; `EmailDeliveryError.retryable` is true for
+  429/5xx/timeout/network and false for other 4xx). The job (`src/jobs/email-deliver.ts`, the
+  one **on-demand** queue: `ON_DEMAND_QUEUE_JOB_NAMES`, absent from `resolveSchedules()`) returns
+  non-retryable failures as an outcome → `email.delivery_failed`, and throws retryable ones →
+  pg-boss retries (`retryLimit 6`, backoff from 60 s ≈ 1 h; `deleteAfterSeconds 3600` because
+  payloads carry raw token links and the queue must not become where plaintext lingers). Audit
+  rows (`email.delivered` / `email.delivery_failed`, via the worker base's `audit.failureAction` +
+  `audit.scope(data)` hooks) carry the masked recipient (`j***@example.com`), `kind`, provider
+  and its id — never the address or the body. Config: `EMAIL_PROVIDER` (`console`|`resend`,
+  derived from `RESEND_API_KEY` when unset), `EMAIL_FROM` (required for Resend), `EMAIL_REPLY_TO`,
+  `RESEND_API_BASE_URL`, `EMAIL_SEND_TIMEOUT_MS`; **production refuses to boot on console-by-
+  omission** — say `EMAIL_PROVIDER=console` if that is really what you mean. The `resend` SDK is
+  deliberately not a dependency (one endpoint; `fetch` is injected so tests pin the exact request).
+  Tests spy with `spyOn(emailService, "send")`; the singleton must stay a plain object.
 - **Worker audit events are `module: "core"`, actor type `system`, with `organization_id` NULL** —
   `core` because the 15-value module enum has no `queue` value, not because of the chain: the
   hash chain exists since NWB-P1-014, and `admin`/`system`/`compliance` rows are sealed on write,
@@ -274,9 +300,25 @@ directory you care about) for the complete set.
   `verifyMfaChallengeLogin`, and again on **every** request in `authMiddleware`
   (`assertActivePrincipal`, one statement covering account + status + membership, for both the
   cookie and API-key paths). Allowed: `active`, `pending_verification` (the response carries
-  `emailVerified: false`; the hard server-side gate lands with real email in Phase 2).
-  `suspended` → 403 `ACCOUNT_SUSPENDED`; `deleted`/unknown → generic 401 so the status is never
-  disclosed to a caller without the password. NWB-P0-015.
+  `emailVerified: false`). `suspended` → 403 `ACCOUNT_SUSPENDED`; `deleted`/unknown → generic
+  401 so the status is never disclosed to a caller without the password. NWB-P0-015.
+- **`pending_verification` is a verification-limited session, gated in the middleware** (NWB-P1-004)
+  — after the status re-read, `authMiddleware` answers 403 `EMAIL_NOT_VERIFIED` on every route
+  except `/api/auth/*` and `/api/users/me*` (resend, verify, sign-out, sessions, MFA, email-change
+  for the typo-at-signup case, account deletion stay reachable), on both the cookie and the
+  API-key branch. Because the status is re-read per request, verifying opens the gate for the
+  session already held. Invitation acceptance **is** verification: a new invitee is created
+  `active` + `email_verified` and no second token is minted (the invite link proved the address).
+  Test fixtures that sign up and then act must verify through the real `verifyEmail` (redeem the
+  `tokens` row), never by editing `users` — `src/tests/auth/email-verification-gate.test.ts` is
+  the pattern; in dev the link is in the console transport's log output.
+- **A path no test drives end-to-end is unverified, however many unit tests touch its pieces**
+  — the verified-email gate exposed two bugs that had shipped with signup itself: the signup
+  token row stored `rawToken.slice(0, 32)` as its selector while `consumeToken` looks up the whole
+  token (every emailed signup link failed; only *resend* worked), and `verifyEmail` updated a
+  `users.email_verified_at` column the schema does not have (42703 → 500 on every successful
+  match). Each piece had passing tests; nothing signed up, clicked the link and used the session.
+  When a ticket adds a gate or a consumer to a path, write the loop test first (NWB-P1-004).
 - **Organization deletion is soft, with a reachable undo** — `deleteOrganization` (`src/services/orgs/org-deletion.service.ts`) stamps `deleted_at`/`scheduled_deletion_at` 30 days out, suspends every membership, revokes the org's API keys and all members' sessions; `reactivateOrganization` restores the memberships and keys but **never the sessions** (a revoked session is a credential that may have leaked). Ownership is checked against `organizations.owner_id`, not a role row — DEC-039 makes Owner a transferred singleton on the organization itself. **`POST /orgs/:orgId/reactivate` is the one route that uses `authMiddlewareAllowingInactiveMembership`**: deletion suspends the owner's own membership, so the normal `assertActivePrincipal` check would 403 the only person who can undo it, making the grace period unreachable. That middleware relaxes *only* the `status='active'` requirement — account existence, soft-delete, `users.status` and "holds a membership row here" all still apply — and the route carries no `requireAbility` because `loadAbility` reads active memberships only, so a deleted org yields an empty ability by construction. Do not reuse it elsewhere. NWB-P0-023.
 - **`purgeExpiredOrganizations` actually completes; `purgeExpiredAccounts` is gated instead** — every FK referencing `organizations.id` is CASCADE or SET NULL, so the org purge has no restrictive edge (users are *detached*, never deleted with the workspace). The account purge has one (`organizations.owner_id`), which is why `deleteAccount` refuses an owner up front (D16/F-25). Relaxing that gate for soft-deleted orgs reintroduces the 23503 — a soft-deleted org still holds the reference; a negative-control test pins this. The unblock is the hard purge: delete org → grace expires → `purgeExpiredOrganizations` → `deleteAccount` → `purgeExpiredAccounts`. Both run nightly since NWB-P1-001 (F-18 closed); the order above is why organizations go first.
 - **Account deletion keeps its grace window in `users.scheduled_deletion_at`** — nullable

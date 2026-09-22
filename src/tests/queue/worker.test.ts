@@ -295,6 +295,147 @@ describe("the executed job", () => {
   });
 });
 
+describe("a job that names its failures and scopes its rows (NWB-P1-004 hooks)", () => {
+  const scoped = (overrides: Partial<AnyJobDefinition> = {}): AnyJobDefinition =>
+    fakeDefinition({
+      name: QUEUE_JOBS.emailDeliver,
+      audit: {
+        action: "email.delivered",
+        failureAction: "email.delivery_failed",
+        category: "user_management",
+        resourceType: "email",
+        scope: (data: { organizationId?: string; userId?: string; messageId: string }) => ({
+          organizationId: data.organizationId,
+          targetUserId: data.userId,
+          resourceId: data.messageId,
+          metadata: { kind: "invitation", recipient: "j***@example.com", queue: "spoofed" },
+        }),
+      },
+      ...overrides,
+    });
+  const payload = { organizationId: "org_1", userId: "usr_1", messageId: "em_1" };
+
+  test("success files the success action, scoped to the payload's tenant and subject", async () => {
+    const events: WriteAuditLogEntryParams[] = [];
+    await runJobGuarded(scoped(), fakeDeps(events), attempt(), payload);
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    expect(event.action).toBe("email.delivered");
+    expect(event.severity).toBe("info");
+    expect(event.organizationId).toBe("org_1");
+    expect(event.targetUserId).toBe("usr_1");
+    expect(event.resourceId).toBe("em_1");
+    // Payload metadata is merged under the wrapper's: a handler cannot rewrite `queue`.
+    expect(event.metadata).toEqual({
+      kind: "invitation",
+      recipient: "j***@example.com",
+      queue: QUEUE_JOBS.emailDeliver,
+      jobId: "job-1",
+      attempt: 1,
+    });
+  });
+
+  test("a thrown error files the failure action, still scoped, and still rethrows", async () => {
+    const events: WriteAuditLogEntryParams[] = [];
+    const job = scoped({
+      handle: async () => {
+        throw new Error("503 from the provider");
+      },
+    });
+
+    await expect(
+      runJobGuarded(job, fakeDeps(events), attempt({ retryCount: 0, retryLimit: 6 }), payload),
+    ).rejects.toThrow("503 from the provider");
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("email.delivery_failed");
+    expect(events[0]?.severity).toBe("warning");
+    expect(events[0]?.organizationId).toBe("org_1");
+    expect(events[0]?.metadata).toMatchObject({ kind: "invitation", retryLimit: 6 });
+  });
+
+  test("a partial outcome files under the failure action too — for a single-subject job it *is* the failure", async () => {
+    const events: WriteAuditLogEntryParams[] = [];
+    const job = scoped({
+      handle: async () => ({ delivered: 0, failed: 1, error: "422 validation_error" }),
+    });
+
+    await runJobGuarded(job, fakeDeps(events), attempt(), payload);
+
+    expect(events[0]?.action).toBe("email.delivery_failed");
+    expect(events[0]?.severity).toBe("warning");
+    expect(events[0]?.afterState).toEqual({
+      delivered: 0,
+      failed: 1,
+      error: "422 validation_error",
+    });
+  });
+
+  test("without a failureAction, both paths keep filing under the one action (the maintenance jobs)", async () => {
+    const events: WriteAuditLogEntryParams[] = [];
+    await runJobGuarded(
+      fakeDefinition({ handle: async () => ({ deleted: 1, failed: 1 }) }),
+      fakeDeps(events),
+      attempt(),
+      null,
+    );
+    await expect(
+      runJobGuarded(
+        fakeDefinition({
+          handle: async () => {
+            throw new Error("boom");
+          },
+        }),
+        fakeDeps(events),
+        attempt(),
+        null,
+      ),
+    ).rejects.toThrow("boom");
+    expect(events.map((event) => event.action)).toEqual([
+      "rate-limits.reclaimed",
+      "rate-limits.reclaimed",
+    ]);
+    for (const event of events) {
+      expect(event.organizationId).toBeUndefined();
+      expect(event.metadata).toEqual({
+        queue: QUEUE_JOBS.rateLimitReclaim,
+        jobId: "job-1",
+        attempt: 1,
+      });
+    }
+  });
+
+  test("a scope function that throws costs the scope, not the job", async () => {
+    const events: WriteAuditLogEntryParams[] = [];
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (line: string) => {
+      errors.push(line);
+    };
+    try {
+      const job = scoped({
+        audit: {
+          action: "email.delivered",
+          failureAction: "email.delivery_failed",
+          category: "user_management",
+          resourceType: "email",
+          scope: () => {
+            throw new Error("scope exploded");
+          },
+        },
+      });
+      const outcome = await runJobGuarded(job, fakeDeps(events), attempt(), payload);
+      expect(outcome).toEqual({ worked: true });
+    } finally {
+      console.error = original;
+    }
+    expect(events).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("scope exploded");
+  });
+});
+
 describe("failure handling", () => {
   test("a retry is still owed: warn, and rethrow so pg-boss does the retrying", async () => {
     const events: WriteAuditLogEntryParams[] = [];

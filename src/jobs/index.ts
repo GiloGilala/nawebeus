@@ -23,6 +23,7 @@ import {
 import { writeAuditLog } from "../services/audit";
 import { approvalsExpireStaleJob } from "./approvals-expire-stale";
 import { auditChainVerifyJob } from "./audit-chain-verify";
+import { emailDeliverJob } from "./email-deliver";
 import { purgeExpiredAccountsJob } from "./purge-expired-accounts";
 import { purgeExpiredInvitationsJob } from "./purge-expired-invitations";
 import { purgeExpiredOrganizationsJob } from "./purge-expired-organizations";
@@ -30,10 +31,12 @@ import { rateLimitReclaimJob } from "./rate-limit-reclaim";
 import { retentionEnforceJob } from "./retention-enforce";
 
 /**
- * Every job this application runs, in the order the nightly schedule expects — reclamation, then
- * organizations, then invitations, then accounts, then retention enforcement, then chain
- * verification (see `src/lib/scheduler.ts` for why that order is load-bearing). The hourly
- * approval expiry sits second, outside that chain (see `QUEUE_JOB_NAMES`).
+ * Every job this application runs, in the order `QUEUE_JOB_NAMES` declares them: the scheduled
+ * seven in the order the nightly schedule expects — reclamation, then organizations, then
+ * invitations, then accounts, then retention enforcement, then chain verification (see
+ * `src/lib/scheduler.ts` for why that order is load-bearing), with the hourly approval expiry
+ * second, outside that chain — and then the on-demand queues, of which the email outbox
+ * (NWB-P1-004) is the first: no cron, filled by `emailService.send()` from request paths.
  */
 export const MAINTENANCE_JOBS: readonly AnyJobDefinition[] = [
   rateLimitReclaimJob,
@@ -43,6 +46,7 @@ export const MAINTENANCE_JOBS: readonly AnyJobDefinition[] = [
   purgeExpiredAccountsJob,
   retentionEnforceJob,
   auditChainVerifyJob,
+  emailDeliverJob,
 ];
 
 /** The declared queue names, re-exported so a test can assert this list covers them. */

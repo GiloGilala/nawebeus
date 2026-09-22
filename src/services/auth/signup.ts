@@ -238,6 +238,8 @@ export async function signup(
   const verificationLink = `${config.APP_BASE_URL_RESOLVED}/api/auth/verify-email?token=${rawToken}`;
 
   await emailService.send({
+    kind: "verification",
+    context: { organizationId: orgId, userId },
     to: email,
     subject: "Verify your Nawebeus email",
     html: `

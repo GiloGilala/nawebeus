@@ -27,11 +27,16 @@
  * `src/index.ts` does it.
  */
 import { type Config, getConfig } from "./config";
-import { QUEUE_JOB_NAMES, QUEUE_JOBS, type QueueClient, type QueueJobName } from "./queue";
+import {
+  QUEUE_JOBS,
+  type QueueClient,
+  SCHEDULED_QUEUE_JOB_NAMES,
+  type ScheduledQueueJobName,
+} from "./queue";
 
 /** A persisted cron schedule for one queue. */
 export interface JobSchedule {
-  readonly job: QueueJobName;
+  readonly job: ScheduledQueueJobName;
   /** Five-field cron, in `tz`. Validated for shape at config load; pg-boss parses it for real. */
   readonly cron: string;
   /** IANA zone the cron fields are read in — never the server's local time. */
@@ -71,8 +76,11 @@ export interface JobSchedule {
  *    earlier — same end state).
  * 5. **chain verification last** — it walks the night's complete chained set, including whatever
  *    the purge window wrote, so it runs after the last mutation rather than before it.
+ *
+ * Keyed by the *scheduled* subset on purpose: an on-demand queue (`email.deliver`) has no cron,
+ * and giving it one here would be a type error rather than a 02:00 surprise.
  */
-export const QUEUE_SCHEDULE_DEFAULTS: Record<QueueJobName, string> = {
+export const QUEUE_SCHEDULE_DEFAULTS: Record<ScheduledQueueJobName, string> = {
   [QUEUE_JOBS.rateLimitReclaim]: "0 2 * * *",
   // Hourly, not nightly: an approval window can be as short as an hour (NWB-P1-003), so the
   // enforcement lag has to be of the same order. Cheap when there is nothing to close.
@@ -185,7 +193,7 @@ export async function applySchedules(
  */
 export async function removeSchedules(
   boss: QueueClient,
-  jobs: readonly QueueJobName[] = QUEUE_JOB_NAMES as readonly QueueJobName[],
+  jobs: readonly ScheduledQueueJobName[] = SCHEDULED_QUEUE_JOB_NAMES,
 ): Promise<void> {
   for (const job of jobs) {
     await boss.unschedule(job);
