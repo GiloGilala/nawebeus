@@ -1,11 +1,18 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { RateLimitError, ValidationError } from "@/lib/errors";
 import { getClientIp } from "@/lib/ip";
 import { validatePassword } from "@/lib/password";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { success } from "@/lib/response";
+import {
+  changePasswordSchema,
+  deleteAccountSchema,
+  emailChangeConfirmSchema,
+  emailChangeRequestSchema,
+  parseWithValidation,
+  updateMeSchema,
+} from "@/lib/validation";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import { changePassword } from "@/services/auth/auth.service";
@@ -17,37 +24,6 @@ import {
 } from "@/services/users/account-deletion.service";
 import { getDataExport, requestDataExport } from "@/services/users/dsar.service";
 import { getUser, updateUser } from "@/services/users/user.service";
-
-const updateMeSchema = z.object({
-  firstName: z.string().min(1).max(100).optional(),
-  lastName: z.string().min(1).max(100).optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  profileImage: z.string().url().optional().or(z.literal("")),
-  phone: z.string().optional(),
-  timezone: z.string().optional(),
-  bio: z.string().max(500).optional(),
-  jobTitle: z.string().max(100).optional(),
-});
-
-const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(1),
-});
-
-const emailChangeRequestSchema = z.object({
-  newEmail: z.string().email(),
-});
-
-const emailChangeConfirmSchema = z.object({
-  token: z.string(),
-});
-
-const deleteAccountSchema = z.object({
-  reason: z.string().max(500).optional(),
-  confirmText: z.string().refine((v) => v === "DELETE", {
-    message: 'Type "DELETE" to confirm',
-  }),
-});
 
 const router = new Hono();
 
@@ -68,7 +44,7 @@ router.patch("/me", authMiddleware, async (c) => {
   } catch {
     body = {};
   }
-  const parsed = updateMeSchema.parse(body);
+  const parsed = parseWithValidation(updateMeSchema, body);
   const user = await updateUser(db, userId, parsed);
   return c.json(success({ user }));
 });
@@ -83,7 +59,7 @@ router.post("/me/change-password", authMiddleware, async (c) => {
   } catch {
     throw new ValidationError("Invalid JSON body");
   }
-  const parsed = changePasswordSchema.parse(body);
+  const parsed = parseWithValidation(changePasswordSchema, body);
 
   // Enforce password complexity
   const complexity = validatePassword(parsed.newPassword, { email: "" });
@@ -108,7 +84,7 @@ router.delete("/me", authMiddleware, async (c) => {
   } catch {
     body = {};
   }
-  const parsed = deleteAccountSchema.parse(body);
+  const parsed = parseWithValidation(deleteAccountSchema, body);
 
   const result = await deleteAccount(
     db,
@@ -136,7 +112,7 @@ router.post("/me/email-change", authMiddleware, async (c) => {
   } catch {
     throw new ValidationError("Invalid JSON body");
   }
-  const parsed = emailChangeRequestSchema.parse(body);
+  const parsed = parseWithValidation(emailChangeRequestSchema, body);
   const result = await requestEmailChange(db, userId, {
     newEmail: parsed.newEmail,
   });
@@ -152,15 +128,8 @@ router.post("/me/email-change/confirm", async (c) => {
   } catch {
     throw new ValidationError("Invalid JSON body");
   }
-  const parsed = emailChangeConfirmSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join(".") || "_root",
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
-  const result = await confirmEmailChange(db, { token: parsed.data.token });
+  const parsed = parseWithValidation(emailChangeConfirmSchema, body);
+  const result = await confirmEmailChange(db, { token: parsed.token });
   return c.json(success(result));
 });
 
@@ -169,20 +138,15 @@ router.post("/me/email-change/confirm", async (c) => {
 // the request id within a 7-day window. Admins can file on a subject's behalf
 // via POST /api/users/:userId/data-export but never see the payload.
 
-/** Data-portability requests a user may open per day. Generous for the
- *  subject, tight enough that a stolen session can't exfiltrate repeatedly. */
-const DSAR_REQUEST_MAX = 5;
-/** Fixed window for the above — calendar day rounded to UTC. */
-const DSAR_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 // POST /api/users/me/data-export — build the export synchronously.
 router.post("/me/data-export", authMiddleware, async (c) => {
   const { userId, orgId } = c.var.user;
   const db = c.var.db;
-  if (await checkRateLimit(db, `dsar:req:${userId}`, DSAR_REQUEST_MAX, DSAR_REQUEST_WINDOW_MS)) {
+  const dsar = RATE_LIMITS.dsarPerDay;
+  if (await checkRateLimit(db, `dsar:req:${userId}`, dsar.max, dsar.windowMs)) {
     throw new RateLimitError(
       "Data export is limited to 5 requests per day.",
-      Math.ceil(DSAR_REQUEST_WINDOW_MS / 1000),
+      Math.ceil(dsar.windowMs / 1000),
     );
   }
   const ip = getClientIp(c, getConfig());

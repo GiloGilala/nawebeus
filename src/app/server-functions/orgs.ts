@@ -1,67 +1,26 @@
 /**
  * TanStack Start Server Functions — Organization domain
  *
- * Direct in-process calls to `src/services/orgs/*`. Every handler validates
- * with Zod, checks auth via `getServerAuth()`, scopes via `withServerOrgContext`,
- * and checks CASL via `assertServerAbility` — mirroring Hono middleware
- * `authMiddleware + requireOrgMatch + requireAbility` but without an HTTP hop.
+ * Thin adapters: validate with the shared Zod schemas, derive org id from the
+ * session (never the payload — tanstack-start.md §10.3), check CASL, delegate.
  */
 
-import { z } from "zod";
-import { ValidationError } from "@/lib/errors";
+import {
+  assignRoleSchema,
+  bulkInviteSchema,
+  deleteOrgSchema,
+  inviteMemberSchema,
+  memberIdSchema,
+  updateMemberByIdSchema,
+  updateOrgSchema,
+} from "@/lib/validation";
 import { bulkInviteMembers, inviteMember } from "@/services/orgs/invitation.service";
 import { getMember, listMembers, removeMember, updateMember } from "@/services/orgs/member.service";
-import { getOrg, isOrgMember, listUserOrgs, updateOrg } from "@/services/orgs/org.service";
+import { getOrg, listUserOrgs, updateOrg } from "@/services/orgs/org.service";
+import { deleteOrganization, reactivateOrganization } from "@/services/orgs/org-deletion.service";
 import { assignRole } from "@/services/orgs/role-assignment.service";
 import { createServerFn } from "../lib/createServerFn";
 import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
-
-const updateOrgSchema = z.object({
-  orgId: z.string().min(1, "orgId is required"),
-  name: z.string().min(1).max(200).optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).optional(),
-  logoUrl: z.string().url().optional().or(z.literal("")),
-});
-
-const updateMemberSchema = z.object({
-  orgId: z.string().min(1),
-  memberId: z.string().min(1),
-  roleId: z.string().uuid().optional(),
-  displayName: z.string().min(1).max(200).optional(),
-  jobTitle: z.string().max(200).optional(),
-  department: z.string().max(200).optional(),
-});
-
-const assignRoleSchema = z.object({
-  orgId: z.string().min(1),
-  userId: z.string().uuid(),
-  roleId: z.string().uuid(),
-  reason: z.string().optional(),
-});
-
-const inviteSchema = z.object({
-  orgId: z.string().min(1),
-  email: z.string().email(),
-  roleId: z.string().uuid().optional(),
-  displayName: z.string().optional(),
-  jobTitle: z.string().optional(),
-  department: z.string().optional(),
-  invitationNote: z.string().optional(),
-  expiresInHours: z.number().int().positive().optional(),
-});
-
-const bulkInviteSchema = z.object({
-  orgId: z.string().min(1),
-  csv: z.array(
-    z.object({
-      email: z.string().email(),
-      roleId: z.string().uuid().optional(),
-      displayName: z.string().optional(),
-      department: z.string().optional(),
-    }),
-  ),
-});
 
 export const listOrgsServerFn = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await getServerAuth();
@@ -70,81 +29,88 @@ export const listOrgsServerFn = createServerFn({ method: "GET" }).handler(async 
   return { orgs };
 });
 
-export const getOrgServerFn = createServerFn({ method: "GET" })
-  .validator(z.object({ orgId: z.string().min(1) }))
-  .handler(async ({ data }) => {
-    const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
-    const db = getServerDb();
-    const member = await isOrgMember(db, auth.userId, data.orgId);
-    if (!member) throw new ValidationError("You are not a member of this organization");
-    const org = await withServerOrgContext(auth, () => getOrg(db, data.orgId));
-    return { org };
-  });
+export const getOrgServerFn = createServerFn({ method: "GET" }).handler(async () => {
+  const auth = await getServerAuth();
+  const db = getServerDb();
+  const org = await withServerOrgContext(auth, () => getOrg(db, auth.orgId));
+  return { org };
+});
 
 export const updateOrgServerFn = createServerFn({ method: "POST" })
   .validator(updateOrgSchema)
   .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof updateOrgSchema.parse>;
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "update", "org");
     const db = getServerDb();
     const org = await withServerOrgContext(auth, () =>
-      updateOrg(db, data.orgId, {
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.displayName !== undefined ? { displayName: data.displayName } : {}),
-        ...(data.description !== undefined ? { description: data.description } : {}),
-        ...(data.logoUrl !== undefined ? { logoUrl: data.logoUrl } : {}),
+      updateOrg(db, auth.orgId, {
+        ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+        ...(parsed.displayName !== undefined ? { displayName: parsed.displayName } : {}),
+        ...(parsed.description !== undefined ? { description: parsed.description } : {}),
+        ...(parsed.logoUrl !== undefined ? { logoUrl: parsed.logoUrl } : {}),
       }),
     );
     return { org };
   });
 
-export const listMembersServerFn = createServerFn({ method: "GET" })
-  .validator(z.object({ orgId: z.string().min(1) }))
+export const deleteOrgServerFn = createServerFn({ method: "POST" })
+  .validator(deleteOrgSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { reason?: string };
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
+    assertServerAbility(auth, "delete", "org");
     const db = getServerDb();
-    // Server Functions serve the web app's own screens, which have no cursor UI
-    // yet (Phase 7). Take the first page explicitly rather than silently
-    // returning a truncated list that looks complete.
-    const members = (await withServerOrgContext(auth, () => listMembers(db, data.orgId))).items;
-    return { members };
+    const result = await withServerOrgContext(auth, () =>
+      deleteOrganization(db, auth.orgId, auth.userId, parsed),
+    );
+    return { organization: { id: auth.orgId, ...result } };
   });
 
+export const reactivateOrgServerFn = createServerFn({ method: "POST" }).handler(async () => {
+  const auth = await getServerAuth(undefined, { requireActiveMembership: false });
+  const db = getServerDb();
+  await withServerOrgContext(auth, () => reactivateOrganization(db, auth.orgId, auth.userId));
+  const org = await getOrg(db, auth.orgId);
+  return { org };
+});
+
+export const listMembersServerFn = createServerFn({ method: "GET" }).handler(async () => {
+  const auth = await getServerAuth();
+  const db = getServerDb();
+  const members = (await withServerOrgContext(auth, () => listMembers(db, auth.orgId))).items;
+  return { members };
+});
+
 export const getMemberServerFn = createServerFn({ method: "GET" })
-  .validator(z.object({ orgId: z.string().min(1), memberId: z.string().min(1) }))
+  .validator(memberIdSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { memberId: string };
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
     const db = getServerDb();
-    const member = await withServerOrgContext(auth, () => getMember(db, data.orgId, data.memberId));
+    const member = await withServerOrgContext(auth, () =>
+      getMember(db, auth.orgId, parsed.memberId),
+    );
     return { member };
   });
 
 export const updateMemberServerFn = createServerFn({ method: "POST" })
-  .validator(updateMemberSchema)
+  .validator(updateMemberByIdSchema)
   .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof updateMemberByIdSchema.parse>;
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "update", "members");
     const db = getServerDb();
     const member = await withServerOrgContext(auth, () =>
       updateMember(
         db,
-        data.orgId,
-        data.memberId,
+        auth.orgId,
+        parsed.memberId,
         {
-          ...(data.roleId ? { roleId: data.roleId } : {}),
-          ...(data.displayName ? { displayName: data.displayName } : {}),
-          ...(data.jobTitle ? { jobTitle: data.jobTitle } : {}),
-          ...(data.department ? { department: data.department } : {}),
+          ...(parsed.roleId ? { roleId: parsed.roleId } : {}),
+          ...(parsed.displayName ? { displayName: parsed.displayName } : {}),
+          ...(parsed.jobTitle ? { jobTitle: parsed.jobTitle } : {}),
+          ...(parsed.department ? { department: parsed.department } : {}),
         },
         auth.userId,
       ),
@@ -153,15 +119,14 @@ export const updateMemberServerFn = createServerFn({ method: "POST" })
   });
 
 export const removeMemberServerFn = createServerFn({ method: "POST" })
-  .validator(z.object({ orgId: z.string().min(1), memberId: z.string().min(1) }))
+  .validator(memberIdSchema)
   .handler(async ({ data }) => {
+    const parsed = data as { memberId: string };
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "delete", "members");
     const db = getServerDb();
     await withServerOrgContext(auth, () =>
-      removeMember(db, data.orgId, data.memberId, auth.userId),
+      removeMember(db, auth.orgId, parsed.memberId, auth.userId),
     );
     return { removed: true as const };
   });
@@ -169,38 +134,36 @@ export const removeMemberServerFn = createServerFn({ method: "POST" })
 export const assignRoleServerFn = createServerFn({ method: "POST" })
   .validator(assignRoleSchema)
   .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof assignRoleSchema.parse>;
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "update", "members");
     const db = getServerDb();
     const member = await withServerOrgContext(auth, () =>
-      assignRole(db, data.orgId, auth.userId, {
-        userId: data.userId,
-        roleId: data.roleId,
-        ...(data.reason ? { reason: data.reason } : {}),
+      assignRole(db, auth.orgId, auth.userId, {
+        userId: parsed.userId,
+        roleId: parsed.roleId,
+        ...(parsed.reason ? { reason: parsed.reason } : {}),
       } as never),
     );
     return { member };
   });
 
 export const inviteMemberServerFn = createServerFn({ method: "POST" })
-  .validator(inviteSchema)
+  .validator(inviteMemberSchema)
   .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof inviteMemberSchema.parse>;
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "create", "members");
     const db = getServerDb();
     const result = await withServerOrgContext(auth, () =>
-      inviteMember(db, data.orgId, auth.userId, {
-        email: data.email,
-        ...(data.roleId ? { roleId: data.roleId } : {}),
-        ...(data.displayName ? { displayName: data.displayName } : {}),
-        ...(data.jobTitle ? { jobTitle: data.jobTitle } : {}),
-        ...(data.department ? { department: data.department } : {}),
-        ...(data.invitationNote ? { invitationNote: data.invitationNote } : {}),
-        ...(data.expiresInHours ? { expiresInHours: data.expiresInHours } : {}),
+      inviteMember(db, auth.orgId, auth.userId, {
+        email: parsed.email,
+        ...(parsed.roleId ? { roleId: parsed.roleId } : {}),
+        ...(parsed.displayName ? { displayName: parsed.displayName } : {}),
+        ...(parsed.jobTitle ? { jobTitle: parsed.jobTitle } : {}),
+        ...(parsed.department ? { department: parsed.department } : {}),
+        ...(parsed.invitationNote ? { invitationNote: parsed.invitationNote } : {}),
+        ...(parsed.expiresInHours ? { expiresInHours: parsed.expiresInHours } : {}),
       } as never),
     );
     return result;
@@ -209,13 +172,12 @@ export const inviteMemberServerFn = createServerFn({ method: "POST" })
 export const bulkInviteServerFn = createServerFn({ method: "POST" })
   .validator(bulkInviteSchema)
   .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof bulkInviteSchema.parse>;
     const auth = await getServerAuth();
-    if (data.orgId !== auth.orgId)
-      throw new ValidationError("You do not have access to this organization");
     assertServerAbility(auth, "create", "members");
     const db = getServerDb();
     const result = await withServerOrgContext(auth, () =>
-      bulkInviteMembers(db, data.orgId, auth.userId, data.csv as never),
+      bulkInviteMembers(db, auth.orgId, auth.userId, parsed.csv as never),
     );
     return { successes: result.successes.length, failures: result.failures };
   });

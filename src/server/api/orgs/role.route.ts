@@ -1,40 +1,18 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { ValidationError } from "@/lib/errors";
 import { getOrgContext } from "@/lib/org-context";
 import { success } from "@/lib/response";
+import {
+  assignRoleSchema,
+  bulkInviteSchema,
+  inviteMemberSchema,
+  parseWithValidation,
+} from "@/lib/validation";
 import { authMiddleware } from "@/server/middleware/auth";
 import { requireOrgMatch } from "@/server/middleware/org-match";
 import { requireAbility } from "@/server/middleware/rbac";
 import { bulkInviteMembers, inviteMember } from "@/services/orgs/invitation.service";
 import { assignRole } from "@/services/orgs/role-assignment.service";
-
-const assignRoleSchema = z.object({
-  userId: z.string().uuid(),
-  roleId: z.string().uuid(),
-  reason: z.string().optional(),
-});
-
-const inviteSchema = z.object({
-  email: z.string().email(),
-  roleId: z.string().uuid().optional(),
-  displayName: z.string().optional(),
-  jobTitle: z.string().optional(),
-  department: z.string().optional(),
-  invitationNote: z.string().optional(),
-  expiresInHours: z.number().int().positive().optional(),
-});
-
-const bulkInviteSchema = z.object({
-  csv: z.array(
-    z.object({
-      email: z.string().email(),
-      roleId: z.string().uuid().optional(),
-      displayName: z.string().optional(),
-      department: z.string().optional(),
-    }),
-  ),
-});
 
 const router = new Hono();
 
@@ -55,7 +33,7 @@ router.post("/orgs/:orgId/members/assign-role", requireAbility("update", "member
   const db = c.var.db;
 
   const body = await parseJsonBody(c);
-  const parsed = assignRoleSchema.parse(body);
+  const parsed = parseWithValidation(assignRoleSchema, body);
 
   const assignInput: Record<string, unknown> = {
     userId: parsed.userId,
@@ -74,7 +52,7 @@ router.post("/orgs/:orgId/members/invite", requireAbility("create", "members"), 
   const db = c.var.db;
 
   const body = await parseJsonBody(c);
-  const parsed = inviteSchema.parse(body);
+  const parsed = parseWithValidation(inviteMemberSchema, body);
 
   const inviteInput: Record<string, unknown> = {
     email: parsed.email,
@@ -97,7 +75,7 @@ router.post("/orgs/:orgId/members/invite/bulk", requireAbility("create", "member
   const db = c.var.db;
 
   const body = await parseJsonBody(c);
-  const parsed = bulkInviteSchema.parse(body);
+  const parsed = parseWithValidation(bulkInviteSchema, body);
 
   const result = await bulkInviteMembers(db, orgId, actingUserId, parsed.csv as any);
   return c.json(

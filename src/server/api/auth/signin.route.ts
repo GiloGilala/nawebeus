@@ -1,26 +1,11 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { ValidationError } from "@/lib/errors";
 import { getClientIp } from "@/lib/ip";
 import { success } from "@/lib/response";
+import { parseWithValidation, signinSchema } from "@/lib/validation";
 import { signIn } from "@/services/auth/auth.service";
 import { setSessionCookies } from "./session-cookies";
-
-const signinSchema = z.object({
-  email: z.string().email("Invalid email format"),
-  password: z.string().min(1, "Password is required"),
-  // Single-shot second factor: 6-digit TOTP or 8-character backup code, same
-  // shapes POST /mfa/verify-login accepts.
-  mfaCode: z
-    .string()
-    .regex(
-      /^(\d{6}|[A-Za-z0-9]{8})$/,
-      "MFA code must be a 6-digit TOTP code or an 8-character backup code",
-    )
-    .optional(),
-  rememberMe: z.boolean().optional().default(false),
-});
 
 const router = new Hono();
 
@@ -32,14 +17,7 @@ router.post("/signin", async (c) => {
     throw new ValidationError("Invalid JSON body");
   }
 
-  const parsed = signinSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join(".") || "_root",
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
+  const parsed = parseWithValidation(signinSchema, body);
 
   const db = c.var.db;
   // Null when no forwarding header carries a usable address. Deliberately left
@@ -47,10 +25,10 @@ router.post("/signin", async (c) => {
   // sign-in, and "0.0.0.0" would record a fabricated address.
   const ip = getClientIp(c, getConfig());
 
-  const result = await signIn(db, parsed.data.email, parsed.data.password, {
+  const result = await signIn(db, parsed.email, parsed.password, {
     ...(ip ? { ip } : {}),
-    rememberMe: parsed.data.rememberMe,
-    ...(parsed.data.mfaCode ? { mfaCode: parsed.data.mfaCode } : {}),
+    rememberMe: parsed.rememberMe,
+    ...(parsed.mfaCode ? { mfaCode: parsed.mfaCode } : {}),
   });
 
   if (result.requiresMfa) {
@@ -72,7 +50,7 @@ router.post("/signin", async (c) => {
   setSessionCookies(c, {
     accessToken: result.accessToken!,
     refreshToken: result.refreshToken!,
-    rememberMe: parsed.data.rememberMe,
+    rememberMe: parsed.rememberMe,
   });
 
   return c.json(

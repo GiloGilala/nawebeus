@@ -3,6 +3,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { listOrgsServerFn } from "@/app/server-functions/orgs";
 import { getMeServerFn } from "@/app/server-functions/users";
+import { AuthError } from "@/lib/errors";
 
 export const Route = createFileRoute("/dashboard/")({
   // SSR loader: fetches directly via Server Functions — no HTTP hop.
@@ -11,8 +12,11 @@ export const Route = createFileRoute("/dashboard/")({
     try {
       const [me, orgs] = await Promise.all([getMeServerFn(), listOrgsServerFn()]);
       return { me, orgs };
-    } catch {
-      throw redirect({ to: "/auth/sign-in" });
+    } catch (error) {
+      // Auth failures send the browser to sign-in. Every other error propagates
+      // (tanstack-start.md §19) so a 500/403 is not silently turned into a login loop.
+      if (error instanceof AuthError) throw redirect({ to: "/auth/sign-in" });
+      throw error;
     }
   },
   component: DashboardPage,

@@ -1,8 +1,8 @@
 import { type Context, Hono } from "hono";
-import { z } from "zod";
 import { NotFoundError } from "@/lib/errors";
 import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
+import { parseWithValidation, revokeOthersSchema } from "@/lib/validation";
 import { uuidParam } from "@/server/api/route-params";
 import { authMiddleware } from "@/server/middleware/auth";
 import {
@@ -57,10 +57,6 @@ router.get("/sessions/:sessionId", async (c) => {
 });
 
 // DELETE /sessions/revoke-others — revoke all sessions except the current one
-const revokeOthersSchema = z.object({
-  currentSessionId: z.string().uuid().optional(),
-});
-
 router.delete("/sessions/revoke-others", async (c) => {
   const { userId } = c.var.user;
   const db = c.var.db;
@@ -71,7 +67,7 @@ router.delete("/sessions/revoke-others", async (c) => {
   } catch {
     body = {};
   }
-  const parsed = revokeOthersSchema.parse(body);
+  const parsed = parseWithValidation(revokeOthersSchema, body);
 
   const revokedCount = await revokeOtherSessions(db, userId, parsed.currentSessionId, actorOf(c));
 

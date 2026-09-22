@@ -1,29 +1,13 @@
-import { sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { ValidationError } from "@/lib/errors";
 import { getClientIp } from "@/lib/ip";
 import { success } from "@/lib/response";
+import { confirmMfaSchema, parseWithValidation, verifyLoginSchema } from "@/lib/validation";
 import { authMiddleware } from "@/server/middleware/auth";
 import { verifyMfaChallengeLogin } from "@/services/auth/auth.service";
 import { confirmMFASetup, disableMFA, getMFAStatus, initiateMFASetup } from "@/services/auth/mfa";
 import { setSessionCookies } from "./session-cookies";
-
-const confirmSchema = z.object({
-  token: z.string().length(6, "TOTP code must be 6 digits"),
-});
-
-const verifyLoginSchema = z.object({
-  mfaSessionId: z.string().min(1, "Challenge token is required").max(128),
-  code: z
-    .string()
-    .regex(
-      /^(\d{6}|[A-Za-z0-9]{8})$/,
-      "MFA code must be a 6-digit TOTP code or an 8-character backup code",
-    ),
-  rememberMe: z.boolean().optional().default(false),
-});
 
 const router = new Hono();
 
@@ -41,29 +25,22 @@ router.post("/mfa/verify-login", async (c) => {
     throw new ValidationError("Invalid JSON body");
   }
 
-  const parsed = verifyLoginSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join(".") || "_root",
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
+  const parsed = parseWithValidation(verifyLoginSchema, body);
 
   const db = c.var.db;
   const ip = getClientIp(c, getConfig());
 
   const result = await verifyMfaChallengeLogin(db, {
-    challengeToken: parsed.data.mfaSessionId,
-    code: parsed.data.code,
-    rememberMe: parsed.data.rememberMe,
+    challengeToken: parsed.mfaSessionId,
+    code: parsed.code,
+    rememberMe: parsed.rememberMe,
     ...(ip ? { ip } : {}),
   });
 
   setSessionCookies(c, {
     accessToken: result.accessToken!,
     refreshToken: result.refreshToken!,
-    rememberMe: parsed.data.rememberMe,
+    rememberMe: parsed.rememberMe,
   });
 
   return c.json(
@@ -108,21 +85,8 @@ router.post("/mfa/verify-setup", authMiddleware, async (c) => {
     throw new ValidationError("Invalid JSON body");
   }
 
-  const parsed = confirmSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join("."),
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
-
-  const userRows = await db.execute<{ email: string }>(
-    sql`SELECT email FROM users WHERE id = ${userId} LIMIT 1`,
-  );
-  const userEmail = (userRows as any).rows?.[0]?.email as string | undefined;
-
-  await confirmMFASetup(db, userId, parsed.data.token, userEmail);
+  const parsed = parseWithValidation(confirmMfaSchema, body);
+  await confirmMFASetup(db, userId, parsed.token);
   return c.json(success({ message: "Two-factor authentication enabled." }));
 });
 

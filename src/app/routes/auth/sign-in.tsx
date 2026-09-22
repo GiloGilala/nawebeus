@@ -2,6 +2,7 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
+import { messageForAppError } from "@/app/lib/client-errors";
 import { signinServerFn } from "@/app/server-functions/auth";
 
 export const Route = createFileRoute("/auth/sign-in")({
@@ -26,7 +27,7 @@ function SignInPage() {
         setMessage(`Signed in: ${(result as { user: { id: string } }).user.id}`);
       }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      setMessage(messageForAppError(err));
     }
   };
 

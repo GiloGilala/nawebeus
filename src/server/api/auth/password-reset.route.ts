@@ -1,20 +1,11 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { AuthError, ValidationError } from "@/lib/errors";
 import { validatePassword } from "@/lib/password";
 import { success } from "@/lib/response";
+import { forgotPasswordSchema, parseWithValidation, resetPasswordSchema } from "@/lib/validation";
 import { forgotPassword, resetPassword } from "@/services/auth/password-reset";
 
 const router = new Hono();
-
-const forgotSchema = z.object({
-  email: z.string().email("Invalid email format"),
-});
-
-const resetSchema = z.object({
-  token: z.string().min(1, "Token is required"),
-  password: z.string().min(1, "Password is required"),
-});
 
 router.post("/forgot-password", async (c) => {
   let body: unknown;
@@ -24,19 +15,12 @@ router.post("/forgot-password", async (c) => {
     throw new ValidationError("Invalid JSON body");
   }
 
-  const parsed = forgotSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join("."),
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
+  const parsed = parseWithValidation(forgotPasswordSchema, body);
 
   const db = c.var.db;
   // We always show the same message regardless of whether the email exists
   // No Origin header: the emailed link's base is server-decided (NWB-P0-021).
-  await forgotPassword(db, parsed.data.email);
+  await forgotPassword(db, parsed.email);
   return c.json(
     success({
       message: "If an account with that email exists, a password reset link has been sent.",
@@ -52,16 +36,7 @@ router.post("/reset-password", async (c) => {
     throw new ValidationError("Invalid JSON body");
   }
 
-  const parsed = resetSchema.safeParse(body);
-  if (!parsed.success) {
-    const details = parsed.error.issues.map((i) => ({
-      field: i.path.join("."),
-      message: i.message,
-    }));
-    throw new ValidationError("Validation failed", details);
-  }
-
-  const { token, password } = parsed.data;
+  const { token, password } = parseWithValidation(resetPasswordSchema, body);
 
   const complexity = validatePassword(password);
   if (!complexity.valid) {
