@@ -1,4 +1,4 @@
-# `tanstack-start.md` — Version 1.1 (Merged)
+# `tanstack-start.md` — Version 1.1 
 
 ```markdown
 # TanStack Start Server Functions
