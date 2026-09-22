@@ -55,7 +55,7 @@ This document complements the **Architecture** document (which explains the "why
 | **Search (Year 2+)** | Elasticsearch | 8+ | 🗓 Planned | — |
 | **File Storage** | Cloudflare R2 + Bunny CDN | — | ✅ Selected | — |
 | **Payments** | Paystack | Latest | ✅ Selected | ADR-007 |
-| **Email** | Resend (HTTP API, no SDK) | API v1 | ✅ Selected | DEC-028 |
+| **Email** | Nodemailer (SMTP/SES) | Latest | ✅ Selected | — |
 | **Realtime** | WebSockets (Hono native) | — | ✅ Selected | — |
 | **Push Notifications** | Expo Notifications (FCM/APNs) | Latest | ✅ Selected | — |
 | **Hosting** | Self-hosted VPS (Nigeria) + WireGuard | — | ✅ Selected | ADR-008 |
@@ -711,66 +711,56 @@ DELETE FROM rate_limit_entries WHERE created_at < UNIXEPOCH() - 3600;
 
 ---
 
-### 5.8 Email: Resend
+### 5.8 Email: Nodemailer (SMTP)
 
 | Field | Details |
 |-------|---------|
-| **Decision** | Resend, called over its HTTP API from Bun's `fetch` — no SDK, behind the `EmailTransport` interface in `src/services/email/` |
-| **Status** | ✅ Selected (DEC-028, approved 2026-01-25; implemented NWB-P1-004, 2026-09-22) |
-| **Version Policy** | The REST API is unversioned in the path; the request shape this codebase sends is pinned by `src/tests/email.test.ts` |
+| **Decision** | Nodemailer (Latest) with configurable SMTP backend |
+| **Status** | ✅ Selected |
+| **Version Policy** | Pin to major version; patch updates applied with standard cycle |
 
-> **Correction (2026-09-22).** Earlier revisions of this section specified Nodemailer over SMTP/SES.
-> `Decision Log.md` DEC-028 and `Roadmap.md` §4.3 had already chosen Resend; the execution plan's
-> D4 recorded this section as the defect. It now matches the decision and the code.
-
-**Why Resend:**
+**Why Nodemailer:**
 
 | Reason | Detail |
 |--------|--------|
-| **One HTTP call** | `POST /emails` with a JSON body is the whole integration; there is no SMTP session, connection pool or TLS negotiation to operate on a single VPS |
-| **Idempotent sends** | The `Idempotency-Key` header dedupes for 24 h, which is what makes an at-least-once outbox (pg-boss retries) safe — a retry after a dropped response cannot double-send |
-| **No dependency** | Bun's `fetch` is enough; the `resend` package would wrap the same call and hide the request the tests want to pin |
-| **Domain-verified sender** | Sending requires a verified domain with SPF/DKIM, which is the deliverability posture the NDPR notices and password resets need anyway |
-| **Webhooks later** | Delivery, bounce and complaint events are available for the notification engine (P1-008) and a suppression list (P6) without changing the transport |
+| **Mature and stable** | 10+ years of production use; minimal API surface changes between major versions |
+| **Provider-agnostic** | Nodemailer itself is provider-agnostic — the SMTP backend can be swapped without changing application code |
+| **Works with Bun** | Full compatibility with Bun's Node.js API layer |
+| **HTML and text** | First-class support for HTML emails with plain-text fallback |
+| **Attachments** | Report PDF attachment support for scheduled report delivery |
+| **AWS SES compatible** | Can switch to SES for high-volume sending without code changes |
+| **No external API dependency** | Core Nodemailer runs without an API key — can use any SMTP server |
 
-**How it is wired (NWB-P1-004):**
+**SMTP Backend Strategy:**
 
-| Piece | Where | What it does |
-|-------|-------|--------------|
-| Transport | `src/services/email/resend.ts` | Builds the request, classifies failures (`EmailDeliveryError.retryable`: 429/5xx/timeout/network retry; other 4xx are final), 10 s timeout |
-| Console transport | `src/services/email/console.ts` | Development and tests: prints the message; how a local verification link is read |
-| Outbox | `src/services/email/service.ts` + `src/jobs/email-deliver.ts` | `emailService.send()` files an `email.deliver` job when the queue is up (6 backed-off retries ≈ 1 h, completed jobs deleted after 1 h because payloads carry token links); sends directly when there is no queue |
-| Audit | `email.delivered` / `email.delivery_failed` | Every outcome, scoped to the tenant/user, recipient masked (`j***@example.com`) |
-| Config | `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO`, `RESEND_API_BASE_URL`, `EMAIL_SEND_TIMEOUT_MS` | A key selects Resend; production refuses console-by-omission |
-| Smoke test | `bun run email:smoke -- --to <addr>` | One real send, prints the provider id — the Phase 2 exit-gate evidence |
+| Phase | SMTP Backend | Monthly Volume | Cost |
+|-------|-------------|---------------|------|
+| MVP | AWS SES (SMTP interface) | <10,000 emails | ~₦5,000/month |
+| Growth | AWS SES | <100,000 emails | ~₦40,000/month |
+| Scale | AWS SES or Postmark | 100,000+ | Custom |
 
 **Email Types:**
 
 | Email Type | Template | Trigger |
 |-----------|----------|---------|
-| Email verification | inline HTML (`kind: verification`) | Signup, resend |
-| Password reset | inline HTML (`kind: password_reset`) | Password reset request |
-| Email-change confirmation | inline HTML (`kind: email_change`) | Change-email request |
-| MFA enabled notice | inline HTML (`kind: mfa_enabled`) | TOTP enrolment confirmed |
-| Team invitation | inline HTML (`kind: invitation`) | Invite team member action |
-| Welcome email | `welcome.tsx` | Account activation (planned, P1-008) |
-| Crisis alert | `crisis-alert.tsx` | S3+ crisis detected (planned) |
-| Scheduled report | `report-delivery.tsx` | Scheduled report job (planned) |
-| Subscription receipt | `invoice.tsx` | Paystack `charge.success` webhook (planned) |
-| Subscription renewal reminder | `renewal-reminder.tsx` | 7 days before renewal (planned) |
-| Weekly digest | `weekly-digest.tsx` | Scheduled job (Mondays 8 AM WAT) (planned) |
-
-Templates (React Email or otherwise) are the notification engine's concern (P1-008); the transport
-takes `html` + optional `text` and does not care how they were produced.
+| Welcome email | `welcome.tsx` | Account activation |
+| Email verification | `verify-email.tsx` | Signup |
+| Password reset | `reset-password.tsx` | Password reset request |
+| Team invitation | `team-invite.tsx` | Invite team member action |
+| Crisis alert | `crisis-alert.tsx` | S3+ crisis detected |
+| Scheduled report | `report-delivery.tsx` | Scheduled report job |
+| Subscription receipt | `invoice.tsx` | Paystack `charge.success` webhook |
+| Subscription renewal reminder | `renewal-reminder.tsx` | 7 days before renewal |
+| Weekly digest | `weekly-digest.tsx` | Scheduled job (Mondays 8 AM WAT) |
 
 **Alternatives Considered:**
 
 | Alternative | Reason Rejected |
 |-------------|----------------|
-| **Nodemailer + SMTP/SES** | An SMTP client and an AWS account to operate for one call a request path makes; no idempotency key, so outbox retries could double-send; DEC-028 had already chosen otherwise |
-| **SendGrid** | Mature service but heavier API and per-email cost from day one |
+| **Resend** | Newer service with a good React Email integration, but less mature than Nodemailer; adds an external API dependency we can avoid |
+| **SendGrid** | Mature service but adds an external dependency and per-email cost from day one |
 | **Postmark** | Excellent deliverability but paid-only with no free tier; cost is material at low volume |
-| **AWS SES directly** | Cheapest at volume, but the SDK, IAM and sandbox exit process are heavy for an MVP; revisit if volume makes Resend's pricing material |
+| **AWS SES directly** | SES SDK can be used, but Nodemailer's abstraction layer means we can switch backends without code changes |
 
 ---
 
@@ -1009,7 +999,7 @@ Client connects → JWT validated in WebSocket handshake
 | PostgreSQL | Separate test database; reset between test runs via `drizzle-kit push --force` |
 | SQLite cache | In-memory mode; no persistence between tests |
 | Paystack | Paystack test mode API keys; no real payments |
-| Email | Console transport (or `spyOn(emailService, "send")`); the Resend transport is tested against an injected `fetch` and a local `Bun.serve` stub — no real sends |
+| Email | Nodemailer in-memory transport; emails captured, not sent |
 | Cloudflare R2 | Mock S3 client (via `jest-mock-extended`); no real storage calls |
 
 ---
@@ -1151,7 +1141,7 @@ This section documents rejected alternatives — as important as the choices mad
 | File Storage | MinIO (self-hosted) | Operational overhead; no CDN benefits |
 | Payments | Stripe | Not primary in Nigeria; USD-first with conversion complexity; limited USSD |
 | Payments | Flutterwave | Subscription management less mature than Paystack |
-| Email | Nodemailer (SMTP/SES) | An SMTP client to operate for one HTTP call's worth of integration; no idempotency key for outbox retries; superseded by DEC-028 (Resend) |
+| Email | Resend | Newer; external API dependency we can avoid with Nodemailer |
 | Email | SendGrid | External dependency; per-email cost from day one |
 | Email | Postmark | Paid-only; no free tier for development |
 | Hosting | Vercel | Data sovereignty violation; expensive at scale |
@@ -1270,7 +1260,6 @@ Migrations are tracked in the **Decision Log** and recorded as ADRs.
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0.1 | 2026-09-22 | Engineering Lead | §5.8 corrected from Nodemailer to Resend per DEC-028 / execution plan D4, with the NWB-P1-004 wiring (transport, outbox, audit, config, smoke test); summary table, test-environment table and "not chosen" table updated to match. |
 | 1.0.0 | 2026-07-21 | Engineering Lead | Unified and expanded Tech Stack document. Merges and improves both source documents into a single authoritative reference. Adds: Nigerian market fit rationale for every major technology choice, Paystack subscription tier pricing in ₦, Bun-native rationale table, complete SQLite cache key design with TTLs, Nodemailer SMTP backend strategy with ₦ cost estimates, file storage policy table by file type, WebSocket event naming conventions, comprehensive observability stack with alert thresholds, VS Code extension recommendations, complete "what we did not choose" table with detailed rejection reasons, dependency addition checklist, and dependency migration process. |
 
 ---

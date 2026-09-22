@@ -117,7 +117,9 @@ Do:
 - Call sites: pass `kind` and tenant/user scope; behaviour otherwise unchanged.
 - Gate: `EmailNotVerifiedError` (403), middleware check on both branches, exempt-path predicate;
   invitation acceptance marks the invitee verified.
-- `bun run email:smoke`; `Tech Stack.md` §5.8 + rows corrected to Resend (D-04); AGENTS.md; spec.
+- `bun run email:smoke`; AGENTS.md; spec. (~~`Tech Stack.md` §5.8 corrected to Resend~~ — struck
+  2026-09-22: the operator owns that file and moved it to v1.1 on `main` the same afternoon;
+  this ticket does not touch it. See Comments.)
 - Tests: transport mapping against a fake fetch (2xx, 4xx non-retryable, 429 retry with
   `retry-after`, 5xx exhaustion, timeout, network error, idempotency header stable across
   retries, `to` array, from/reply-to defaults); service routing (queued / direct / enqueue
@@ -218,9 +220,15 @@ the gate found that nobody had asked about:
   recipient>`. Exercised locally on all four exit paths (console refused / console allowed /
   bad flag / `EMAIL_PROVIDER=resend` without a key). `parseSmokeArgs` is unit-tested; the
   script body is the only new file under 50% line coverage (46%) — it needs a network.
-- **Docs:** `Tech Stack.md` §5.8 rewritten for Resend (summary row, test-environment row and
-  the "not chosen" table now agree; changelog 1.0.1), execution-plan D4 closed by it.
-  Roadmap: P1-004 row ticked, NWB-P0-015's decision note carries the "checkbox flipped" entry.
+- **Docs:** roadmap rows for P1-003/P1-004 ticked, NWB-P0-015's decision note carries the
+  "checkbox flipped" entry, AGENTS.md. **`Tech Stack.md` is deliberately untouched.** The
+  ticket's Do-list had it corrected to Resend (execution-plan D4 calls §5.8 the doc defect), and
+  a first commit did that — then the operator moved the file to **v1.1** on `main` the same
+  afternoon (`ea338b0`/`a87fd2f`, the TanStack Start guide with the stack merged in) and asked
+  that it not be edited from here. The edit was dropped from this branch so the PR merges
+  clean. Open for the operator: v1.1's Appendix B still cross-references "Email (Nodemailer)
+  §5.8", while the code, DEC-028 and the roadmap say Resend; D4 stays formally open until that
+  row is changed by whoever owns the document.
 - **Tests:** `email.test.ts` 33 (incl. the transport against a real `Bun.serve` socket),
   `queue/email-deliver.test.ts` 9, `auth/email-verification-gate.test.ts` 7, plus extensions to
   `config.test.ts` (12), `queue/worker.test.ts` (25), `queue/loop.test.ts` (10, outbox
