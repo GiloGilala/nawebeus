@@ -230,6 +230,31 @@ async function seed() {
       action: "delete",
       name: "Delete Templates",
     },
+    // Contacts (NWB-P1-007)
+    {
+      string: "contacts.read",
+      resource: "contacts",
+      action: "read",
+      name: "View Contacts and Interactions",
+    },
+    {
+      string: "contacts.create",
+      resource: "contacts",
+      action: "create",
+      name: "Create Contacts and Log Interactions",
+    },
+    {
+      string: "contacts.update",
+      resource: "contacts",
+      action: "update",
+      name: "Update Contacts and Interactions",
+    },
+    {
+      string: "contacts.delete",
+      resource: "contacts",
+      action: "delete",
+      name: "Delete Contacts",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -304,6 +329,7 @@ async function seed() {
     // needs `approvals.decide` (NWB-P1-003).
     "approvals.read",
     "templates.read",
+    "contacts.read",
   ];
   const teamManagement = [
     "members.read",
@@ -321,8 +347,15 @@ async function seed() {
     "approvals.create",
     "templates.create",
     "templates.update",
+    "contacts.create",
+    "contacts.update",
   ];
-  const contentApproval = ["posts.publish", "approvals.decide", "templates.delete"];
+  const contentApproval = [
+    "posts.publish",
+    "approvals.decide",
+    "templates.delete",
+    "contacts.delete",
+  ];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [
     "org.update",

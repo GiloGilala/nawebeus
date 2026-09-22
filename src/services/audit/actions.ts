@@ -224,6 +224,36 @@ export const AUDIT_ACTIONS = {
     category: "compliance",
     resourceType: "data_export_request",
   },
+  "contact.created": {
+    description: "A new CRM contact was created.",
+    category: "engagement",
+    resourceType: "contact",
+  },
+  "contact.deleted": {
+    description: "A contact was soft-deleted.",
+    category: "engagement",
+    resourceType: "contact",
+  },
+  "contact.followup_completed": {
+    description: "A pending interaction follow-up was marked completed.",
+    category: "engagement",
+    resourceType: "contact_interaction",
+  },
+  "contact.interaction_logged": {
+    description: "An outreach or response interaction was logged for a contact.",
+    category: "engagement",
+    resourceType: "contact_interaction",
+  },
+  "contact.merged": {
+    description: "A contact was merged into a surviving target contact.",
+    category: "engagement",
+    resourceType: "contact",
+  },
+  "contact.updated": {
+    description: "A contact's identity, details, or metadata was updated.",
+    category: "engagement",
+    resourceType: "contact",
+  },
   "email.delivered": {
     description:
       "An outbound email was accepted by the transport (Resend or console); recipient masked, template kind and provider id recorded.",

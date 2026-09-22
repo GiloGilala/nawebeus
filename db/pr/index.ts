@@ -161,7 +161,7 @@ export const journalists = pgTable(
   "journalists",
   {
     // PK = FK to contacts.id (shared-PK inheritance)
-    id: varchar("id", { length: 32 })
+    id: varchar("id", { length: 64 })
       .notNull()
       .primaryKey()
       .references(() => contacts.id, { onDelete: "cascade" }),

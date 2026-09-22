@@ -200,6 +200,34 @@ export class TemplateNotApprovedError extends AppError {
   }
 }
 
+/**
+ * Optimistic concurrency conflict on contacts (NWB-P1-007).
+ */
+export class ContactVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "CONTACT_VERSION_CONFLICT";
+
+  constructor(
+    message = "Contact was modified concurrently. Please reload and retry.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Contact has already been merged into another (NWB-P1-007).
+ */
+export class ContactAlreadyMergedError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "CONTACT_ALREADY_MERGED";
+
+  constructor(
+    message = "Contact has already been merged into another contact.",
+  ) {
+    super(message);
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

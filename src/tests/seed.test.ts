@@ -142,6 +142,22 @@ describe.skipIf(!hasDb())("seed data", () => {
       expect(has(code, "templates.update")).toBe(false);
     }
     expect(has("creator", "templates.delete")).toBe(false);
+    // Contacts (NWB-P1-007): everyone reads; Creator and up create & update; Manager and up delete
+    for (const code of ["owner", "admin", "manager", "creator", "analyst", "viewer"]) {
+      expect(has(code, "contacts.read")).toBe(true);
+    }
+    for (const code of ["owner", "admin", "manager", "creator"]) {
+      expect(has(code, "contacts.create")).toBe(true);
+      expect(has(code, "contacts.update")).toBe(true);
+    }
+    for (const code of ["owner", "admin", "manager"]) {
+      expect(has(code, "contacts.delete")).toBe(true);
+    }
+    for (const code of ["analyst", "viewer"]) {
+      expect(has(code, "contacts.create")).toBe(false);
+      expect(has(code, "contacts.update")).toBe(false);
+    }
+    expect(has("creator", "contacts.delete")).toBe(false);
     // Analytics: everyone reads; export is Manager/Analyst and above
     for (const code of ["owner", "admin", "manager", "creator", "analyst", "viewer"]) {
       expect(has(code, "analytics.read")).toBe(true);

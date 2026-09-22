@@ -72,6 +72,17 @@ export {
   updateOrgServerFn,
 } from "./orgs";
 export {
+  completeFollowUpServerFn,
+  createContactServerFn,
+  createInteractionServerFn,
+  deleteContactServerFn,
+  getContactServerFn,
+  listContactsServerFn,
+  listInteractionsServerFn,
+  mergeContactsServerFn,
+  updateContactServerFn,
+} from "./contacts";
+export {
   createTemplateServerFn,
   deleteTemplateServerFn,
   getTemplateServerFn,

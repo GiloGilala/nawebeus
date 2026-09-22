@@ -43,6 +43,13 @@
       "when": 1790097746141,
       "tag": "0005_templates_id_lengths",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790104879387,
+      "tag": "0006_contacts_id_lengths",
+      "breakpoints": true
     }
   ]
 }
