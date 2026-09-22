@@ -205,6 +205,31 @@ async function seed() {
       action: "decide",
       name: "Approve, Reject or Request Changes",
     },
+    // Templates (NWB-P1-006)
+    {
+      string: "templates.read",
+      resource: "templates",
+      action: "read",
+      name: "View Templates",
+    },
+    {
+      string: "templates.create",
+      resource: "templates",
+      action: "create",
+      name: "Create Templates",
+    },
+    {
+      string: "templates.update",
+      resource: "templates",
+      action: "update",
+      name: "Update Templates",
+    },
+    {
+      string: "templates.delete",
+      resource: "templates",
+      action: "delete",
+      name: "Delete Templates",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -278,6 +303,7 @@ async function seed() {
     // Reading approvals is scoped by the service (own requests, own inbox); the org-wide view
     // needs `approvals.decide` (NWB-P1-003).
     "approvals.read",
+    "templates.read",
   ];
   const teamManagement = [
     "members.read",
@@ -288,8 +314,15 @@ async function seed() {
     "users.update",
     "roles.read",
   ];
-  const contentCreation = ["posts.create", "posts.update", "posts.delete", "approvals.create"];
-  const contentApproval = ["posts.publish", "approvals.decide"];
+  const contentCreation = [
+    "posts.create",
+    "posts.update",
+    "posts.delete",
+    "approvals.create",
+    "templates.create",
+    "templates.update",
+  ];
+  const contentApproval = ["posts.publish", "approvals.decide", "templates.delete"];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [
     "org.update",

@@ -48,6 +48,21 @@ export {
   zodIssues,
 } from "./parse";
 export {
+  approveTemplateSchema,
+  createTemplateSchema,
+  listTemplatesQuerySchema,
+  PLATFORMS,
+  type Platform,
+  recordUsageSchema,
+  renderTemplateSchema,
+  TEMPLATE_ID_PATTERN,
+  TEMPLATE_TYPES,
+  type TemplateType,
+  templateIdSchema,
+  templateVariableSchema,
+  updateTemplateSchema,
+} from "./templates.schemas";
+export {
   adminUpdateByIdSchema,
   adminUpdateSchema,
   dataExportIdSchema,

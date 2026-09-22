@@ -16,6 +16,7 @@ import { approvalRootRouter } from "./api/approvals";
 import { auditRootRouter } from "./api/audit";
 import { authRouter } from "./api/auth";
 import { orgRootRouter } from "./api/orgs";
+import { templateRootRouter } from "./api/templates";
 import { userRouter } from "./api/users";
 import { errorHandler } from "./middleware/error-handler";
 
@@ -34,6 +35,7 @@ function mountApiRouters(app: Hono): void {
   app.route("/api", apiKeyRootRouter);
   app.route("/api", auditRootRouter);
   app.route("/api", approvalRootRouter);
+  app.route("/api", templateRootRouter);
 }
 
 export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {

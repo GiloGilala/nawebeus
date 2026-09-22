@@ -173,6 +173,33 @@ export class ApprovalStateError extends AppError {
   }
 }
 
+/**
+ * Optimistic locking conflict when editing a template (NWB-P1-006).
+ * Application code issues UPDATE templates SET ..., version = version + 1
+ * WHERE id = $id AND version = $expectedVersion.
+ * 0 rows affected indicates concurrent modification.
+ */
+export class TemplateVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "TEMPLATE_VERSION_CONFLICT";
+
+  constructor(message = "Template was modified concurrently; please refetch and retry.") {
+    super(message);
+  }
+}
+
+/**
+ * Template requires approval before it can be used by non-creator members (NWB-P1-006).
+ */
+export class TemplateNotApprovedError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "EH_TEMPLATE_NOT_APPROVED";
+
+  constructor(message = "Template requires approval before it can be used.") {
+    super(message);
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

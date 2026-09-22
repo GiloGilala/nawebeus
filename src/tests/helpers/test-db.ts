@@ -86,3 +86,10 @@ export async function ensureAnonymizationTrigger(db: Db): Promise<void> {
 export async function ensureRetentionTables(db: Db): Promise<void> {
   return ensureMigrationApplied(db, "0003_legal_holds_backup_records.sql");
 }
+
+/**
+ * Ensure the templates table has updated column lengths by executing migration 0005.
+ */
+export async function ensureTemplatesSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0005_templates_id_lengths.sql");
+}

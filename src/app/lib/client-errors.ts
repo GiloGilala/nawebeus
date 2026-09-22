@@ -13,6 +13,7 @@ export function messageForAppError(error: unknown): string {
     if (error.statusCode === 403) return "You do not have permission to do that.";
     if (error.statusCode === 401) return "Please sign in again.";
     if (error.statusCode === 404) return error.message || "Not found.";
+    if (error.statusCode === 409) return error.message;
     if (error.statusCode === 422 || error.statusCode === 400) return error.message;
     if (error.statusCode === 429) return "Too many requests. Try again shortly.";
     return "An unexpected error occurred.";

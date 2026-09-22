@@ -336,6 +336,36 @@ export const AUDIT_ACTIONS = {
     resourceType: "user",
     legacyName: true,
   },
+  "template.approved": {
+    description: "Template content was approved for organization-wide use.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.created": {
+    description: "A new template was created.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.deleted": {
+    description: "A template was deleted or deactivated.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.rejected": {
+    description: "A template approval request was rejected.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.updated": {
+    description: "A template's content, metadata, or targeting was updated.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.used": {
+    description: "A template was applied to compose content; usage count and metrics updated.",
+    category: "content",
+    resourceType: "template",
+  },
 } as const satisfies Record<string, AuditActionSpec>;
 
 /** Every action the application is allowed to write. */

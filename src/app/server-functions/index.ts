@@ -72,6 +72,15 @@ export {
   updateOrgServerFn,
 } from "./orgs";
 export {
+  createTemplateServerFn,
+  deleteTemplateServerFn,
+  getTemplateServerFn,
+  listTemplatesServerFn,
+  recordTemplateUsageServerFn,
+  renderTemplateServerFn,
+  updateTemplateServerFn,
+} from "./templates";
+export {
   changePasswordServerFn as changeMyPasswordServerFn,
   confirmEmailChangeServerFn,
   deleteAccountServerFn,

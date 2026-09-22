@@ -38,7 +38,7 @@ correlation id from log to audit row · all purge/reclamation workers running on
 | NWB-P1-016 | Expire lapsed invitations (split out of P1-015's residuals) | S–M | [issues/06-expired-invitation-cleanup.md](issues/06-expired-invitation-cleanup.md) | **done** 2026-09-22 — `expireInvitations` + resource-scoped invitee scrub, 5th job |
 | NWB-P1-004 | Email transport: Resend adapter behind `EmailTransport` | M | [issues/09-email-transport-resend.md](issues/09-email-transport-resend.md) | **done** 2026-09-22 — `src/services/email/` (Resend over `fetch`, console for dev), `email.deliver` outbox on pg-boss (8th job, on-demand) with direct-send fallback, `email.delivered`/`email.delivery_failed` audit with masked recipient, 403 `EMAIL_NOT_VERIFIED` gate, invitation acceptance = verified; fixed two latent verification bugs the gate exposed. **Exit-gate evidence pending operator run** — see below |
 | NWB-P1-005 | Media/storage service | L | to file | **blocked on D6** |
-| NWB-P1-006 | Templates service | M | to file | ready-for-agent |
+| NWB-P1-006 | Templates service | M | [issues/10-templates-service.md](issues/10-templates-service.md) | **done** 2026-09-22 — unified template service with CRUD, optimistic concurrency, platform variants, variable rendering, usage tracking, approval workflow, seeded permissions, audit events, and migration 0005 |
 | NWB-P1-007 | Contacts service | M | to file | ready-for-agent |
 | NWB-P1-008 | Notification engine core | L | to file | ready-for-agent (P1-004 ✅ — `emailService.send({ kind, context, to, subject, html })` is the seam) |
 | NWB-P1-009 | Feature flags + system config | M | to file | ready-for-agent |
