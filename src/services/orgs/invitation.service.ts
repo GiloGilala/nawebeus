@@ -14,6 +14,11 @@ import { anonymizeAuditInviteeEmail, writeAuditLog } from "../audit";
 import { createEmailVerificationToken, createUserRecord } from "../auth/user-record";
 import { emailService } from "../email";
 import {
+  assertNoActiveHoldForOrg,
+  assertNoActiveHoldForUser,
+  assertNoActiveHoldForUserEmail,
+} from "../retention/legal-holds.service";
+import {
   assertRoleGrantAllowed,
   type MemberRole,
   requireActorRole,
@@ -623,11 +628,27 @@ const LAPSED_INVITE_GRACE_DAYS = 30;
  * Collected pre-delete in the hook, while the member row still exists; the scrub itself stays
  * value-gated, so a resource-scoped row holding someone else's address is still untouched.
  */
-async function collectInviteeEmails(tx: DbOrTx, memberId: string): Promise<string[]> {
-  const member = await tx.execute<{ invited_email: string | null }>(
-    sql`SELECT invited_email FROM organization_members WHERE id = ${memberId}`,
+interface InviteeScrubContext {
+  emails: string[];
+  userId: string | null;
+  organizationId: string | null;
+  invitedEmail: string | null;
+}
+
+async function collectInviteeContext(tx: DbOrTx, memberId: string): Promise<InviteeScrubContext> {
+  const member = await tx.execute<{
+    invited_email: string | null;
+    user_id: string | null;
+    organization_id: string;
+  }>(
+    sql`SELECT invited_email, user_id, organization_id
+        FROM organization_members WHERE id = ${memberId}`,
   );
-  const memberRow = (member as unknown as { rows?: { invited_email: string | null }[] }).rows?.[0];
+  const memberRow = (
+    member as unknown as {
+      rows?: { invited_email: string | null; user_id: string | null; organization_id: string }[];
+    }
+  ).rows?.[0];
   const audit = await tx.execute<{ email: string | null }>(
     sql`SELECT DISTINCT after_state->>'email' AS email
         FROM unified_audit_log
@@ -641,15 +662,24 @@ async function collectInviteeEmails(tx: DbOrTx, memberId: string): Promise<strin
   for (const row of auditRows) {
     if (row.email) emails.add(row.email);
   }
-  return [...emails];
+  // A missing row means a concurrent run got there first — its DELETE will remove 0 and the
+  // row counts as neither (the deleteRowsPerRow contract), so the context degrades to empty
+  // and the hold checks below are skipped: there is nothing left to hold.
+  if (!memberRow) return { emails: [], userId: null, organizationId: null, invitedEmail: null };
+  return {
+    emails: [...emails],
+    userId: memberRow.user_id,
+    organizationId: memberRow.organization_id,
+    invitedEmail: memberRow.invited_email,
+  };
 }
 
 /**
  * Permanently deletes invitations that lapsed past the grace window, one row at a time.
- * Returns `{ deleted, failed, errors, auditAnonymized }` — rows actually erased, rows that
- * refused, the per-row reasons, and audit rows scrubbed of invitee addresses. Called by the
- * `retention.purge-expired-invitations` job; idempotent at the source, so at-least-once delivery
- * is safe — a re-run simply finds nothing.
+ * Returns `{ deleted, failed, errors, auditAnonymized, held }` — rows actually erased, rows
+ * that refused, the per-row reasons, audit rows scrubbed of invitee addresses, and rows held
+ * by legal freeze. Called by the `retention.purge-expired-invitations` job; idempotent at the
+ * source, so at-least-once delivery is safe — a re-run simply finds nothing.
  *
  * Candidates are `status='invited'` rows with a known lapse (`expires_at` set and past grace),
  * oldest-lapsed-first. Accepted rows are excluded by the status predicate even though accept
@@ -678,8 +708,20 @@ export async function expireInvitations(
   const ids = ((rows as unknown as { rows?: { id: string }[] }).rows ?? []).map((row) => row.id);
   return deleteRowsPerRow(db, "organization_members", ids, {
     beforeDelete: async (tx, id) => {
-      const emails = await collectInviteeEmails(tx, id);
-      return anonymizeAuditInviteeEmail(tx, { memberId: id, emails });
+      const context = await collectInviteeContext(tx, id);
+      // Hold predicates, invitee-side: the org's hold freezes its invites; a held user's invite
+      // is held evidence whether the row hints at them by id or (legacy rows) names them only
+      // by address. The scrub runs after — scrubbing held evidence would be erasure by another
+      // name. A concurrently-vanished row (null org) skips straight to the no-op scrub.
+      if (context.organizationId !== null) {
+        await assertNoActiveHoldForOrg(tx, context.organizationId, `invitation ${id}`);
+      }
+      if (context.userId !== null) {
+        await assertNoActiveHoldForUser(tx, context.userId, `invitation ${id}`);
+      } else if (context.invitedEmail !== null) {
+        await assertNoActiveHoldForUserEmail(tx, context.invitedEmail, `invitation ${id}`);
+      }
+      return anonymizeAuditInviteeEmail(tx, { memberId: id, emails: context.emails });
     },
   });
 }

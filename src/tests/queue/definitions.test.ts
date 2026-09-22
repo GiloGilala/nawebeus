@@ -77,6 +77,18 @@ describe("queue job set", () => {
     );
   });
 
+  test("retention enforcement runs after the purges and before verification (NWB-P1-010)", () => {
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    // After the purges so the census reads the night's final state; before verification so its
+    // audit rows join the walked set — see `src/lib/scheduler.ts`.
+    expect(order.indexOf(QUEUE_JOBS.purgeExpiredAccounts)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.retentionEnforce),
+    );
+    expect(order.indexOf(QUEUE_JOBS.retentionEnforce)).toBeLessThan(
+      order.indexOf(QUEUE_JOBS.auditChainVerify),
+    );
+  });
+
   test("audit descriptors are `<resource>.<verb>`, unique, and drawn from the enum this table uses", () => {
     const categories = new Set([
       "authentication",

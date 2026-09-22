@@ -34,7 +34,6 @@ import {
   bigint,
   boolean,
   check,
-  decimal,
   index,
   inet,
   integer,
@@ -43,6 +42,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
 import { auditLog } from "../shared/audit";
@@ -417,9 +417,12 @@ export const legalHolds = pgTable(
   {
     id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
-    // At least one of organizationId or userId must be set (CHECK below)
-    organizationId: varchar("organization_id", { length: 32 }),
-    userId: varchar("user_id", { length: 32 }),
+    // Exactly one of organizationId or userId must be set (XOR CHECK below — NWB-P1-010
+    // tightened the model's "at least one": both-set would be a user-in-org semantic nobody
+    // asked for). Width 64, not the model's 32: these hold hyphenated UUIDs (36 chars), mirroring
+    // `auditLog.actorId`. Still plain varchar, not FK — compliance records outlive their subjects.
+    organizationId: varchar("organization_id", { length: 64 }),
+    userId: varchar("user_id", { length: 64 }),
 
     // ─── Hold Details ─────────────────────────────────────────────────────────
     dataType: legalHoldDataTypeEnum("data_type").notNull(),
@@ -435,13 +438,13 @@ export const legalHolds = pgTable(
     preservationNotes: text("preservation_notes"),
 
     // ─── Placed By ────────────────────────────────────────────────────────────
-    placedBy: varchar("placed_by", { length: 32 }).notNull(),
+    placedBy: varchar("placed_by", { length: 64 }).notNull(),
     placedAt: timestamp("placed_at", { withTimezone: true }).notNull().defaultNow(),
 
     // ─── Expiry & Release ─────────────────────────────────────────────────────
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     releasedAt: timestamp("released_at", { withTimezone: true }),
-    releasedBy: varchar("released_by", { length: 32 }),
+    releasedBy: varchar("released_by", { length: 64 }),
     releaseReason: text("release_reason"),
 
     status: legalHoldStatusEnum("status").default("active").notNull(),
@@ -454,8 +457,8 @@ export const legalHolds = pgTable(
 
     check(
       "chk_lh_target_required",
-      sql`${table.organizationId} IS NOT NULL
-        OR ${table.userId} IS NOT NULL`,
+      sql`(${table.organizationId} IS NOT NULL)::int
+        + (${table.userId} IS NOT NULL)::int = 1`,
     ),
     check(
       "chk_lh_release_consistency",
@@ -736,7 +739,9 @@ export const appConfig = pgTable(
 
     // feature_flag scoped by org + key (regardless of environment)
     // Uses partial index to avoid conflicting with system_config entries.
-    unique("uq_ac_org_key")
+    // (`uniqueIndex`, not `unique`: the builder for constraints has no `.where` — the model's
+    // original spelling never compiled. Same DDL either way: a partial UNIQUE index.)
+    uniqueIndex("uq_ac_org_key")
       .on(table.organizationId, table.key)
       .where(sql`${table.kind} = 'feature_flag'`),
 
@@ -832,7 +837,7 @@ export const backupRecords = pgTable(
     id: varchar("id", { length: 32 }).notNull().primaryKey(),
 
     // NULL = system-wide backup
-    organizationId: varchar("organization_id", { length: 32 }),
+    organizationId: varchar("organization_id", { length: 64 }),
 
     // ─── Backup Details ───────────────────────────────────────────────────────
     backupType: backupTypeEnum("backup_type").notNull(),
@@ -883,7 +888,7 @@ export const backupRecords = pgTable(
     retryCount: integer("retry_count").default(0).notNull(),
 
     // ─── Trigger ──────────────────────────────────────────────────────────────
-    triggeredBy: varchar("triggered_by", { length: 32 }),
+    triggeredBy: varchar("triggered_by", { length: 64 }),
     triggerType: varchar("trigger_type", { length: 50 }),
   },
   (table) => [

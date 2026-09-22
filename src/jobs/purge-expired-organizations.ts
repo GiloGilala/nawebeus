@@ -27,6 +27,13 @@ export const purgeExpiredOrganizationsJob: JobDefinition<null> = {
     // would start wedging. A nonzero `failed` makes this run's audit row `warning` (the wrapper's
     // partial-run convention). Members are detached, never deleted with the workspace.
     const result = await purgeExpiredOrganizations(db);
-    return { deleted: result.deleted, failed: result.failed, errors: result.errors };
+    // `held` (NWB-P1-010) counts the rows a legal freeze withheld. No `auditAnonymized` key —
+    // the org purge erases no subject.
+    return {
+      deleted: result.deleted,
+      failed: result.failed,
+      errors: result.errors,
+      held: result.held,
+    };
   },
 };

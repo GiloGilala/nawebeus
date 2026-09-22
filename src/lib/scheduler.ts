@@ -64,7 +64,12 @@ export interface JobSchedule {
  *    instead of being scrubbed-and-deleted redundantly; before the account purge, so a lapsed
  *    invite of a same-night-erased user gets its own audit scrub instead of vanishing in the
  *    cascade and leaving the cleanup to the account scrub's email second pass.
- * 4. **chain verification last** — it walks the night's complete chained set, including whatever
+ * 4. **retention enforcement after the purges** — it touches disjoint rows (DSAR packages,
+ *    sessions, tokens, backup records), so nothing forces the slot except readability: the
+ *    census reads the night's final state, and the enforcers converge either way (a DSAR
+ *    package deleted here would otherwise cascade in the account purge minutes later or
+ *    earlier — same end state).
+ * 5. **chain verification last** — it walks the night's complete chained set, including whatever
  *    the purge window wrote, so it runs after the last mutation rather than before it.
  */
 export const QUEUE_SCHEDULE_DEFAULTS: Record<QueueJobName, string> = {
@@ -72,6 +77,7 @@ export const QUEUE_SCHEDULE_DEFAULTS: Record<QueueJobName, string> = {
   [QUEUE_JOBS.purgeExpiredOrganizations]: "15 2 * * *",
   [QUEUE_JOBS.purgeExpiredInvitations]: "30 2 * * *",
   [QUEUE_JOBS.purgeExpiredAccounts]: "45 2 * * *",
+  [QUEUE_JOBS.retentionEnforce]: "55 2 * * *",
   [QUEUE_JOBS.auditChainVerify]: "0 3 * * *",
 };
 
@@ -116,6 +122,14 @@ export function resolveSchedules(config: Config = getConfig()): JobSchedule[] {
       cron:
         config.QUEUE_CRON_PURGE_EXPIRED_ACCOUNTS ??
         QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.purgeExpiredAccounts],
+      tz,
+      data: null,
+      missed: "once",
+    },
+    {
+      job: QUEUE_JOBS.retentionEnforce,
+      cron:
+        config.QUEUE_CRON_RETENTION_ENFORCE ?? QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.retentionEnforce],
       tz,
       data: null,
       missed: "once",

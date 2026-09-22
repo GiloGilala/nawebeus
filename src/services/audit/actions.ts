@@ -180,6 +180,11 @@ export const AUDIT_ACTIONS = {
     category: "authentication",
     resourceType: "user",
   },
+  "backups.recorded": {
+    description: "A backup run was recorded for lifecycle tracking; the app tracks, never performs.",
+    category: "compliance",
+    resourceType: "backup",
+  },
   "compliance.dsar.requested": {
     description: "Data-export (DSAR) request opened against an account.",
     category: "compliance",
@@ -190,6 +195,17 @@ export const AUDIT_ACTIONS = {
       "Nightly hard-delete of invitations lapsed past the grace window; invitee addresses scrubbed from their audit rows.",
     category: "compliance",
     resourceType: "member",
+  },
+  "legal-holds.placed": {
+    description: "A legal hold froze a user's or organization's erasure; purges skip them.",
+    category: "compliance",
+    resourceType: "legal_hold",
+    severity: "warning",
+  },
+  "legal-holds.released": {
+    description: "A legal hold was lifted; withheld erasures become eligible again.",
+    category: "compliance",
+    resourceType: "legal_hold",
   },
   "organization.deleted": {
     description:
@@ -253,6 +269,19 @@ export const AUDIT_ACTIONS = {
       "Expired rate-limit buckets deleted, so the sliding window cannot fill with corpses.",
     category: "data_ops",
     resourceType: "rate_limit",
+  },
+  "retention.census.decrease_detected": {
+    description:
+      "The nightly audit census found fewer rows than the night before — append-only was violated somewhere below the trigger.",
+    category: "compliance",
+    resourceType: "audit_log",
+    severity: "critical",
+  },
+  "retention.enforced": {
+    description:
+      "Nightly enforcement of the §9.4 schedule: expired DSAR packages, sessions, tokens, and backup file-status.",
+    category: "compliance",
+    resourceType: "retention",
   },
   "security.password_changed": {
     description: "Password changed by an authenticated user; all sessions revoked.",

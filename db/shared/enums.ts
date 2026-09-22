@@ -691,6 +691,19 @@ export const legalHoldStatusEnum = pgEnum("legal_hold_status", [
   "pending_release",
 ]);
 
+/**
+ * Hold urgency, mirroring the house priority set (`engagement_priority`). Referenced by the
+ * `legal_holds` model since it was written but never defined — NWB-P1-010's adoption is what
+ * needed the DDL to exist. P1-010 itself treats every active hold as blocking; priority serves
+ * the future review dashboard, not the worker.
+ */
+export const legalHoldPriorityEnum = pgEnum("legal_hold_priority", [
+  "critical",
+  "high",
+  "medium",
+  "low",
+]);
+
 export const retentionActionEnum = pgEnum("retention_action", [
   "delete",
   "anonymize",
@@ -736,6 +749,17 @@ export const backupStatusEnum = pgEnum("backup_status", [
   "failed",
   "expired",
   "verified",
+]);
+
+/**
+ * Outcome of the most recent full-restore drill against a backup (NULL = never drilled).
+ * Referenced by the `backup_records` model since it was written but never defined — the value
+ * set is NWB-P1-010's, chosen to match the model's `pending → passed | failed` lifecycle.
+ */
+export const backupRestoreStatusEnum = pgEnum("backup_restore_status", [
+  "pending",
+  "passed",
+  "failed",
 ]);
 
 // =============================================================================

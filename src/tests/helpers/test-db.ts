@@ -25,25 +25,22 @@ export async function withTestDb<T>(
 }
 
 /**
- * Ensure the anonymization-aware trigger exists by executing the migration that ships it.
- * Migration SQL, not a copy: if the file stops running, this fails — which is the point.
- * Runs inside the caller's transaction, so it rolls back with the test.
+ * Ensure a migration's objects exist by executing the migration file itself. Migration SQL, not
+ * a copy: if the file stops running, this fails — which is the point. Runs inside the caller's
+ * transaction, so it rolls back with the test.
  *
- * Shared because every purge-with-scrub suite needs the same hermeticity: push-built databases
- * (CI included) have no trigger at all, and without this a scrub test would pass trivially with
- * the flag/trigger integration untested.
+ * `duplicate_object` (42710) is tolerated per statement and nothing else is: generated DDL has
+ * no `IF NOT EXISTS` on `CREATE TYPE`, so a fresh database reports the enums as already there —
+ * which is exactly the state this helper wants. Any other error is a real failure in shipped
+ * DDL and propagates.
+ *
+ * Each statement runs inside its own savepoint, because a swallowed error still aborts the
+ * transaction: without the savepoint, tolerating the expected 42710 would poison every
+ * statement after it with 25P02. The savepoint confines the tolerated failure to itself.
  */
-export async function ensureAnonymizationTrigger(db: Db): Promise<void> {
+export async function ensureMigrationApplied(db: Db, filename: string): Promise<void> {
   const migration = readFileSync(
-    join(
-      import.meta.dir,
-      "..",
-      "..",
-      "..",
-      "drizzle",
-      "migrations",
-      "0002_audit_anonymization_exception.sql",
-    ),
+    join(import.meta.dir, "..", "..", "..", "drizzle", "migrations", filename),
     "utf8",
   );
   const statements = migration
@@ -58,6 +55,34 @@ export async function ensureAnonymizationTrigger(db: Db): Promise<void> {
     .filter((chunk) => chunk.length > 0);
   expect(statements.length).toBeGreaterThan(0);
   for (const statement of statements) {
-    await db.execute(sql.raw(statement));
+    await db.execute(sql.raw("SAVEPOINT ensure_migration_statement"));
+    try {
+      await db.execute(sql.raw(statement));
+      await db.execute(sql.raw("RELEASE SAVEPOINT ensure_migration_statement"));
+    } catch (error) {
+      await db.execute(sql.raw("ROLLBACK TO SAVEPOINT ensure_migration_statement"));
+      if ((error as { code?: unknown } | null)?.code !== "42710") throw error;
+    }
   }
+}
+
+/**
+ * Ensure the anonymization-aware trigger exists by executing the migration that ships it.
+ *
+ * Shared because every purge-with-scrub suite needs the same hermeticity: push-built databases
+ * (CI included) have no trigger at all, and without this a scrub test would pass trivially with
+ * the flag/trigger integration untested.
+ */
+export async function ensureAnonymizationTrigger(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0002_audit_anonymization_exception.sql");
+}
+
+/**
+ * Ensure the retention tables exist by executing the migration that ships them. Fresh
+ * migrate- or push-built databases already have them (the tolerance above covers that); this
+ * is for stale dev databases pushed before the models were adopted — the suite must not depend
+ * on ambient schema.
+ */
+export async function ensureRetentionTables(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0003_legal_holds_backup_records.sql");
 }

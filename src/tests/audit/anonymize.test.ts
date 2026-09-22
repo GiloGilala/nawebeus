@@ -247,7 +247,7 @@ describe.skipIf(!hasDb())("audit anonymization on hard purge", () => {
       );
 
       const outcome = await purgeExpiredAccountsJob.handle({ db, job: ATTEMPT }, null);
-      expect(outcome).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 3 });
+      expect(outcome).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 3, held: 0 });
       expect(await rowGone(db, "users", subject.id)).toBe(true);
 
       // The subject's own row: network context nulled, email redacted, references kept.
@@ -336,7 +336,7 @@ describe.skipIf(!hasDb())("audit anonymization on hard purge", () => {
       );
       expect((await purgeExpiredOrganizations(db)).deleted).toBe(1);
       const retried = await purgeExpiredAccounts(db);
-      expect(retried).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 1 });
+      expect(retried).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 1, held: 0 });
       expect(await rowGone(db, "users", owner.id)).toBe(true);
       const scrubbed = await auditRowByAction(db, "auth.email_change.requested", owner.id);
       expect(scrubbed.actor_ip).toBeNull();

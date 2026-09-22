@@ -3,6 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import { deleteRowsPerRow, type PerRowDeleteResult } from "../../lib/transaction";
 import { writeAuditLog } from "../audit";
+import { assertNoActiveHoldForOrg } from "../retention/legal-holds.service";
 
 /**
  * Organization deletion — PRD 8.2.1 (P0), discrepancy D-14, ticket NWB-P0-023.
@@ -282,8 +283,8 @@ export async function reactivateOrganization(
  * the applied migration DDL; pinned by a test). The delete still runs per row
  * (NWB-P1-013), because the aspirational billing tables already declare
  * `restrict` FKs to this table (`invoices`, `payments`, `transactions`) — the
- * day they migrate is the day a batch DELETE would start wedging — and because
- * NWB-P1-010's legal-hold skip needs per-row scope regardless.
+ * day they migrate is the day a batch DELETE would start wedging — and because the
+ * legal-hold skip (NWB-P1-010) needs per-row scope regardless.
  *
  * The members themselves are not deleted — a user is not owned by an
  * organization, their `users.organization_id` is simply set to NULL by the FK.
@@ -303,7 +304,15 @@ export async function purgeExpiredOrganizations(
     `,
   );
   const ids = ((rows as any).rows ?? []).map((row: { id: string }) => row.id);
-  return deleteRowsPerRow(db, "organizations", ids);
+  // The org erases no subject, so the hook has nothing to scrub — but the hold check still
+  // lives here (service, not job): a held org's row must refuse one row at a time, counted
+  // into `held`, not wedge the night or slip through in a batch.
+  return deleteRowsPerRow(db, "organizations", ids, {
+    beforeDelete: async (tx, id) => {
+      await assertNoActiveHoldForOrg(tx, id, `erasure of organization ${id}`);
+      return 0;
+    },
+  });
 }
 
 export async function getOrgDeletionStatus(

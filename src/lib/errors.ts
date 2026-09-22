@@ -134,6 +134,27 @@ export class InternalError extends AppError {
 }
 
 /**
+ * A row's erasure was refused because its subject sits under an active legal hold (NWB-P1-010).
+ *
+ * Thrown by the hold checks in purge/retention `beforeDelete` hooks and caught per row by
+ * `deleteRowsPerRow`, which counts it into `held` as well as `failed` — a held night still
+ * reads `warning`, because erasure deferred is erasure outstanding. Lives here (not in the
+ * retention service) so `src/lib/transaction.ts` can recognise it without a runtime edge into
+ * `src/services/`. 423 like `AccountLockedError`: the resource exists but is locked.
+ */
+export class LegalHoldError extends AppError {
+  readonly statusCode = 423;
+  readonly code = "LEGAL_HOLD";
+
+  constructor(
+    message: string,
+    readonly holdId: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
  * A one-line description of an unknown error, safe to log and to store.
  *
  * Exists because of a specific hole: a failed TCP connect surfaces as a Node

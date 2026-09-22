@@ -37,12 +37,14 @@ export const purgeExpiredInvitationsJob: JobDefinition<null> = {
     // that erased nothing-but-tried never reads as clean.
     const result = await expireInvitations(db);
     // `auditAnonymized` is the erasure's own evidence: invite audit rows scrubbed of invitee
-    // addresses. Same key as the account purge, same reason.
+    // addresses. Same key as the account purge, same reason. `held` counts legal-freeze
+    // refusals (NWB-P1-010).
     return {
       deleted: result.deleted,
       failed: result.failed,
       errors: result.errors,
       auditAnonymized: result.auditAnonymized,
+      held: result.held,
     };
   },
 };

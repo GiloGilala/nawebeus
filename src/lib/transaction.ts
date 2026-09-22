@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase, NodePgTransaction } from "drizzle-orm/node-postgres";
 import type { Db } from "./db";
-import { describeError } from "./errors";
+import { describeError, LegalHoldError } from "./errors";
 
 /**
  * A drizzle handle that can execute SQL: either the top-level database or a
@@ -107,12 +107,20 @@ export interface RowDeleteFailure {
  * `auditAnonymized` sums what the rows' `beforeDelete` hooks reported (today the only hook in
  * the system is the audit scrub, NWB-P1-015 — the org purge reports 0 because it erases no
  * subject). Always present, so the report shape never depends on which hooks ran.
+ *
+ * `held` counts the rows refused specifically by `LegalHoldError` (NWB-P1-010) — a subset of
+ * `failed`, not beside it. Held rows stay in `errors` with their hold reason, so a night that
+ * withheld erasures still reads `warning`: erasure deferred is erasure outstanding, and the
+ * NDPR-vs-hold tension must be visible. The separate scalar lets future alerting distinguish
+ * "every refusal is a hold" (expected, steady-state) from real failures. Always present, for
+ * the same shape-stability reason as `auditAnonymized`.
  */
 export interface PerRowDeleteResult {
   deleted: number;
   failed: number;
   errors: RowDeleteFailure[];
   auditAnonymized: number;
+  held: number;
 }
 
 /**
@@ -136,7 +144,13 @@ export interface PerRowDeleteHooks {
  * table name is interpolated into SQL (identifiers cannot be parameterised),
  * so the type system is the allow-list.
  */
-export type PurgeableTable = "users" | "organizations" | "organization_members";
+export type PurgeableTable =
+  | "users"
+  | "organizations"
+  | "organization_members"
+  | "data_export_requests"
+  | "sessions"
+  | "tokens";
 
 /**
  * Delete `ids` from `table` one row at a time, each in its own savepoint
@@ -170,11 +184,12 @@ export async function deleteRowsPerRow(
   ids: readonly string[],
   hooks?: PerRowDeleteHooks,
 ): Promise<PerRowDeleteResult> {
-  if (ids.length === 0) return { deleted: 0, failed: 0, errors: [], auditAnonymized: 0 };
+  if (ids.length === 0) return { deleted: 0, failed: 0, errors: [], auditAnonymized: 0, held: 0 };
 
   return withAtomicWrites(db, async (tx) => {
     let deleted = 0;
     let auditAnonymized = 0;
+    let held = 0;
     const errors: RowDeleteFailure[] = [];
     for (const id of ids) {
       // Counter-derived, never caller input — the only interpolation `sql.raw`
@@ -197,9 +212,10 @@ export async function deleteRowsPerRow(
         await tx.execute(sql.raw(`RELEASE SAVEPOINT ${savepoint}`));
       } catch (error) {
         await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${savepoint}`));
+        if (error instanceof LegalHoldError) held++;
         errors.push({ id, error: describeError(error) });
       }
     }
-    return { deleted, failed: errors.length, errors, auditAnonymized };
+    return { deleted, failed: errors.length, errors, auditAnonymized, held };
   });
 }

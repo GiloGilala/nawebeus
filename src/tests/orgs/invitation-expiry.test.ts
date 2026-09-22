@@ -140,7 +140,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
 
       const result = await expireInvitations(db);
       // One audit row per invite (the insert path audits once), both lapsed rows scrubbed.
-      expect(result).toEqual({ deleted: 2, failed: 0, errors: [], auditAnonymized: 2 });
+      expect(result).toEqual({ deleted: 2, failed: 0, errors: [], auditAnonymized: 2, held: 0 });
 
       expect(await memberExists(db, lapsedA.memberId)).toBe(false);
       expect(await memberExists(db, lapsedB.memberId)).toBe(false);
@@ -167,6 +167,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
         failed: 0,
         errors: [],
         auditAnonymized: 0,
+        held: 0,
       });
     });
   });
@@ -183,7 +184,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
       await ageInvitePastGrace(db, lapsed.memberId);
 
       const result = await expireInvitations(db);
-      expect(result).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 1 });
+      expect(result).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 1, held: 0 });
 
       expect(await memberExists(db, lapsed.memberId)).toBe(false);
       expect(await memberExists(db, pending.memberId)).toBe(true);
@@ -221,7 +222,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
       await ageInvitePastGrace(db, invite.memberId);
 
       const result = await expireInvitations(db);
-      expect(result).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 1 });
+      expect(result).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 1, held: 0 });
 
       expect(await memberExists(db, invite.memberId)).toBe(false);
       const scrubbed = await memberAuditRows(db, invite.memberId);
@@ -270,7 +271,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
       });
 
       const result = await expireInvitations(db);
-      expect(result).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 3 });
+      expect(result).toEqual({ deleted: 1, failed: 0, errors: [], auditAnonymized: 3, held: 0 });
 
       const rows = await memberAuditRows(db, invite.memberId);
       expect(rows).toHaveLength(3);
@@ -320,6 +321,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
         failed: 0,
         errors: [],
         auditAnonymized: 1,
+        held: 0,
       });
       expect(await memberExists(db, invite.memberId)).toBe(false);
 
@@ -397,6 +399,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
         failed: 0,
         errors: [],
         auditAnonymized: 1,
+        held: 0,
       });
       expect(await memberExists(db, invite.memberId)).toBe(false);
       expect(await purgeExpiredInvitationsJob.handle({ db, job: ATTEMPT }, null)).toEqual({
@@ -404,6 +407,7 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
         failed: 0,
         errors: [],
         auditAnonymized: 0,
+        held: 0,
       });
     });
   });

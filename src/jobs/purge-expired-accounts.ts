@@ -37,12 +37,13 @@ export const purgeExpiredAccountsJob: JobDefinition<null> = {
     // partial-run convention), so a night that erased nothing-but-tried never reads as clean.
     const result = await purgeExpiredAccounts(db);
     // `auditAnonymized` (NWB-P1-015) is the erasure's own evidence: audit rows scrubbed of the
-    // erased subjects' actor PII. The org purge reports no such key — it erases no subject.
+    // erased subjects' actor PII. `held` (NWB-P1-010) counts the rows a legal freeze withheld.
     return {
       deleted: result.deleted,
       failed: result.failed,
       errors: result.errors,
       auditAnonymized: result.auditAnonymized,
+      held: result.held,
     };
   },
 };

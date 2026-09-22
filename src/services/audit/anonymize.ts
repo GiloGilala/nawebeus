@@ -40,8 +40,9 @@
  *
  * Idempotent by construction: already-marker values are skipped, already-NULL ip/UA is not an
  * update, and the count returned is rows actually changed — a re-run returns 0 and writes nothing.
- * When NWB-P1-010 lands legal holds, the hold check goes here (service, not job) — this function
- * is the seam.
+ * The legal-hold check (NWB-P1-010) runs first-line here, service not job: a held subject's
+ * scrub throws before the flag dance, so the row lands in the night's `errors` + `held` with
+ * nothing half-done.
  *
  * NWB-P1-016 reuses the core below the identity layer for lapsed invites
  * (`anonymizeAuditInviteeEmail`): same flag dance, same value-gated jsonb walk, but resource-
@@ -51,6 +52,7 @@
 
 import { sql } from "drizzle-orm";
 import type { DbOrTx } from "../../lib/transaction";
+import { assertNoActiveHoldForUser } from "../retention/legal-holds.service";
 
 /** What a scrubbed identity value reads as — shape-preserving (a string stays a string). */
 export const AUDIT_REDACTED = "[redacted]";
@@ -166,6 +168,9 @@ export async function anonymizeAuditActorContext(
   input: AnonymizeAuditActorContextInput,
 ): Promise<number> {
   const { userId } = input;
+  // First line, before the flag dance: scrubbing a held subject's audit context is erasure of
+  // held evidence. The throw aborts the row's savepoint — scrub and DELETE alike.
+  await assertNoActiveHoldForUser(tx, userId, `erasure of user ${userId}`);
 
   const userRows = await tx.execute<{ email: string; phone: string | null }>(
     sql`SELECT email, phone FROM users WHERE id = ${userId} LIMIT 1`,

@@ -11,9 +11,10 @@
 // This file ONLY re-exports. No table/relation definitions live here.
 // Each module owns its own definitions in its own index.ts file.
 //
-// NOTE: Aspirational modules (billing, campaigns, commerce, compliance,
-// engagement, influencer, monitoring, pr, publishing, social-accounts) are
-// excluded here and in tsconfig.json until they are wired up.
+// NOTE: Aspirational modules (billing, campaigns, commerce, engagement, influencer,
+// monitoring, pr, publishing, social-accounts) are excluded here and in tsconfig.json until
+// they are wired up. Compliance is the exception: `legal_holds` + `backup_records` were
+// adopted by NWB-P1-010 (see the COMPLIANCE MODULE section); its other four tables stay out.
 
 // =============================================================================
 // SHARED MODULES
@@ -106,3 +107,19 @@ export {
   organizations,
   organizationsRelations,
 } from "./organization/organizations";
+
+// =============================================================================
+// COMPLIANCE MODULE (partial — NWB-P1-010)
+// =============================================================================
+
+// Only the adopted tables are re-exported: `legal_holds` + `backup_records` (NWB-P1-010).
+// `impersonation_sessions`, `dsar_requests`, `data_retention_policies` and `app_config` stay
+// dormant — their tickets re-export them here when they adopt them. Importing from
+// `./compliance/index` pulls the whole module's definitions, but drizzle-kit migrates only
+// what this file re-exports, so granularity lives here, not in tsconfig.
+export {
+  backupRecords,
+  backupRecordsRelations,
+  legalHolds,
+  legalHoldsRelations,
+} from "./compliance/index";
