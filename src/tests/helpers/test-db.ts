@@ -100,3 +100,10 @@ export async function ensureTemplatesSchema(db: Db): Promise<void> {
 export async function ensureContactsSchema(db: Db): Promise<void> {
   return ensureMigrationApplied(db, "0006_contacts_id_lengths.sql");
 }
+
+/**
+ * Ensure the alert tables have updated column lengths by executing migration 0007.
+ */
+export async function ensureAlertsSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0007_alerts_id_lengths.sql");
+}

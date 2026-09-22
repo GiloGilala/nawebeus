@@ -204,8 +204,8 @@ import {
 export const alertRules = pgTable(
   "alert_rules",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Classification ──────────────────────────────────────────────────────
     sourceModule: alertRuleSourceEnum("source_module").notNull(),
@@ -300,7 +300,7 @@ export const alertRules = pgTable(
 
     // ─── Audit ───────────────────────────────────────────────────────────────
     // Not FK — rule must outlive creator if they leave the org
-    createdById: varchar("created_by_id", { length: 32 }).notNull(),
+    createdById: varchar("created_by_id", { length: 64 }).notNull(),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -526,14 +526,14 @@ export const alertRules = pgTable(
 export const alertEvents = pgTable(
   "alert_events",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Rule Reference ──────────────────────────────────────────────────────
     // Nullable — system events may not have a backing rule
     // Not FK — alert_events must outlive alert_rules (rule may be deleted
     // after firing; historical events must remain readable)
-    ruleId: varchar("rule_id", { length: 32 }),
+    ruleId: varchar("rule_id", { length: 64 }),
 
     // ─── Alert Classification ────────────────────────────────────────────────
     // Copied from alert_rules at fire time — preserved even if rule changes
@@ -546,7 +546,7 @@ export const alertEvents = pgTable(
     // Polymorphic reference — see JSDoc for sourceType value mapping
     sourceType: varchar("source_type", { length: 50 }).notNull(),
     // NULL for system-level events that aren't tied to a specific entity
-    sourceId: varchar("source_id", { length: 32 }),
+    sourceId: varchar("source_id", { length: 64 }),
 
     // ─── Content ─────────────────────────────────────────────────────────────
     title: text("title").notNull(),
@@ -597,14 +597,14 @@ export const alertEvents = pgTable(
     isRead: boolean("is_read").default(false).notNull(),
     isAcknowledged: boolean("is_acknowledged").default(false).notNull(),
     // Not FK — acknowledgement record outlives the acknowledging user
-    acknowledgedById: varchar("acknowledged_by_id", { length: 32 }),
+    acknowledgedById: varchar("acknowledged_by_id", { length: 64 }),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     acknowledgmentNotes: text("acknowledgment_notes"),
 
     // ─── Escalation ──────────────────────────────────────────────────────────
     escalatedAt: timestamp("escalated_at", { withTimezone: true }),
     // Not FK — escalation record outlives the escalated-to user
-    escalatedToId: varchar("escalated_to_id", { length: 32 }),
+    escalatedToId: varchar("escalated_to_id", { length: 64 }),
     escalationNotes: text("escalation_notes"),
 
     // Append-only after insert — only isRead + isAcknowledged are mutable

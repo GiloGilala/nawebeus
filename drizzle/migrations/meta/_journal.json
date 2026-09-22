@@ -50,6 +50,13 @@
       "when": 1790104879387,
       "tag": "0006_contacts_id_lengths",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790107689239,
+      "tag": "0007_alerts_id_lengths",
+      "breakpoints": true
     }
   ]
 }

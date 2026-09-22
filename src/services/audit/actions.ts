@@ -83,6 +83,36 @@ export const AUDIT_ACTIONS = {
     category: "compliance",
     resourceType: "user",
   },
+  "alert.acknowledged": {
+    description: "An alert event was acknowledged by a user.",
+    category: "engagement",
+    resourceType: "alert_event",
+  },
+  "alert.escalated": {
+    description: "An unacknowledged alert event was escalated.",
+    category: "engagement",
+    resourceType: "alert_event",
+  },
+  "alert.fired": {
+    description: "An alert condition triggered and an alert event was created.",
+    category: "engagement",
+    resourceType: "alert_event",
+  },
+  "alert.rule_created": {
+    description: "An alert rule configuration was created.",
+    category: "engagement",
+    resourceType: "alert_rule",
+  },
+  "alert.rule_deleted": {
+    description: "An alert rule configuration was deleted or deactivated.",
+    category: "engagement",
+    resourceType: "alert_rule",
+  },
+  "alert.rule_updated": {
+    description: "An alert rule configuration was updated.",
+    category: "engagement",
+    resourceType: "alert_rule",
+  },
   "apikeys.created": {
     description: "API key issued. Never the key value — prefix and metadata only.",
     category: "security",

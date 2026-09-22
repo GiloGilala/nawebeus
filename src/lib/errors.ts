@@ -228,6 +228,20 @@ export class ContactAlreadyMergedError extends AppError {
   }
 }
 
+/**
+ * Optimistic concurrency conflict on alert rules (NWB-P1-008).
+ */
+export class AlertRuleVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "ALERT_RULE_VERSION_CONFLICT";
+
+  constructor(
+    message = "Alert rule was modified concurrently. Please reload and retry.",
+  ) {
+    super(message);
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

@@ -255,6 +255,31 @@ async function seed() {
       action: "delete",
       name: "Delete Contacts",
     },
+    // Alerts & Notifications (NWB-P1-008)
+    {
+      string: "alerts.read",
+      resource: "alerts",
+      action: "read",
+      name: "View Alert Rules and Events",
+    },
+    {
+      string: "alerts.create",
+      resource: "alerts",
+      action: "create",
+      name: "Create Alert Rules and Trigger Alerts",
+    },
+    {
+      string: "alerts.update",
+      resource: "alerts",
+      action: "update",
+      name: "Update Alert Rules, Acknowledge and Escalate Alerts",
+    },
+    {
+      string: "alerts.delete",
+      resource: "alerts",
+      action: "delete",
+      name: "Delete Alert Rules",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -330,6 +355,7 @@ async function seed() {
     "approvals.read",
     "templates.read",
     "contacts.read",
+    "alerts.read",
   ];
   const teamManagement = [
     "members.read",
@@ -349,12 +375,15 @@ async function seed() {
     "templates.update",
     "contacts.create",
     "contacts.update",
+    "alerts.create",
+    "alerts.update",
   ];
   const contentApproval = [
     "posts.publish",
     "approvals.decide",
     "templates.delete",
     "contacts.delete",
+    "alerts.delete",
   ];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [

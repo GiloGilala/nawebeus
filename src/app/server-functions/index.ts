@@ -20,6 +20,21 @@ export {
   revokeApiKeyServerFn,
   rotateApiKeyServerFn,
 } from "./api-keys";
+export {
+  acknowledgeAlertServerFn,
+  createAlertRuleServerFn,
+  deleteAlertRuleServerFn,
+  escalateAlertServerFn,
+  fireAlertServerFn,
+  getAlertEventServerFn,
+  getAlertRuleServerFn,
+  getUnreadAlertCountServerFn,
+  listAlertEventsServerFn,
+  listAlertRulesServerFn,
+  markAlertAsReadServerFn,
+  markAllAlertsAsReadServerFn,
+  updateAlertRuleServerFn,
+} from "./alerts";
 // Auth — public
 export {
   changePasswordServerFn,
