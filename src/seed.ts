@@ -39,6 +39,18 @@ async function seed() {
       action: "delete",
       name: "Delete Users",
     },
+    {
+      // NWB-P1-011: support impersonation. Granted to `owner` and `super_admin`
+      // only (they take the full catalog below); the module spec gives it to the
+      // platform admin, and an organization's owner is its top support
+      // authority. `admin` and below never see it — and it is stripped from the
+      // ability of anyone acting inside an impersonation session, so the verb
+      // cannot chain through a borrowed account.
+      string: "users.impersonate",
+      resource: "users",
+      action: "impersonate",
+      name: "Impersonate Users for Support",
+    },
     // Organization
     {
       string: "org.read",

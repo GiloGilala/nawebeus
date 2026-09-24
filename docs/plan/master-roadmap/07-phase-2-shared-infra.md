@@ -24,7 +24,7 @@
 | NWB-P1-008 | Notification engine core | `alerts` tables (2) active-ready | create/recipients/delivery-log; channels in P6. |
 | NWB-P1-009 | Feature flags + system config | none | `evaluateFlag`, `getConfigValue`, audited config writes; used by billing limits + Phase 7 dark launches. |
 | NWB-P1-010 | Retention + legal holds + backup records | none | 7-year audit retention (Module 1 spec) enforced by worker; holds block purge workers from P1/NWB-P0-023. |
-| NWB-P1-011 | Impersonation sessions | `AuditActorType` already includes `"impersonation"` | Start/end, full audit, clean end; support tooling (P15-006). |
+| NWB-P1-011 | Impersonation sessions | ✅ **DONE 2026-09-24** — §12.4 for what landed and the verification log. Was: `AuditActorType` already includes `"impersonation"` but nothing wrote it | Start/end, full audit, clean end; support tooling (P15-006) builds the UI on this API. |
 | NWB-P1-012 | Observability baseline | ✅ **DONE 2026-09-24** — §12.3 for what landed and the verification log. Was: `logger` with zero callers in the tree, no request ids, `errorHandler` silent unless `NWB_DEBUG_ERRORS`, static `{status:"ok"}` health | Request-context middleware (honored/echoed `x-request-id` ≤100 chars, else `req_<uuid>`), one access line per request (route **template**, never a raw path — tokens live in path params), `writeAuditLog` defaults `request_id` from a request-scope ALS, always-on structured 5xx lines (stack behind `NWB_DEBUG_ERRORS`), `/api/health` = DB ping + queue depth (503 only when the DB fails; queue trouble = `degraded`, still 200, per ADR-007). Infra §6.2 stack (Prometheus/Alertmanager) stays Phase 8; Phase 2 made the data exist. |
 
 **Schema adoptions in this phase:** none new (approval/contacts/alerts/media/templates/analytics are already active). Any drift found while wiring is fixed in the schema + migration (ground rule 7), recorded in the ticket.
@@ -227,5 +227,50 @@ as NWB-P0-027 — fixed here by the gate run's `biome check --write`. **Verifica
 `bun run lint`, `bun run build` exit 0; `bun test` **809 pass / 0 fail** with a live PostgreSQL
 (778 before); `coverage:check` green (services 92.9%, lib 96.8%); live smoke against `bun run dev`
 (health probe with depth, generated + honored ids, token-free route templates in stderr).
+
+### 12.4 What NWB-P1-011 actually landed (2026-09-24)
+
+New: `src/services/impersonation/` (`impersonation.service.ts` — start / mint / end / expiry
+sweep / org-scoped list / `resolveLiveImpersonation`; `ability.ts` — the BR-ADMIN-009 deny-list;
+`index.ts` barrel), `src/lib/impersonation-context.ts` (the third request-scope ALS), `src/jobs/`
+`impersonation-expire.ts` (`impersonation.expire`, `*/5 * * * *`, third in the schedule order),
+`src/tests/impersonation/` (27 tests across service / routes / ability), migration
+`0009_impersonation_sessions`. Changed: `db/compliance/index.ts` + `db/schema.ts` (the dormant
+`impersonation_sessions` table adopted — ids widened to `varchar(64)`, `organization_id NOT NULL`
+added, `ip_address` made nullable, `session_token_hash` dropped: an impersonation has no refresh
+token to hash), `src/services/audit/write.ts` (+`impersonationSessionId` param and the
+request-scope retagging: inside the scope every row becomes `actor_type='impersonation'` with the
+**admin** as `actor_id`, the session id, and the token user defaulting `target_user_id` —
+explicit call-site values win, the DB's CHECK pair backstops both directions),
+`src/services/audit/actions.ts` (five `admin.impersonation.*` events + the run-level
+`impersonation.expire`), `src/services/auth/jwt.ts` (`impersonationSessionId`/`impersonatorId`
+payload fields + `signImpersonationToken` + `isImpersonationToken`), `src/services/auth/ability.ts`
+(the `impersonate` verb joins `Actions` — the `decide` precedent), `src/server/middleware/auth.ts`
+(per-request row validation: ended/expired/terminated or a suspended/removed admin kills the
+session on the next request — the row, not the token `exp`, is the truth), `src/server/middleware/
+request-context.ts` (access log gains `impersonationSessionId`), `src/server/api/users/admin.route.ts`
+(impersonate / token / end / list, registered **before** the `/:userId` block — Hono resolves in
+registration order, verified empirically and pinned by a test), `src/server/api/route-params.ts`
+(+`patternParam` for `imp_<uuid>` ids), `src/server/api/auth/session-cookies.ts` (the cookie
+swap + clear), `src/seed.ts` (`users.impersonate`, granted to `owner` + `super_admin` only),
+`src/lib/queue.ts`/`scheduler.ts`/`config.ts`/`src/jobs/index.ts` (the job set), email `types.ts`
+(+`impersonation` kind — the target is told, best-effort, with `security_notified` as the flag).
+
+**As-built, in one paragraph.** `POST /api/users/admin/:userId/impersonate` requires
+`users.impersonate`, a written reason (10–2000 chars), and an MFA step-up (no enrollment →
+`MFA_REQUIRED` — BR-ADMIN-008 is a precondition, not an option); the target must be an active
+member of the caller's org (anything else is a flat 404, so the route cannot enumerate accounts);
+one impersonator per target (second admin → 409 `IMPERSONATION_ACTIVE`; same admin → re-entry of
+the same row); windows default 60 min and clamp to 5–240. The response swaps the access cookie
+for a ≤900 s impersonation JWT whose payload names the session and the admin; every subsequent
+request re-validates the row, so `security_terminated` (a different impersonate-holder ending it)
+and the five-minute `expired` sweep bite the next request, not the next token. Inside the
+session the ability is the target's minus billing / `org.delete` / team writes / nested
+impersonation, and every audited action lands as `impersonation` with the admin as actor — the
+end-to-end test proves it through `DELETE /api/auth/sessions/:id`. Ending from *inside* is legal
+(the route binds to the caller's own session id — a "Stop" button must not deadlock behind the
+target's abilities) and clears the cookie. **Verification:** typecheck, lint (0 errors), build;
+`bun test` **837 pass / 0 fail** with a live PostgreSQL (809 before, +28); `coverage:check` green
+(services 94.1%, lib 96.8%).
 
 ---

@@ -16,6 +16,7 @@
  */
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { currentImpersonationContext } from "../../lib/impersonation-context";
 import { currentRequestId } from "../../lib/request-context";
 import { type DbOrTx, withAtomicWrites } from "../../lib/transaction";
 import { type AuditActionName, auditActionSpec } from "./actions";
@@ -62,6 +63,17 @@ interface AuditEventFields {
    */
   requestId?: string | undefined;
   sessionId?: string | undefined;
+  /**
+   * The impersonation session this row belongs to (NWB-P1-011). When absent, defaults to the
+   * current request's impersonation scope — and that scope retags the whole actor block, not just
+   * this column: `actor_type` becomes `'impersonation'`, `actor_id` the **admin** behind the
+   * session (non-repudiation — the impersonated account never poses as the actor), and
+   * `target_user_id` defaults to the token user unless the caller named one. The database's
+   * bidirectional CHECK (`chk_ual_impersonation_consistency` / `chk_ual_impersonation_only`)
+   * enforces the pairing this defaulting exists to satisfy. An explicit `impersonationSessionId`
+   * wins over the scope, the way an explicit `requestId` does.
+   */
+  impersonationSessionId?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
 }
 
@@ -121,13 +133,10 @@ export async function writeAuditLog(params: WriteAuditLogEntryParams): Promise<v
     db,
     module,
     organizationId,
-    actorId,
-    actorType,
     actorIp,
     actorUserAgent,
     action,
     resourceId,
-    targetUserId,
     beforeState,
     afterState,
     changes,
@@ -136,6 +145,27 @@ export async function writeAuditLog(params: WriteAuditLogEntryParams): Promise<v
     sessionId,
     metadata,
   } = params;
+
+  // ── Impersonation retagging (NWB-P1-011) ───────────────────────────────────
+  // One read of the request-scope ALS covers every audited action of an impersonated request,
+  // the same way the request-id default does (NWB-P1-012). Call sites do not — must not — have
+  // to remember they are running under an impersonation token; the DB's CHECK pair is the net
+  // that catches a write this failed to retag (an `'impersonation'` row without the session id
+  // is a 23514, and vice versa). Explicit call-site values win: the service's own start/end
+  // events run outside the scope and file as plain `admin` rows.
+  const impersonation = currentImpersonationContext();
+  let actorId: string | undefined = params.actorId;
+  let actorType: AuditActorType | undefined = params.actorType;
+  let targetUserId: string | undefined = params.targetUserId;
+  let impersonationSessionId: string | undefined = params.impersonationSessionId;
+  if (impersonation) {
+    actorId = impersonation.adminUserId;
+    actorType = "impersonation";
+    impersonationSessionId = params.impersonationSessionId ?? impersonation.impersonationSessionId;
+    // The account acted *on behalf of* is the token user unless this event already names a
+    // target (an admin-as-user action on a third account stays on the third account).
+    targetUserId = targetUserId ?? impersonation.impersonatedUserId;
+  }
 
   const { category, resourceType, severity } = resolveAuditDefaults(params);
   const id = `al_${crypto.randomUUID().slice(0, 21)}`;
@@ -164,6 +194,7 @@ export async function writeAuditLog(params: WriteAuditLogEntryParams): Promise<v
     reason: reason ?? null,
     requestId: requestId ?? currentRequestId() ?? null,
     sessionId: sessionId ?? null,
+    impersonationSessionId: impersonationSessionId ?? null,
     metadata: JSON.stringify(metadata ?? null),
     createdAt,
   };
@@ -217,6 +248,7 @@ interface InsertableAuditRow {
   readonly reason: string | null;
   readonly requestId: string | null;
   readonly sessionId: string | null;
+  readonly impersonationSessionId: string | null;
   readonly metadata: string;
   readonly createdAt: Date;
   readonly checksum: string | null;
@@ -230,7 +262,7 @@ async function insertAuditRow(tx: DbOrTx, row: InsertableAuditRow): Promise<void
         id, module, organization_id, actor_id, actor_type, actor_ip,
         actor_user_agent, action, category, resource_type, resource_id,
         target_user_id, before_state, after_state, changes, severity,
-        reason, request_id, session_id, metadata, created_at,
+        reason, request_id, session_id, impersonation_session_id, metadata, created_at,
         checksum, previous_checksum
       ) VALUES (
         ${row.id}, ${row.module}, ${row.organizationId}, ${row.actorId},
@@ -239,7 +271,7 @@ async function insertAuditRow(tx: DbOrTx, row: InsertableAuditRow): Promise<void
         ${row.targetUserId}, ${row.beforeState},
         ${row.afterState}, ${row.changes},
         ${row.severity}, ${row.reason}, ${row.requestId},
-        ${row.sessionId}, ${row.metadata}, ${row.createdAt.toISOString()},
+        ${row.sessionId}, ${row.impersonationSessionId}, ${row.metadata}, ${row.createdAt.toISOString()},
         ${row.checksum}, ${row.previousChecksum}
       )
     `,

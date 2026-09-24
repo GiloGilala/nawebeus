@@ -121,6 +121,12 @@ export {
   updateContactSchema,
 } from "./contacts.schemas";
 export {
+  type EndImpersonationInput,
+  endImpersonationSchema,
+  type StartImpersonationInput,
+  startImpersonationSchema,
+} from "./impersonation.schemas";
+export {
   assignRoleSchema,
   bulkInviteSchema,
   deleteOrgSchema,

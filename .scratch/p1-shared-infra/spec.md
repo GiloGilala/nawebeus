@@ -3,14 +3,15 @@
 **Feature slug:** `p1-shared-infra`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/07-phase-2-shared-infra.md` (§12) · execution plan §5 P1
-**Status:** in-progress — **14 of 16 tickets done** (the roadmap's 12 plus four found during
+**Status:** in-progress — **15 of 16 tickets done** (the roadmap's 12 plus four found during
 delivery: 013–016). Queue, audit (+chain, +anonymization), approvals, retention, email, templates,
 contacts, notifications, flags, invitation expiry all **done 2026-09-21/22** — see the index.
 **NWB-P1-012** (observability baseline: request ids + access log + error tracking + readiness
 probe) **done 2026-09-24** — this ticket closed the exit-gate clause *"a request can be traced by
-correlation id from log to audit row"* (evidence in issues/14). Remaining: **NWB-P1-005**
-(media/storage — blocked on D6) and **NWB-P1-011** (impersonation sessions — ready-for-agent), plus
-the operator-run Resend send for the email clause.
+correlation id from log to audit row"* (evidence in issues/14). **NWB-P1-011** (impersonation
+sessions — start/end, full audit, clean end) **done 2026-09-24** (evidence in issues/15): the
+`unified_audit_log` impersonation machinery finally has a writer. Remaining: **NWB-P1-005**
+(media/storage — blocked on D6) and the operator-run Resend send for the email clause.
 
 **Goal:** land the cross-cutting services every domain module needs. Per the execution plan this is
 "the single largest multiplier in the plan" — nothing downstream starts before the exit gate.
@@ -47,7 +48,7 @@ job (verify at the gate, not per ticket).
 | NWB-P1-008 | Notification engine core | L | [issues/12-notification-engine-core.md](issues/12-notification-engine-core.md) | **done** 2026-09-22 — alert rules CRUD, rate limiting (cooldown & daily cap), multi-recipient fan-out, email dispatch, alert event state machine (read, ack, escalate), keyset pagination, audit events, RBAC, and migration 0007 |
 | NWB-P1-009 | Feature flags + system config | M | [issues/13-feature-flags-and-system-config.md](issues/13-feature-flags-and-system-config.md) | **done** 2026-09-22 — `evaluateFlag`, `getConfigValue`, optimistic concurrency, rollback, kill-switch, deterministic rollout percentage, targeting rules, audited writes, RBAC gates, `requireFeatureFlag` live code path gating, and migration 0008 |
 | NWB-P1-010 | Retention + legal holds + backup records | M | [issues/07-retention-legal-holds-backup-records.md](issues/07-retention-legal-holds-backup-records.md) | **done** 2026-09-22 — holds block all four purge paths; `retention.enforce` nightly 02:55; census + backup records; adopts `legal_holds` + `backup_records` |
-| NWB-P1-011 | Impersonation sessions | M | to file | ready-for-agent (needs P1-002) |
+| NWB-P1-011 | Impersonation sessions | M | [issues/15-impersonation-sessions.md](issues/15-impersonation-sessions.md) | **done** 2026-09-24 — `src/services/impersonation/` (MFA step-up, 4 h clamp, one-impersonator-per-target), `impersonation_sessions` adopted (migration 0009), per-request row validation in the auth middleware, automatic `actorType='impersonation'` tagging via a request-scope ALS in `writeAuditLog`, BR-ADMIN-009 ability deny-list, `/api/users/admin` surface (impersonate / token / end / list), `impersonation.expire` 5-min job, `users.impersonate` seeded to owner + super_admin; 837/837 tests |
 | NWB-P1-012 | Observability baseline (structured logs, correlation ids, real `/api/health`) | M | [issues/14-observability-baseline.md](issues/14-observability-baseline.md) | **done 2026-09-24** — request-context middleware (id + echo + access log), `writeAuditLog` ALS default, always-on 5xx error lines, readiness probe (DB ping + queue depth); 809/809 tests, live smoke; closed the exit-gate correlation clause |
 
 Tickets are filed as one file per ticket when picked up, per `docs/agents/issue-tracker.md`; the

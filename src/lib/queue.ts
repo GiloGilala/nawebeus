@@ -31,6 +31,8 @@ export const QUEUE_JOBS = {
   rateLimitReclaim: "maintenance.rate-limit-reclaim",
   /** NWB-P1-003 — hourly closure of approval requests still pending past their window. */
   approvalsExpireStale: "approvals.expire-stale",
+  /** NWB-P1-011 — five-minute closure of impersonation sessions past their window. */
+  impersonationExpire: "impersonation.expire",
   /** F-18 — hard deletion of accounts past their 30-day grace window (NDPR erasure). */
   purgeExpiredAccounts: "retention.purge-expired-accounts",
   /** NWB-P0-023 — hard deletion of organizations past their 30-day grace window. */
@@ -64,6 +66,9 @@ export type QueueJobName = (typeof QUEUE_JOBS)[keyof typeof QUEUE_JOBS];
 export const SCHEDULED_QUEUE_JOB_NAMES = [
   QUEUE_JOBS.rateLimitReclaim,
   QUEUE_JOBS.approvalsExpireStale,
+  // Outside the nightly chain like its hourly sibling above: a support window is measured
+  // in minutes (max 240), so an expiry that lands at 02:00 is no expiry at all.
+  QUEUE_JOBS.impersonationExpire,
   QUEUE_JOBS.purgeExpiredOrganizations,
   QUEUE_JOBS.purgeExpiredInvitations,
   QUEUE_JOBS.purgeExpiredAccounts,

@@ -24,6 +24,7 @@ import { writeAuditLog } from "../services/audit";
 import { approvalsExpireStaleJob } from "./approvals-expire-stale";
 import { auditChainVerifyJob } from "./audit-chain-verify";
 import { emailDeliverJob } from "./email-deliver";
+import { impersonationExpireJob } from "./impersonation-expire";
 import { purgeExpiredAccountsJob } from "./purge-expired-accounts";
 import { purgeExpiredInvitationsJob } from "./purge-expired-invitations";
 import { purgeExpiredOrganizationsJob } from "./purge-expired-organizations";
@@ -35,12 +36,14 @@ import { retentionEnforceJob } from "./retention-enforce";
  * seven in the order the nightly schedule expects — reclamation, then organizations, then
  * invitations, then accounts, then retention enforcement, then chain verification (see
  * `src/lib/scheduler.ts` for why that order is load-bearing), with the hourly approval expiry
- * second, outside that chain — and then the on-demand queues, of which the email outbox
+ * second, with the five-minute impersonation expiry (NWB-P1-011) third — both outside
+ * the nightly chain — and then the on-demand queues, of which the email outbox
  * (NWB-P1-004) is the first: no cron, filled by `emailService.send()` from request paths.
  */
 export const MAINTENANCE_JOBS: readonly AnyJobDefinition[] = [
   rateLimitReclaimJob,
   approvalsExpireStaleJob,
+  impersonationExpireJob,
   purgeExpiredOrganizationsJob,
   purgeExpiredInvitationsJob,
   purgeExpiredAccountsJob,

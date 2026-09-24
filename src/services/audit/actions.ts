@@ -68,6 +68,38 @@ export const AUDIT_ACTION_FORMAT =
   /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*)+$/;
 
 export const AUDIT_ACTIONS = {
+  "admin.impersonation.ended": {
+    description: "An impersonation session ended by its own admin (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.expired": {
+    description:
+      "Lapsed impersonation sessions closed as `expired` by the scheduled sweep (NWB-P1-011).",
+    category: "compliance",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.reentered": {
+    description: "A fresh token issued inside a still-active impersonation window (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
+  "impersonation.expire": {
+    description:
+      "Run-level tick of the five-minute impersonation expiry sweep (NWB-P1-011); per-session evidence is the `admin.impersonation.expired` row each closure writes.",
+    category: "compliance",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.started": {
+    description: "Support impersonation of a user started after an MFA step-up (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.terminated": {
+    description: "An impersonation session terminated by a different admin (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
   "account.deleted": {
     description: "Account soft-deleted; the 30-day grace window starts now.",
     category: "security",

@@ -131,6 +131,9 @@ src/server/index.ts       ← Hono app factory (CORS, request context + access l
     audit/  /audit (list, cursor-paged) + /audit/:id (NWB-P1-002)
     approvals/ /approvals (submit + `?view=inbox|mine|all`), /approvals/:id,
             /approvals/:id/{approve,reject,request-changes,recall} (NWB-P1-003)
+    users/   /users/admin impersonation surface: POST /:userId/impersonate,
+            /impersonations/:sessionId/{token,end}, GET /impersonations (NWB-P1-011;
+            registered before the /:userId block — Hono resolves in registration order)
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
 src/app/                  ← Web layer (TanStack Start): routes/ (file-based pages),
@@ -160,13 +163,16 @@ src/services/             ← Business logic (single source of truth)
   approvals/ approval.service — chain resolution, decisions, recall, expiry sweep,
            inbox/mine/all views (NWB-P1-003)
   retention/ legal-holds.service, retention.service, backups.service (NWB-P1-010)
+  impersonation/ impersonation.service (start/MFA step-up/end/mint/expiry sweep/list,
+           resolveLiveImpersonation), ability (BR-ADMIN-009 deny-list) (NWB-P1-011)
   email/   types, console + resend transports, mask, service (queue-or-direct `emailService`),
            index.ts as the only import path (NWB-P1-004)
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
-  rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), purge-expired-accounts.ts,
-  purge-expired-organizations.ts, purge-expired-invitations.ts, retention-enforce.ts,
-  audit-chain-verify.ts, email-deliver.ts (on-demand outbox, not scheduled)
+  rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), impersonation-expire.ts (*/5,
+  NWB-P1-011), purge-expired-accounts.ts, purge-expired-organizations.ts,
+  purge-expired-invitations.ts, retention-enforce.ts, audit-chain-verify.ts,
+  email-deliver.ts (on-demand outbox, not scheduled)
 src/lib/                  ← Infrastructure
   config.ts      ← Zod-validated env singleton
   db.ts          ← Drizzle client factory + test DB helper

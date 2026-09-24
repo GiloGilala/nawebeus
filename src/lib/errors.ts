@@ -123,6 +123,35 @@ export class ConflictError extends AppError {
 }
 
 /**
+ * An admin tried to impersonate themselves (NWB-P1-011, BR-ADMIN-008's sibling
+ * rule). The database has its own CHECK (`chk_imp_no_self_impersonation`), but
+ * the request deserves the module spec's named 403, not a 500 with a
+ * constraint message that names neither the table nor the rule.
+ */
+export class SelfImpersonationError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "SELF_IMPERSONATION_DENIED";
+}
+
+/**
+ * Another admin already holds an active impersonation session on this target
+ * (NWB-P1-011). Two impersonators in one account would weave two audit trails
+ * through the same window — each tagged with a different session id and neither
+ * able to say who was really driving. One at a time, second caller gets 409.
+ */
+export class ImpersonationActiveError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "IMPERSONATION_ACTIVE";
+
+  constructor(
+    message: string,
+    readonly sessionId: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
  * The caller asked to delete their account while still owning one or more
  * organizations. D16 (F-25, option 2 — refuse and report): `organizations.owner_id`
  * is a restrictive NOT NULL FK to `users(id)`, so the scheduled purge could never

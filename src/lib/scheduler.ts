@@ -85,6 +85,11 @@ export const QUEUE_SCHEDULE_DEFAULTS: Record<ScheduledQueueJobName, string> = {
   // Hourly, not nightly: an approval window can be as short as an hour (NWB-P1-003), so the
   // enforcement lag has to be of the same order. Cheap when there is nothing to close.
   [QUEUE_JOBS.approvalsExpireStale]: "0 * * * *",
+  // Five minutes, for the same reason one order tighter: a support window is hours at most
+  // (NWB-P1-011 caps it at four), "expired" must read true within minutes of the deadline,
+  // and the middleware already refuses a lapsed session on every request — the sweep exists
+  // so the *record* closes as cleanly as the access does.
+  [QUEUE_JOBS.impersonationExpire]: "*/5 * * * *",
   [QUEUE_JOBS.purgeExpiredOrganizations]: "15 2 * * *",
   [QUEUE_JOBS.purgeExpiredInvitations]: "30 2 * * *",
   [QUEUE_JOBS.purgeExpiredAccounts]: "45 2 * * *",
@@ -115,6 +120,15 @@ export function resolveSchedules(config: Config = getConfig()): JobSchedule[] {
       cron:
         config.QUEUE_CRON_APPROVALS_EXPIRE_STALE ??
         QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.approvalsExpireStale],
+      tz,
+      data: null,
+      missed: "once",
+    },
+    {
+      job: QUEUE_JOBS.impersonationExpire,
+      cron:
+        config.QUEUE_CRON_IMPERSONATION_EXPIRE ??
+        QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.impersonationExpire],
       tz,
       data: null,
       missed: "once",

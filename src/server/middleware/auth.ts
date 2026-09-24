@@ -4,13 +4,23 @@ import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { getConfig } from "../../lib/config";
 import type { Db } from "../../lib/db";
-import { AuthError, EmailNotVerifiedError, ForbiddenError } from "../../lib/errors";
+import {
+  AuthError,
+  EmailNotVerifiedError,
+  ForbiddenError,
+  UnauthorizedError,
+} from "../../lib/errors";
+import {
+  type ImpersonationContext,
+  runWithImpersonationContext,
+} from "../../lib/impersonation-context";
 import { getClientIp } from "../../lib/ip";
 import { runWithOrgContext } from "../../lib/org-context";
 import { type Actions, loadAbility, type Subjects } from "../../services/auth/ability";
 import { apiKeyAbility, recordApiKeyUsage, resolveApiKey } from "../../services/auth/api-key";
 import { assertAccountCanAuthenticate } from "../../services/auth/auth.service";
-import { type AccessPayload, verifyToken } from "../../services/auth/jwt";
+import { type AccessPayload, isImpersonationToken, verifyToken } from "../../services/auth/jwt";
+import { impersonationAbility, resolveLiveImpersonation } from "../../services/impersonation";
 
 export type AppAbility = Ability<[Actions, Subjects]>;
 
@@ -33,6 +43,13 @@ declare module "hono" {
     db: Db;
     authMethod: AuthMethod;
     apiKeyId: string | undefined;
+    /**
+     * NWB-P1-011 — set only while the access token is a live impersonation
+     * token. `writeAuditLog` reads the matching ALS scope, the access log reads
+     * this, and the impersonation end route reads it to let a support session
+     * end itself.
+     */
+    impersonation: ImpersonationContext | undefined;
   }
 }
 
@@ -215,6 +232,24 @@ function buildAuthMiddleware(principalOpts?: {
       throw new AuthError("Invalid or expired access token");
     }
 
+    // ── Impersonation gate (NWB-P1-011) ─────────────────────────────────────
+    // An impersonation token is a normal access JWT for the target's identity plus two
+    // fields naming the support session. The row — not the token's `exp` — is the source
+    // of truth: it is re-validated on every request, so a session that was ended,
+    // terminated, or expired dies on the *next request*, and an admin who is suspended
+    // or removed from the organization takes their running impersonations down with them.
+    const impersonation = isImpersonationToken(payload)
+      ? await resolveLiveImpersonation(db, {
+          userId: payload.userId,
+          orgId: payload.orgId,
+          impersonationSessionId: payload.impersonationSessionId,
+          impersonatorId: payload.impersonatorId,
+        })
+      : undefined;
+    if (isImpersonationToken(payload) && !impersonation) {
+      throw new UnauthorizedError("Impersonation session is no longer active");
+    }
+
     // Verify membership — the JWT's orgId must match a real membership row
     const principal = await assertActivePrincipal(db, payload.userId, payload.orgId, principalOpts);
     // Read from the row on every request, not from the token: verifying flips the gate open for
@@ -224,11 +259,28 @@ function buildAuthMiddleware(principalOpts?: {
     c.set("user", { userId: payload.userId, orgId: payload.orgId });
     c.set("authMethod", "session");
     c.set("apiKeyId", undefined);
+    const impersonationScope = impersonation
+      ? {
+          impersonationSessionId: impersonation.sessionId,
+          adminUserId: impersonation.adminUserId,
+          impersonatedUserId: payload.userId,
+        }
+      : undefined;
+    c.set("impersonation", impersonationScope);
 
-    const ability = await loadAbility(db, payload.userId, payload.orgId);
-    c.set("ability", ability);
+    // While impersonating, the ability is the **target's** own — see the product as they
+    // see it, and inherit their ceilings — minus the impersonation deny-list
+    // (billing, org deletion, team writes, nested impersonation; see `ability.ts`).
+    const baseAbility = await loadAbility(db, payload.userId, payload.orgId);
+    c.set("ability", impersonation ? impersonationAbility(baseAbility) : baseAbility);
 
     // Same reasoning as the API-key branch above — the await is load-bearing.
+    if (impersonationScope) {
+      await runWithImpersonationContext(impersonationScope, () =>
+        runWithOrgContext({ orgId: payload.orgId, userId: payload.userId }, next),
+      );
+      return;
+    }
     await runWithOrgContext({ orgId: payload.orgId, userId: payload.userId }, next);
   };
 }

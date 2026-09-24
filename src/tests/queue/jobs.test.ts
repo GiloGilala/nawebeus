@@ -19,6 +19,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { type SQL, sql } from "drizzle-orm";
+import { impersonationExpireJob } from "../../jobs/impersonation-expire";
 import { purgeExpiredAccountsJob } from "../../jobs/purge-expired-accounts";
 import { purgeExpiredOrganizationsJob } from "../../jobs/purge-expired-organizations";
 import { rateLimitReclaimJob } from "../../jobs/rate-limit-reclaim";
@@ -348,6 +349,52 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
       expect(row?.severity).toBe("critical");
       expect(row?.reason).toContain("forced purge failure");
       expect(row?.changes?.error).toBe("forced purge failure");
+    });
+  });
+});
+
+describe.skipIf(!hasDb())("impersonation.expire job (NWB-P1-011)", () => {
+  test("closes lapsed sessions as expired, is idempotent, and files run + per-row audit", async () => {
+    await withTestDb(async ({ db }) => {
+      const admin = await createTestUser(db);
+      const org = await createTestOrg(db, { ownerId: admin.id });
+      const target = await createTestUser(db);
+
+      const lapsed = `imp_${crypto.randomUUID()}`;
+      await db.execute(sql`
+        INSERT INTO impersonation_sessions (
+          id, organization_id, admin_user_id, target_user_id, reason,
+          started_at, expires_at, mfa_verified
+        ) VALUES (
+          ${lapsed}, ${org.id}, ${admin.id}, ${target.id}, 'lapsed support window',
+          now() - interval '3 hours', now() - interval '2 hours', true
+        )
+      `);
+
+      const first = await impersonationExpireJob.handle({ db, job: ATTEMPT }, null);
+      expect(first).toMatchObject({ expired: 1, failed: 0 });
+      expect((first as { ids: string[] }).ids).toContain(lapsed);
+
+      // Idempotent: the second tick finds nothing left to close.
+      expect(await impersonationExpireJob.handle({ db, job: ATTEMPT }, null)).toMatchObject({
+        expired: 0,
+        failed: 0,
+      });
+
+      // The row is closed with the reason, and the per-row evidence exists alongside
+      // the run-level row the wrapper writes.
+      const state = (await db.execute(
+        sql`SELECT end_reason, ended_at IS NOT NULL AS ended FROM impersonation_sessions WHERE id = ${lapsed}`,
+      )) as any;
+      expect(state.rows[0]).toMatchObject({ end_reason: "expired", ended: true });
+
+      const perRow = (await db.execute(
+        sql`SELECT actor_type, target_user_id FROM unified_audit_log
+            WHERE action = 'admin.impersonation.expired' AND resource_id = ${lapsed}`,
+      )) as any;
+      expect(perRow.rows).toHaveLength(1);
+      expect(perRow.rows[0].actor_type).toBe("system");
+      expect(perRow.rows[0].target_user_id).toBe(target.id);
     });
   });
 });

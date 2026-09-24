@@ -64,6 +64,13 @@
       "when": 1790109044782,
       "tag": "0008_app_config",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790283639337,
+      "tag": "0009_impersonation_sessions",
+      "breakpoints": true
     }
   ]
 }

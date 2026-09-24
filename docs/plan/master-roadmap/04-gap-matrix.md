@@ -27,7 +27,7 @@
 | Backend — approval | 🔴 (schema active) | Request/submit/approve/reject queue + stale-expire worker | P1-003 | `db/shared/approval.ts` active | queue | **Required** (gates P3/P8/P9 in B/C; needed by P7 responses) | Phase 2 |
 | Backend — contacts | 🔴 (schema active) | Contact + interaction CRUD | P1-007 | `db/shared/contacts.ts` | — | **Required** (PR/Influencer in B/C) | Phase 2 |
 | Backend — feature flags/config | 🔴 | `evaluateFlag`, `getConfigValue` with audit | P1-009 | — | — | **Required** (billing limits, dark launches) | Phase 2 |
-| Backend — impersonation | 🔴 | Start/end + audit | P1-011 | `AuditActorType` already has `"impersonation"` | audit formalization | **Required** (support tooling) | Phase 2 |
+| Backend — impersonation | ✅ (was 🔴; NWB-P1-011, 2026-09-24) | Start/end + audit | P1-011 | `src/services/impersonation/` + `impersonation_sessions` (0009); every action tagged `impersonation` with the admin as actor | audit formalization | **Required** (support tooling; UI in P15-006) | Phase 2 |
 | Backend — observability | console + NWB_DEBUG_ERRORS | Structured JSON logs, request IDs, error tracking, metrics endpoints | P1-012 | — | — | **Required** | Phase 2 |
 | Backend — org context | ✅ ALS + org-match | Keep; add org-switch if D14 says yes | Possible extension | `src/lib/org-context.ts` | D14 | Conditional | Phase 1/7 |
 | **API** | 28 routes (auth 16, users 8, orgs 7, api-keys 4) | Same surface hardened + all module APIs per plan | Envelope/RBAC conventions exist and are good; add pagination (F-14), pagination/sorting per API Reference conventions, public endpoints hardened (campaign entry, webhooks) | route audit §2 | — | **Required** | per phase |

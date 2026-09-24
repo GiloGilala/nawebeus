@@ -42,3 +42,18 @@ export function uuidParam(c: Context, name: string, label = `${name}`): string {
   }
   return raw;
 }
+
+/**
+ * Reads a path parameter that must match a caller-supplied pattern — for ids
+ * that are *not* bare uuids, like the `imp_<uuid>` impersonation session ids
+ * (NWB-P1-011). Same contract as `uuidParam`: a malformed segment is a 422 at
+ * the edge, never a driver error from a `WHERE id = $1` it had no business
+ * reaching.
+ */
+export function patternParam(c: Context, name: string, pattern: RegExp, label = `${name}`): string {
+  const raw = c.req.param(name);
+  if (typeof raw !== "string" || !pattern.test(raw)) {
+    throw new ValidationError(`Invalid ${label}`, [{ field: name, message: "Malformed id" }]);
+  }
+  return raw;
+}
