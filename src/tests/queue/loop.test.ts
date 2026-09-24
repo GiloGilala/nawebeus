@@ -24,6 +24,7 @@ import {
   createQueueClient,
   enqueueJob,
   getQueue,
+  getQueueDepth,
   isQueueStarted,
   QUEUE_JOBS,
   startQueue,
@@ -434,6 +435,17 @@ describe.skipIf(!hasDb())("queue client lifecycle", () => {
     expect(isQueueStarted()).toBe(false);
     // Stopping twice is the real shutdown path: `SIGTERM` racing an explicit `worker.stop()`.
     await stopQueue();
+  }, 30_000);
+
+  test("getQueueDepth reports depth while started, undefined when not (NWB-P1-012)", async () => {
+    await startQueue({ schema: lifecycleSchema });
+    const depth = await getQueueDepth();
+    // The lifecycle schema has no app queues registered — zeros are the correct
+    // reading, and the shape is what the readiness probe relies on.
+    expect(depth).toEqual({ ready: 0, active: 0, failed: 0 });
+
+    await stopQueue();
+    expect(await getQueueDepth()).toBeUndefined();
   }, 30_000);
 
   test("enqueueJob is the one way a caller puts work on a queue", async () => {

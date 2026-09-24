@@ -3,12 +3,22 @@ import { ValidationError } from "../lib/errors";
 import { createTestApp } from "./helpers/test-client";
 
 describe("health check", () => {
-  test("GET /api/health returns 200 with status ok", async () => {
+  test("GET /api/health returns 200 with a readiness report", async () => {
     const app = createTestApp();
     const res = await app.request("/api/health");
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ data: { status: "ok" } });
+    expect(body.data.status).toBe("ok");
+    expect(body.data.checks.database.status).toBe("ok");
+    expect(typeof body.data.checks.database.latencyMs).toBe("number");
+    // No queue runtime in a plain test app — a legal state, not a fault (ADR-007).
+    expect(body.data.checks.queue.status).toBe("disabled");
+  });
+
+  test("the probe echoes the correlation id like every other response", async () => {
+    const app = createTestApp();
+    const res = await app.request("/api/health", { headers: { "x-request-id": "probe-1" } });
+    expect(res.headers.get("x-request-id")).toBe("probe-1");
   });
 });
 

@@ -15,12 +15,6 @@
  */
 
 export {
-  createApiKeyServerFn,
-  listApiKeysServerFn,
-  revokeApiKeyServerFn,
-  rotateApiKeyServerFn,
-} from "./api-keys";
-export {
   acknowledgeAlertServerFn,
   createAlertRuleServerFn,
   deleteAlertRuleServerFn,
@@ -35,6 +29,12 @@ export {
   markAllAlertsAsReadServerFn,
   updateAlertRuleServerFn,
 } from "./alerts";
+export {
+  createApiKeyServerFn,
+  listApiKeysServerFn,
+  revokeApiKeyServerFn,
+  rotateApiKeyServerFn,
+} from "./api-keys";
 // Auth — public
 export {
   changePasswordServerFn,
@@ -57,6 +57,28 @@ export {
   verifyEmailServerFn,
   verifyMfaLoginServerFn,
 } from "./auth";
+export {
+  createAppConfigServerFn,
+  createFeatureFlagServerFn,
+  deleteAppConfigServerFn,
+  evaluateFlagServerFn,
+  getAppConfigServerFn,
+  getConfigValueServerFn,
+  listAppConfigsServerFn,
+  rollbackAppConfigServerFn,
+  updateAppConfigServerFn,
+} from "./config";
+export {
+  completeFollowUpServerFn,
+  createContactServerFn,
+  createInteractionServerFn,
+  deleteContactServerFn,
+  getContactServerFn,
+  listContactsServerFn,
+  listInteractionsServerFn,
+  mergeContactsServerFn,
+  updateContactServerFn,
+} from "./contacts";
 // Helpers for tests and advanced usage (injecting a transactional DB, headers)
 export {
   clearServerAuthCookies,
@@ -86,28 +108,6 @@ export {
   updateMemberServerFn,
   updateOrgServerFn,
 } from "./orgs";
-export {
-  completeFollowUpServerFn,
-  createContactServerFn,
-  createInteractionServerFn,
-  deleteContactServerFn,
-  getContactServerFn,
-  listContactsServerFn,
-  listInteractionsServerFn,
-  mergeContactsServerFn,
-  updateContactServerFn,
-} from "./contacts";
-export {
-  createAppConfigServerFn,
-  createFeatureFlagServerFn,
-  deleteAppConfigServerFn,
-  evaluateFlagServerFn,
-  getAppConfigServerFn,
-  getConfigValueServerFn,
-  listAppConfigsServerFn,
-  rollbackAppConfigServerFn,
-  updateAppConfigServerFn,
-} from "./config";
 export {
   createTemplateServerFn,
   deleteTemplateServerFn,

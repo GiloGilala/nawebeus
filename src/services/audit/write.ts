@@ -16,6 +16,7 @@
  */
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { currentRequestId } from "../../lib/request-context";
 import { type DbOrTx, withAtomicWrites } from "../../lib/transaction";
 import { type AuditActionName, auditActionSpec } from "./actions";
 import { isChainedModule, sealChainLink } from "./chain";
@@ -52,6 +53,13 @@ interface AuditEventFields {
   /** Defaults to the registry's severity, else `info`. */
   severity?: AuditSeverity | undefined;
   reason?: string | undefined;
+  /**
+   * Correlation id for `GET /api/audit?requestId=`. When absent, defaults to the current request's
+   * id (NWB-P1-012) — the one that produced this write — so every row written while handling a
+   * request is findable from its access-log line, without each call site threading the id through.
+   * An explicit value wins (DSAR cites its own domain id, not the HTTP one); outside a request
+   * scope (worker, CLI) the column stays NULL, as it always was.
+   */
   requestId?: string | undefined;
   sessionId?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
@@ -154,7 +162,7 @@ export async function writeAuditLog(params: WriteAuditLogEntryParams): Promise<v
     changes: JSON.stringify(changes ?? null),
     severity,
     reason: reason ?? null,
-    requestId: requestId ?? null,
+    requestId: requestId ?? currentRequestId() ?? null,
     sessionId: sessionId ?? null,
     metadata: JSON.stringify(metadata ?? null),
     createdAt,

@@ -5,8 +5,12 @@
  * path. This writer emits one JSON object per line to stderr and redacts
  * secrets / PII keys so a log line cannot leak a password, JWT, or card number.
  *
- * Full Loki/Sentry wiring is NWB-P1-012; this is the contract those sinks will
- * consume. Errors still propagate — the logger does not swallow.
+ * Since NWB-P1-012 its consumers are the request-context access log (one line
+ * per request, keyed by the request's correlation id) and `errorHandler` (one
+ * line per 5xx, same id); metrics and remote sinks (Loki/Sentry/Prometheus)
+ * are Phase 8 — this writer is the contract those sinks will consume. Errors
+ * still propagate — the logger does not swallow, and a logging failure must
+ * never take a request down with it.
  */
 
 export type LogLevel = "debug" | "info" | "warn" | "error";

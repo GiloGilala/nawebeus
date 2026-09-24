@@ -244,3 +244,46 @@ export async function enqueueJob(
 ): Promise<string | null> {
   return boss.send(name, data, options);
 }
+
+/**
+ * Backlog reading for the readiness probe (NWB-P1-012) — pg-boss's
+ * `getQueues()` per-queue counts summed over this app's queues.
+ *
+ * `ready` is the depth that matters (runnable now), `active` what a worker is
+ * holding, `failed` what is still retained after retries ran out — bounded by
+ * each queue's retention policy, so it is a rolling signal, not an all-time
+ * total. The library call lives here, not in the health handler: this file is
+ * the one place a pg-boss API surface may be touched (its header contract),
+ * so a library upgrade that changes `QueueResult` breaks tests here rather
+ * than in an HTTP handler.
+ */
+export interface QueueDepth {
+  ready: number;
+  active: number;
+  failed: number;
+}
+
+/** Sum per-queue counts into one depth reading. Pure — testable with a recording fake. */
+export async function queueDepthFrom(
+  boss: Pick<PgBoss, "getQueues">,
+  names: readonly string[] = QUEUE_JOB_NAMES,
+): Promise<QueueDepth> {
+  const queues = await boss.getQueues([...names]);
+  const depth: QueueDepth = { ready: 0, active: 0, failed: 0 };
+  for (const queue of queues) {
+    depth.ready += queue.readyCount;
+    depth.active += queue.activeCount;
+    depth.failed += queue.failedCount;
+  }
+  return depth;
+}
+
+/**
+ * Depth across this app's queues, or `undefined` when this process runs no
+ * queue runtime — a legal configuration (ADR-007: API-only is a deployment
+ * choice, not a fault), which the readiness probe reports as `disabled`.
+ */
+export async function getQueueDepth(): Promise<QueueDepth | undefined> {
+  if (!_client) return undefined;
+  return queueDepthFrom(_client);
+}

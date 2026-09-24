@@ -97,7 +97,11 @@ function approvalIdParam(c: Context): string {
 function actorContext(c: Context): ApprovalActorContext {
   const ip = getClientIp(c, getConfig());
   const userAgent = c.req.header("user-agent");
-  const requestId = c.req.header("x-request-id");
+  // The normalized request id from the request-context middleware (NWB-P1-012),
+  // not the raw header: it is length-checked against the audit column and
+  // present on every request, so approvals decisions correlate like everything
+  // else. The raw header was a latent 22001 above 100 chars.
+  const requestId = c.var.requestId;
   return {
     ...(ip ? { ip } : {}),
     ...(userAgent ? { userAgent } : {}),

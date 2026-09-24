@@ -16,5 +16,22 @@
  * gated on it, and inventing a value would convert every clean skip into a
  * connection failure.
  */
+import { logger } from "../lib/logger";
+
 process.env.JWT_ACCESS_SECRET ??= "test-access-secret-0123456789abcdef";
 process.env.JWT_REFRESH_SECRET ??= "test-refresh-secret-0123456789abcdef";
+
+/**
+ * The real JSON-to-stderr writers, captured before the run-wide silence below.
+ * The shared `logger` object is silenced for the whole run (NWB-P1-012): since
+ * the request-context middleware, every `app.request()` writes an access-log
+ * line, and hundreds of JSON lines would bury the test output. Tests that care
+ * about log content `spyOn(logger, …)`; the logger's own suite calls these
+ * captured originals so the real writer stays exercised and covered.
+ */
+export const realLogWriters = { ...logger };
+
+logger.debug = () => {};
+logger.info = () => {};
+logger.warn = () => {};
+logger.error = () => {};
