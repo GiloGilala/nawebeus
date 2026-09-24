@@ -242,6 +242,49 @@ export class AlertRuleVersionConflictError extends AppError {
   }
 }
 
+/**
+ * Optimistic concurrency conflict on app config / feature flags (NWB-P1-009).
+ */
+export class ConfigVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "CONFIG_VERSION_CONFLICT";
+
+  constructor(
+    message = "Configuration entry was modified concurrently. Please reload and retry.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Modification of a locked configuration entry attempted (NWB-P1-009).
+ */
+export class ConfigLockedError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "CONFIG_LOCKED";
+
+  constructor(
+    message = "This configuration entry is locked and cannot be modified.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Feature flag disabled gate error (NWB-P1-009).
+ */
+export class FeatureFlagDisabledError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "FEATURE_FLAG_DISABLED";
+
+  constructor(
+    featureKey: string,
+    message = `Feature flag '${featureKey}' is disabled.`,
+  ) {
+    super(message);
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

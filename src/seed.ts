@@ -280,6 +280,55 @@ async function seed() {
       action: "delete",
       name: "Delete Alert Rules",
     },
+    // System Config & Feature Flags (NWB-P1-009)
+    {
+      string: "config.read",
+      resource: "config",
+      action: "read",
+      name: "View System Configuration Settings",
+    },
+    {
+      string: "config.create",
+      resource: "config",
+      action: "create",
+      name: "Create System Configuration Settings",
+    },
+    {
+      string: "config.update",
+      resource: "config",
+      action: "update",
+      name: "Update System Configuration Settings",
+    },
+    {
+      string: "config.delete",
+      resource: "config",
+      action: "delete",
+      name: "Delete System Configuration Settings",
+    },
+    {
+      string: "flags.read",
+      resource: "flags",
+      action: "read",
+      name: "View Feature Flags and Rollout Status",
+    },
+    {
+      string: "flags.create",
+      resource: "flags",
+      action: "create",
+      name: "Create Feature Flags",
+    },
+    {
+      string: "flags.update",
+      resource: "flags",
+      action: "update",
+      name: "Update Feature Flags and Targeting",
+    },
+    {
+      string: "flags.delete",
+      resource: "flags",
+      action: "delete",
+      name: "Delete Feature Flags",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -356,6 +405,7 @@ async function seed() {
     "templates.read",
     "contacts.read",
     "alerts.read",
+    "flags.read",
   ];
   const teamManagement = [
     "members.read",
@@ -399,6 +449,13 @@ async function seed() {
     "apikeys.read",
     "apikeys.update",
     "apikeys.delete",
+    "config.read",
+    "config.create",
+    "config.update",
+    "config.delete",
+    "flags.create",
+    "flags.update",
+    "flags.delete",
   ];
   // Owner-only, and therefore absent from admin above: billing.read,
   // billing.update, org.delete. owner/super_admin take the full catalog.

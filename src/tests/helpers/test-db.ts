@@ -107,3 +107,10 @@ export async function ensureContactsSchema(db: Db): Promise<void> {
 export async function ensureAlertsSchema(db: Db): Promise<void> {
   return ensureMigrationApplied(db, "0007_alerts_id_lengths.sql");
 }
+
+/**
+ * Ensure the app_config table exists by executing migration 0008.
+ */
+export async function ensureAppConfigSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0008_app_config.sql");
+}

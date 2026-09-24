@@ -284,6 +284,26 @@ export const AUDIT_ACTIONS = {
     category: "engagement",
     resourceType: "contact",
   },
+  "config.created": {
+    description: "A system configuration setting was created.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
+  "config.deleted": {
+    description: "A system configuration setting was deleted.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
+  "config.rolled_back": {
+    description: "A system configuration setting was rolled back to its previous value.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
+  "config.updated": {
+    description: "A system configuration setting was updated.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
   "email.delivered": {
     description:
       "An outbound email was accepted by the transport (Resend or console); recipient masked, template kind and provider id recorded.",
@@ -296,6 +316,26 @@ export const AUDIT_ACTIONS = {
     category: "user_management",
     resourceType: "email",
     severity: "warning",
+  },
+  "flag.created": {
+    description: "A feature flag was created.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
+  },
+  "flag.deleted": {
+    description: "A feature flag was deleted.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
+  },
+  "flag.toggled": {
+    description: "A feature flag was enabled, disabled, or kill-switched.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
+  },
+  "flag.updated": {
+    description: "A feature flag definition or rollout rules were updated.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
   },
   "invitations.purged": {
     description:

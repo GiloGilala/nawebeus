@@ -174,6 +174,28 @@ describe.skipIf(!hasDb())("seed data", () => {
       expect(has(code, "alerts.update")).toBe(false);
     }
     expect(has("creator", "alerts.delete")).toBe(false);
+    // Flags (NWB-P1-009): everyone reads flags; Admin and Owner create/update/delete flags
+    for (const code of ["owner", "admin", "manager", "creator", "analyst", "viewer"]) {
+      expect(has(code, "flags.read")).toBe(true);
+    }
+    for (const code of ["owner", "admin"]) {
+      expect(has(code, "flags.create")).toBe(true);
+      expect(has(code, "flags.update")).toBe(true);
+      expect(has(code, "flags.delete")).toBe(true);
+      expect(has(code, "config.read")).toBe(true);
+      expect(has(code, "config.create")).toBe(true);
+      expect(has(code, "config.update")).toBe(true);
+      expect(has(code, "config.delete")).toBe(true);
+    }
+    for (const code of ["manager", "creator", "analyst", "viewer"]) {
+      expect(has(code, "flags.create")).toBe(false);
+      expect(has(code, "flags.update")).toBe(false);
+      expect(has(code, "flags.delete")).toBe(false);
+      expect(has(code, "config.read")).toBe(false);
+      expect(has(code, "config.create")).toBe(false);
+      expect(has(code, "config.update")).toBe(false);
+      expect(has(code, "config.delete")).toBe(false);
+    }
     // Analytics: everyone reads; export is Manager/Analyst and above
     for (const code of ["owner", "admin", "manager", "creator", "analyst", "viewer"]) {
       expect(has(code, "analytics.read")).toBe(true);

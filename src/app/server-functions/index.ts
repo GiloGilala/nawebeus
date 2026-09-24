@@ -98,6 +98,17 @@ export {
   updateContactServerFn,
 } from "./contacts";
 export {
+  createAppConfigServerFn,
+  createFeatureFlagServerFn,
+  deleteAppConfigServerFn,
+  evaluateFlagServerFn,
+  getAppConfigServerFn,
+  getConfigValueServerFn,
+  listAppConfigsServerFn,
+  rollbackAppConfigServerFn,
+  updateAppConfigServerFn,
+} from "./config";
+export {
   createTemplateServerFn,
   deleteTemplateServerFn,
   getTemplateServerFn,
