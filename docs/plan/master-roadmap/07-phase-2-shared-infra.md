@@ -25,11 +25,11 @@
 | NWB-P1-009 | Feature flags + system config | none | `evaluateFlag`, `getConfigValue`, audited config writes; used by billing limits + Phase 7 dark launches. |
 | NWB-P1-010 | Retention + legal holds + backup records | none | 7-year audit retention (Module 1 spec) enforced by worker; holds block purge workers from P1/NWB-P0-023. |
 | NWB-P1-011 | Impersonation sessions | `AuditActorType` already includes `"impersonation"` | Start/end, full audit, clean end; support tooling (P15-006). |
-| NWB-P1-012 | Observability baseline | console + `NWB_DEBUG_ERRORS` only | Structured JSON logs (request id, org id, user id, duration), correlation IDs (reuse `requestId` field already in audit schema), error tracking, `/api/health` upgraded to a real readiness probe (DB ping + queue depth). Infra §6.2 stack (Prometheus/Alertmanager) is wired in Phase 8; Phase 2 makes the data exist. |
+| NWB-P1-012 | Observability baseline | ✅ **DONE 2026-09-24** — §12.3 for what landed and the verification log. Was: `logger` with zero callers in the tree, no request ids, `errorHandler` silent unless `NWB_DEBUG_ERRORS`, static `{status:"ok"}` health | Request-context middleware (honored/echoed `x-request-id` ≤100 chars, else `req_<uuid>`), one access line per request (route **template**, never a raw path — tokens live in path params), `writeAuditLog` defaults `request_id` from a request-scope ALS, always-on structured 5xx lines (stack behind `NWB_DEBUG_ERRORS`), `/api/health` = DB ping + queue depth (503 only when the DB fails; queue trouble = `degraded`, still 200, per ADR-007). Infra §6.2 stack (Prometheus/Alertmanager) stays Phase 8; Phase 2 made the data exist. |
 
 **Schema adoptions in this phase:** none new (approval/contacts/alerts/media/templates/analytics are already active). Any drift found while wiring is fixed in the schema + migration (ground rule 7), recorded in the ticket.
 
-**Exit gate (plan §5 + this audit):** scheduled worker executes in dev **and** under the CI test job (a no-op scheduled job proves the loop); email actually sends via Resend in a dev sandbox (evidence in spec.md); approval queue works end-to-end; media upload→signed-URL works against local adapter (R2 smoke when credentials available); feature flag gates a live code path; observability: a request can be traced by correlation id from log to audit row; all purge/reclamation workers running on schedule. **Nothing downstream starts until this gate passes.** **Two clauses of that gate are met** (NWB-P1-001): the worker loop runs and purge/reclamation is scheduled — the remaining five wait on their own tickets.
+**Exit gate (plan §5 + this audit):** scheduled worker executes in dev **and** under the CI test job (a no-op scheduled job proves the loop); email actually sends via Resend in a dev sandbox (evidence in spec.md); approval queue works end-to-end; media upload→signed-URL works against local adapter (R2 smoke when credentials available); feature flag gates a live code path; observability: a request can be traced by correlation id from log to audit row; all purge/reclamation workers running on schedule. **Nothing downstream starts until this gate passes.** **Six of the seven clauses are met** as of 2026-09-24: the worker loop runs in dev and under the CI test job (NWB-P1-001 — the `queue/loop` suite runs there), approval queue end-to-end (NWB-P1-003), feature flag gating a live code path (NWB-P1-009), purge/reclamation scheduled (NWB-P1-001), correlation id from log to audit row (NWB-P1-012), email tooling delivered (NWB-P1-004 — the *send* itself awaits the operator's `email:smoke` run in spec.md). **Open: media upload → signed URL (NWB-P1-005, blocked on D6) and the Resend sandbox evidence.**
 
 ### 12.1 What NWB-P1-001 actually landed (2026-09-21)
 
@@ -177,5 +177,55 @@ under that server; 531/531 under the one the branch was built against. Documente
 **API Reference §19**, which also records that the admin console's planned
 `GET /api/v1/admin/audit-log` (System Administration §6) is still to be built *on top of* this surface,
 not as a second read API.
+
+### 12.3 What NWB-P1-012 actually landed (2026-09-24)
+
+New: `src/lib/request-context.ts` (request-scope AsyncLocalStorage: `runWithRequestId` /
+`currentRequestId`), `src/server/middleware/request-context.ts` (id assignment + access log),
+`src/server/health.ts` (`collectHealth` + route handler), `src/tests/observability.test.ts` (23
+tests), `src/tests/queue/depth.test.ts` (4). Changed: `src/server/index.ts` (middleware registered
+first in both factories; health route now the probe), `src/server/middleware/error-handler.ts`,
+`src/lib/queue.ts` (+`queueDepthFrom`/`getQueueDepth`), `src/services/audit/write.ts`
+(`request_id` defaults from the ALS), `src/server/api/approvals/approval.route.ts` (normalized id
+instead of the raw header — a >100-char `x-request-id` was a latent 22001 on
+`unified_audit_log.request_id`), `src/tests/preload.ts` (silences the shared logger for the run and
+exports `realLogWriters` so the logger suite still exercises the real writer), the health/logger
+suites, and one live `getQueueDepth` test in `queue/loop.test.ts`.
+
+**As-built, in one paragraph.** Every request gets one id — an inbound `x-request-id` when it is
+1..100 chars (the audit column's width), otherwise `req_<uuid>` — set on the Hono context, echoed
+on the response, installed in an AsyncLocalStorage, and written into `unified_audit_log.request_id`
+by `writeAuditLog` whenever the caller did not pass one explicitly (explicit wins — the DSAR
+self-cite keeps its domain id; workers and the CLI, outside any request scope, keep writing NULL).
+One `logger.info("request", …)` line per non-infrastructure request carries
+`requestId/method/route/status/durationMs` (+ `orgId/userId/authMethod` when authenticated);
+`/api/health` probes and CORS preflights are excluded as infrastructure traffic. The `route` field
+is the **endpoint template**, taken from the last non-catch-all entry of `c.req.matchedRoutes` —
+not `c.req.routePath`, which reports the *frame* you are standing in (`/api/audit/*` for a request
+that died in route middleware, `/*` for a 404) — so a live token in a path parameter can never
+reach the log (live-verified: `GET /api/auth/invitations/tok_…` logs
+`"/api/auth/invitations/:token"`). `errorHandler` now writes an always-on structured `logger.error`
+line for every 5xx with the real cause and the same id (before this ticket it logged *nothing*
+without `NWB_DEBUG_ERRORS`); the flag keeps its old job — stacks — and now also dumps 4xx at
+`warn`, while the client-facing 500 stays the opaque `INTERNAL_ERROR`. `/api/health` answers with
+`{ status, checks: { database, queue } }`: a `SELECT 1` ping (failure → 503 `error` — the hard
+dependency, `authMiddleware` cannot validate a principal without it) and pg-boss depth summed over
+`QUEUE_JOB_NAMES` (`disabled` when no runtime, `degraded`-but-200 when a started queue errors —
+ADR-007 refuses to make the queue a hostage; `createApp()`, which injects no database, reports
+`not-configured` instead of faking a ping).
+
+**Exit-gate clause closed:** *a request can be traced by correlation id from log to audit row* —
+`src/tests/observability.test.ts` walks a real sign-in (log line ↔ `auth.signin.completed` row) and
+a real org-scoped action through `GET /api/audit?requestId=`. **One scoping fact recorded so it is
+not "fixed" later:** sign-in's audit row has `organization_id IS NULL`, and orgless rows are
+readable through the audit API only with the platform-admin capability (`resolveScope` →
+`includeOrgless`), so the API side of the trace is proven with an org-scoped `apikeys.created` row
+and the SQL side with the sign-in row — loosening the filter to make the demo prettier would be a
+cross-tenant leak. **Also found:** `bun run lint` was red at HEAD (`c6e6479`) — formatting drift in
+`src/lib/errors.ts`, `src/lib/validation/index.ts`, `src/app/server-functions/index.ts`, same class
+as NWB-P0-027 — fixed here by the gate run's `biome check --write`. **Verification:** typecheck,
+`bun run lint`, `bun run build` exit 0; `bun test` **809 pass / 0 fail** with a live PostgreSQL
+(778 before); `coverage:check` green (services 92.9%, lib 96.8%); live smoke against `bun run dev`
+(health probe with depth, generated + honored ids, token-free route templates in stderr).
 
 ---

@@ -3,14 +3,14 @@
 **Feature slug:** `p1-shared-infra`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/07-phase-2-shared-infra.md` (§12) · execution plan §5 P1
-**Status:** in-progress — NWB-P1-001 (queue + scheduler + worker base), NWB-P1-002 (audit
-formalization + query API), NWB-P1-013 (per-row purge deletes + honest partial-run reporting, found
-while delivering P1-001), NWB-P1-014 (audit hash chain), NWB-P1-015 (anonymization on purge) and
-NWB-P1-016 (lapsed-invitation expiry, split out of P1-015's residuals) all **done 2026-09-21/22**.
-**NWB-P1-010** (retention + legal holds + backup records), **NWB-P1-003** (approval
-service — the exit gate's "approval queue works end to end") and **NWB-P1-004** (Resend email
-transport + durable outbox + verified-email gate) are all **done 2026-09-22**. The other six
-tickets are not started.
+**Status:** in-progress — **14 of 16 tickets done** (the roadmap's 12 plus four found during
+delivery: 013–016). Queue, audit (+chain, +anonymization), approvals, retention, email, templates,
+contacts, notifications, flags, invitation expiry all **done 2026-09-21/22** — see the index.
+**NWB-P1-012** (observability baseline: request ids + access log + error tracking + readiness
+probe) **done 2026-09-24** — this ticket closed the exit-gate clause *"a request can be traced by
+correlation id from log to audit row"* (evidence in issues/14). Remaining: **NWB-P1-005**
+(media/storage — blocked on D6) and **NWB-P1-011** (impersonation sessions — ready-for-agent), plus
+the operator-run Resend send for the email clause.
 
 **Goal:** land the cross-cutting services every domain module needs. Per the execution plan this is
 "the single largest multiplier in the plan" — nothing downstream starts before the exit gate.
@@ -22,8 +22,12 @@ D6 (object storage) is **still open** and blocks NWB-P1-005 only.
 job (a no-op scheduled job proves the loop) · email actually sends via Resend in a dev sandbox
 (evidence in this file) · the approval queue works end to end · media upload → signed URL works
 against the local adapter · a feature flag gates a live code path · a request can be traced by
-correlation id from log to audit row · all purge/reclamation workers running on schedule.
-**Nothing downstream starts until this gate passes.**
+correlation id from log to audit row ✅ (NWB-P1-012, 2026-09-24 — `src/tests/observability.test.ts`
+proves log line → `unified_audit_log.request_id` → `GET /api/audit?requestId=`) · all
+purge/reclamation workers running on schedule.
+**Nothing downstream starts until this gate passes.** Clauses still open: media upload → signed
+URL (NWB-P1-005, blocked on D6) · the Resend sandbox send (operator run) · the CI no-op scheduled
+job (verify at the gate, not per ticket).
 
 ## Ticket index
 
@@ -44,7 +48,7 @@ correlation id from log to audit row · all purge/reclamation workers running on
 | NWB-P1-009 | Feature flags + system config | M | [issues/13-feature-flags-and-system-config.md](issues/13-feature-flags-and-system-config.md) | **done** 2026-09-22 — `evaluateFlag`, `getConfigValue`, optimistic concurrency, rollback, kill-switch, deterministic rollout percentage, targeting rules, audited writes, RBAC gates, `requireFeatureFlag` live code path gating, and migration 0008 |
 | NWB-P1-010 | Retention + legal holds + backup records | M | [issues/07-retention-legal-holds-backup-records.md](issues/07-retention-legal-holds-backup-records.md) | **done** 2026-09-22 — holds block all four purge paths; `retention.enforce` nightly 02:55; census + backup records; adopts `legal_holds` + `backup_records` |
 | NWB-P1-011 | Impersonation sessions | M | to file | ready-for-agent (needs P1-002) |
-| NWB-P1-012 | Observability baseline (structured logs, correlation ids, real `/api/health`) | M | to file | ready-for-agent |
+| NWB-P1-012 | Observability baseline (structured logs, correlation ids, real `/api/health`) | M | [issues/14-observability-baseline.md](issues/14-observability-baseline.md) | **done 2026-09-24** — request-context middleware (id + echo + access log), `writeAuditLog` ALS default, always-on 5xx error lines, readiness probe (DB ping + queue depth); 809/809 tests, live smoke; closed the exit-gate correlation clause |
 
 Tickets are filed as one file per ticket when picked up, per `docs/agents/issue-tracker.md`; the
 rows above without a file are the roadmap's own §12 list, not yet specced.

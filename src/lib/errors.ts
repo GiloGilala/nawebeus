@@ -207,9 +207,7 @@ export class ContactVersionConflictError extends AppError {
   readonly statusCode = 409;
   readonly code = "CONTACT_VERSION_CONFLICT";
 
-  constructor(
-    message = "Contact was modified concurrently. Please reload and retry.",
-  ) {
+  constructor(message = "Contact was modified concurrently. Please reload and retry.") {
     super(message);
   }
 }
@@ -221,9 +219,7 @@ export class ContactAlreadyMergedError extends AppError {
   readonly statusCode = 409;
   readonly code = "CONTACT_ALREADY_MERGED";
 
-  constructor(
-    message = "Contact has already been merged into another contact.",
-  ) {
+  constructor(message = "Contact has already been merged into another contact.") {
     super(message);
   }
 }
@@ -235,9 +231,7 @@ export class AlertRuleVersionConflictError extends AppError {
   readonly statusCode = 409;
   readonly code = "ALERT_RULE_VERSION_CONFLICT";
 
-  constructor(
-    message = "Alert rule was modified concurrently. Please reload and retry.",
-  ) {
+  constructor(message = "Alert rule was modified concurrently. Please reload and retry.") {
     super(message);
   }
 }
@@ -249,9 +243,7 @@ export class ConfigVersionConflictError extends AppError {
   readonly statusCode = 409;
   readonly code = "CONFIG_VERSION_CONFLICT";
 
-  constructor(
-    message = "Configuration entry was modified concurrently. Please reload and retry.",
-  ) {
+  constructor(message = "Configuration entry was modified concurrently. Please reload and retry.") {
     super(message);
   }
 }
@@ -263,9 +255,7 @@ export class ConfigLockedError extends AppError {
   readonly statusCode = 403;
   readonly code = "CONFIG_LOCKED";
 
-  constructor(
-    message = "This configuration entry is locked and cannot be modified.",
-  ) {
+  constructor(message = "This configuration entry is locked and cannot be modified.") {
     super(message);
   }
 }
@@ -277,10 +267,7 @@ export class FeatureFlagDisabledError extends AppError {
   readonly statusCode = 403;
   readonly code = "FEATURE_FLAG_DISABLED";
 
-  constructor(
-    featureKey: string,
-    message = `Feature flag '${featureKey}' is disabled.`,
-  ) {
+  constructor(featureKey: string, message = `Feature flag '${featureKey}' is disabled.`) {
     super(message);
   }
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { logger, sanitizeFields } from "@/lib/logger";
+import { realLogWriters } from "./preload";
 
 describe("structured logger", () => {
   test("redacts secret and PII keys", () => {
@@ -28,9 +29,20 @@ describe("structured logger", () => {
   });
 
   test("logger writes JSON lines to stderr without throwing", () => {
-    logger.debug("debug");
-    logger.info("created", { organizationId: "org-1" });
-    logger.warn("slow");
-    logger.error("failed", { password: "nope" });
+    // The shared `logger` is silenced for the whole run (preload.ts) so the
+    // per-request access lines don't drown the test output — these are the
+    // captured originals, i.e. the real writers.
+    realLogWriters.debug("debug");
+    realLogWriters.info("created", { organizationId: "org-1" });
+    realLogWriters.warn("slow");
+    realLogWriters.error("failed", { password: "nope" });
+  });
+
+  test("the shared logger object is the one request logging calls", () => {
+    // If request logging ever captured a different binding than the object
+    // tests spy on, every observability assertion below would go green while
+    // asserting nothing. This pins the identity.
+    expect(logger.info).not.toBe(realLogWriters.info);
+    expect(typeof realLogWriters.info).toBe("function");
   });
 });
