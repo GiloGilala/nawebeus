@@ -20,6 +20,21 @@ export {
   revokeApiKeyServerFn,
   rotateApiKeyServerFn,
 } from "./api-keys";
+export {
+  acknowledgeAlertServerFn,
+  createAlertRuleServerFn,
+  deleteAlertRuleServerFn,
+  escalateAlertServerFn,
+  fireAlertServerFn,
+  getAlertEventServerFn,
+  getAlertRuleServerFn,
+  getUnreadAlertCountServerFn,
+  listAlertEventsServerFn,
+  listAlertRulesServerFn,
+  markAlertAsReadServerFn,
+  markAllAlertsAsReadServerFn,
+  updateAlertRuleServerFn,
+} from "./alerts";
 // Auth — public
 export {
   changePasswordServerFn,
@@ -71,6 +86,37 @@ export {
   updateMemberServerFn,
   updateOrgServerFn,
 } from "./orgs";
+export {
+  completeFollowUpServerFn,
+  createContactServerFn,
+  createInteractionServerFn,
+  deleteContactServerFn,
+  getContactServerFn,
+  listContactsServerFn,
+  listInteractionsServerFn,
+  mergeContactsServerFn,
+  updateContactServerFn,
+} from "./contacts";
+export {
+  createAppConfigServerFn,
+  createFeatureFlagServerFn,
+  deleteAppConfigServerFn,
+  evaluateFlagServerFn,
+  getAppConfigServerFn,
+  getConfigValueServerFn,
+  listAppConfigsServerFn,
+  rollbackAppConfigServerFn,
+  updateAppConfigServerFn,
+} from "./config";
+export {
+  createTemplateServerFn,
+  deleteTemplateServerFn,
+  getTemplateServerFn,
+  listTemplatesServerFn,
+  recordTemplateUsageServerFn,
+  renderTemplateServerFn,
+  updateTemplateServerFn,
+} from "./templates";
 export {
   changePasswordServerFn as changeMyPasswordServerFn,
   confirmEmailChangeServerFn,

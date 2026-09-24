@@ -13,9 +13,13 @@ import { approvalRootRouter } from "./api/approvals";
 // `src/app/*` previously held these Hono routes; they remain as deprecated
 // re-exports for backward compatibility and will be removed once all imports
 // are updated.
+import { alertRouter } from "./api/alerts";
 import { auditRootRouter } from "./api/audit";
 import { authRouter } from "./api/auth";
+import { configRouter } from "./api/config";
+import { contactRouter } from "./api/contacts";
 import { orgRootRouter } from "./api/orgs";
+import { templateRootRouter } from "./api/templates";
 import { userRouter } from "./api/users";
 import { errorHandler } from "./middleware/error-handler";
 
@@ -34,6 +38,10 @@ function mountApiRouters(app: Hono): void {
   app.route("/api", apiKeyRootRouter);
   app.route("/api", auditRootRouter);
   app.route("/api", approvalRootRouter);
+  app.route("/api", templateRootRouter);
+  app.route("/api", contactRouter);
+  app.route("/api", alertRouter);
+  app.route("/api", configRouter);
 }
 
 export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {

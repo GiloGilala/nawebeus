@@ -83,6 +83,36 @@ export const AUDIT_ACTIONS = {
     category: "compliance",
     resourceType: "user",
   },
+  "alert.acknowledged": {
+    description: "An alert event was acknowledged by a user.",
+    category: "engagement",
+    resourceType: "alert_event",
+  },
+  "alert.escalated": {
+    description: "An unacknowledged alert event was escalated.",
+    category: "engagement",
+    resourceType: "alert_event",
+  },
+  "alert.fired": {
+    description: "An alert condition triggered and an alert event was created.",
+    category: "engagement",
+    resourceType: "alert_event",
+  },
+  "alert.rule_created": {
+    description: "An alert rule configuration was created.",
+    category: "engagement",
+    resourceType: "alert_rule",
+  },
+  "alert.rule_deleted": {
+    description: "An alert rule configuration was deleted or deactivated.",
+    category: "engagement",
+    resourceType: "alert_rule",
+  },
+  "alert.rule_updated": {
+    description: "An alert rule configuration was updated.",
+    category: "engagement",
+    resourceType: "alert_rule",
+  },
   "apikeys.created": {
     description: "API key issued. Never the key value — prefix and metadata only.",
     category: "security",
@@ -224,6 +254,56 @@ export const AUDIT_ACTIONS = {
     category: "compliance",
     resourceType: "data_export_request",
   },
+  "contact.created": {
+    description: "A new CRM contact was created.",
+    category: "engagement",
+    resourceType: "contact",
+  },
+  "contact.deleted": {
+    description: "A contact was soft-deleted.",
+    category: "engagement",
+    resourceType: "contact",
+  },
+  "contact.followup_completed": {
+    description: "A pending interaction follow-up was marked completed.",
+    category: "engagement",
+    resourceType: "contact_interaction",
+  },
+  "contact.interaction_logged": {
+    description: "An outreach or response interaction was logged for a contact.",
+    category: "engagement",
+    resourceType: "contact_interaction",
+  },
+  "contact.merged": {
+    description: "A contact was merged into a surviving target contact.",
+    category: "engagement",
+    resourceType: "contact",
+  },
+  "contact.updated": {
+    description: "A contact's identity, details, or metadata was updated.",
+    category: "engagement",
+    resourceType: "contact",
+  },
+  "config.created": {
+    description: "A system configuration setting was created.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
+  "config.deleted": {
+    description: "A system configuration setting was deleted.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
+  "config.rolled_back": {
+    description: "A system configuration setting was rolled back to its previous value.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
+  "config.updated": {
+    description: "A system configuration setting was updated.",
+    category: "system_config",
+    resourceType: "system_config",
+  },
   "email.delivered": {
     description:
       "An outbound email was accepted by the transport (Resend or console); recipient masked, template kind and provider id recorded.",
@@ -236,6 +316,26 @@ export const AUDIT_ACTIONS = {
     category: "user_management",
     resourceType: "email",
     severity: "warning",
+  },
+  "flag.created": {
+    description: "A feature flag was created.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
+  },
+  "flag.deleted": {
+    description: "A feature flag was deleted.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
+  },
+  "flag.toggled": {
+    description: "A feature flag was enabled, disabled, or kill-switched.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
+  },
+  "flag.updated": {
+    description: "A feature flag definition or rollout rules were updated.",
+    category: "feature_flag",
+    resourceType: "feature_flag",
   },
   "invitations.purged": {
     description:
@@ -335,6 +435,36 @@ export const AUDIT_ACTIONS = {
     category: "security",
     resourceType: "user",
     legacyName: true,
+  },
+  "template.approved": {
+    description: "Template content was approved for organization-wide use.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.created": {
+    description: "A new template was created.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.deleted": {
+    description: "A template was deleted or deactivated.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.rejected": {
+    description: "A template approval request was rejected.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.updated": {
+    description: "A template's content, metadata, or targeting was updated.",
+    category: "content",
+    resourceType: "template",
+  },
+  "template.used": {
+    description: "A template was applied to compose content; usage count and metrics updated.",
+    category: "content",
+    resourceType: "template",
   },
 } as const satisfies Record<string, AuditActionSpec>;
 

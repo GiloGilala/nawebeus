@@ -666,10 +666,10 @@ export const appConfig = pgTable(
   "app_config",
   {
     // ─── Core Identity ──────────────────────────────────────────────────────
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // NULL = system-wide default / global flag
-    organizationId: varchar("organization_id", { length: 32 }),
+    organizationId: varchar("organization_id", { length: 64 }),
 
     // ─── Discriminator ──────────────────────────────────────────────────────
     // What kind of config entry this is.
@@ -726,8 +726,8 @@ export const appConfig = pgTable(
     deprecatedAt: timestamp("deprecated_at", { withTimezone: true }),
 
     // ─── Audit ─────────────────────────────────────────────────────────────
-    createdBy: varchar("created_by", { length: 32 }).notNull(),
-    updatedBy: varchar("updated_by", { length: 32 }),
+    createdBy: varchar("created_by", { length: 64 }).notNull(),
+    updatedBy: varchar("updated_by", { length: 64 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -743,7 +743,17 @@ export const appConfig = pgTable(
     // original spelling never compiled. Same DDL either way: a partial UNIQUE index.)
     uniqueIndex("uq_ac_org_key")
       .on(table.organizationId, table.key)
-      .where(sql`${table.kind} = 'feature_flag'`),
+      .where(sql`${table.kind} = 'feature_flag' AND ${table.organizationId} IS NOT NULL`),
+
+    // Global feature flag: unique key where org is null
+    uniqueIndex("uq_ac_global_flag_key")
+      .on(table.key)
+      .where(sql`${table.kind} = 'feature_flag' AND ${table.organizationId} IS NULL`),
+
+    // Global system config: unique key + environment where org is null
+    uniqueIndex("uq_ac_global_config_key_env")
+      .on(table.key, table.environment)
+      .where(sql`${table.kind} = 'system_config' AND ${table.organizationId} IS NULL`),
 
     // ── Check Constraints ──────────────────────────────────────────────────
 

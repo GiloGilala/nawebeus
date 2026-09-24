@@ -205,11 +205,11 @@ import { approvalRequestStatusEnum, platformEnum, templateTypeEnum } from "../sh
 export const templates = pgTable(
   "templates",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // NULL = system template (visible to all orgs or internal only)
     // SET  = org-specific template
-    organizationId: varchar("organization_id", { length: 32 }),
+    organizationId: varchar("organization_id", { length: 64 }),
 
     // ─── Classification ──────────────────────────────────────────────────────
     templateType: templateTypeEnum("template_type").notNull(),
@@ -307,7 +307,7 @@ export const templates = pgTable(
 
     // ─── Audit ───────────────────────────────────────────────────────────────
     // Not FK — template outlives creator if they leave the org
-    createdById: varchar("created_by_id", { length: 32 }).notNull(),
+    createdById: varchar("created_by_id", { length: 64 }).notNull(),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

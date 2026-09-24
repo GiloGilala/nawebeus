@@ -205,6 +205,130 @@ async function seed() {
       action: "decide",
       name: "Approve, Reject or Request Changes",
     },
+    // Templates (NWB-P1-006)
+    {
+      string: "templates.read",
+      resource: "templates",
+      action: "read",
+      name: "View Templates",
+    },
+    {
+      string: "templates.create",
+      resource: "templates",
+      action: "create",
+      name: "Create Templates",
+    },
+    {
+      string: "templates.update",
+      resource: "templates",
+      action: "update",
+      name: "Update Templates",
+    },
+    {
+      string: "templates.delete",
+      resource: "templates",
+      action: "delete",
+      name: "Delete Templates",
+    },
+    // Contacts (NWB-P1-007)
+    {
+      string: "contacts.read",
+      resource: "contacts",
+      action: "read",
+      name: "View Contacts and Interactions",
+    },
+    {
+      string: "contacts.create",
+      resource: "contacts",
+      action: "create",
+      name: "Create Contacts and Log Interactions",
+    },
+    {
+      string: "contacts.update",
+      resource: "contacts",
+      action: "update",
+      name: "Update Contacts and Interactions",
+    },
+    {
+      string: "contacts.delete",
+      resource: "contacts",
+      action: "delete",
+      name: "Delete Contacts",
+    },
+    // Alerts & Notifications (NWB-P1-008)
+    {
+      string: "alerts.read",
+      resource: "alerts",
+      action: "read",
+      name: "View Alert Rules and Events",
+    },
+    {
+      string: "alerts.create",
+      resource: "alerts",
+      action: "create",
+      name: "Create Alert Rules and Trigger Alerts",
+    },
+    {
+      string: "alerts.update",
+      resource: "alerts",
+      action: "update",
+      name: "Update Alert Rules, Acknowledge and Escalate Alerts",
+    },
+    {
+      string: "alerts.delete",
+      resource: "alerts",
+      action: "delete",
+      name: "Delete Alert Rules",
+    },
+    // System Config & Feature Flags (NWB-P1-009)
+    {
+      string: "config.read",
+      resource: "config",
+      action: "read",
+      name: "View System Configuration Settings",
+    },
+    {
+      string: "config.create",
+      resource: "config",
+      action: "create",
+      name: "Create System Configuration Settings",
+    },
+    {
+      string: "config.update",
+      resource: "config",
+      action: "update",
+      name: "Update System Configuration Settings",
+    },
+    {
+      string: "config.delete",
+      resource: "config",
+      action: "delete",
+      name: "Delete System Configuration Settings",
+    },
+    {
+      string: "flags.read",
+      resource: "flags",
+      action: "read",
+      name: "View Feature Flags and Rollout Status",
+    },
+    {
+      string: "flags.create",
+      resource: "flags",
+      action: "create",
+      name: "Create Feature Flags",
+    },
+    {
+      string: "flags.update",
+      resource: "flags",
+      action: "update",
+      name: "Update Feature Flags and Targeting",
+    },
+    {
+      string: "flags.delete",
+      resource: "flags",
+      action: "delete",
+      name: "Delete Feature Flags",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -278,6 +402,10 @@ async function seed() {
     // Reading approvals is scoped by the service (own requests, own inbox); the org-wide view
     // needs `approvals.decide` (NWB-P1-003).
     "approvals.read",
+    "templates.read",
+    "contacts.read",
+    "alerts.read",
+    "flags.read",
   ];
   const teamManagement = [
     "members.read",
@@ -288,8 +416,25 @@ async function seed() {
     "users.update",
     "roles.read",
   ];
-  const contentCreation = ["posts.create", "posts.update", "posts.delete", "approvals.create"];
-  const contentApproval = ["posts.publish", "approvals.decide"];
+  const contentCreation = [
+    "posts.create",
+    "posts.update",
+    "posts.delete",
+    "approvals.create",
+    "templates.create",
+    "templates.update",
+    "contacts.create",
+    "contacts.update",
+    "alerts.create",
+    "alerts.update",
+  ];
+  const contentApproval = [
+    "posts.publish",
+    "approvals.decide",
+    "templates.delete",
+    "contacts.delete",
+    "alerts.delete",
+  ];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [
     "org.update",
@@ -304,6 +449,13 @@ async function seed() {
     "apikeys.read",
     "apikeys.update",
     "apikeys.delete",
+    "config.read",
+    "config.create",
+    "config.update",
+    "config.delete",
+    "flags.create",
+    "flags.update",
+    "flags.delete",
   ];
   // Owner-only, and therefore absent from admin above: billing.read,
   // billing.update, org.delete. owner/super_admin take the full catalog.

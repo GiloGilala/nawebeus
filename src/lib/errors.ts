@@ -173,6 +173,118 @@ export class ApprovalStateError extends AppError {
   }
 }
 
+/**
+ * Optimistic locking conflict when editing a template (NWB-P1-006).
+ * Application code issues UPDATE templates SET ..., version = version + 1
+ * WHERE id = $id AND version = $expectedVersion.
+ * 0 rows affected indicates concurrent modification.
+ */
+export class TemplateVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "TEMPLATE_VERSION_CONFLICT";
+
+  constructor(message = "Template was modified concurrently; please refetch and retry.") {
+    super(message);
+  }
+}
+
+/**
+ * Template requires approval before it can be used by non-creator members (NWB-P1-006).
+ */
+export class TemplateNotApprovedError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "EH_TEMPLATE_NOT_APPROVED";
+
+  constructor(message = "Template requires approval before it can be used.") {
+    super(message);
+  }
+}
+
+/**
+ * Optimistic concurrency conflict on contacts (NWB-P1-007).
+ */
+export class ContactVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "CONTACT_VERSION_CONFLICT";
+
+  constructor(
+    message = "Contact was modified concurrently. Please reload and retry.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Contact has already been merged into another (NWB-P1-007).
+ */
+export class ContactAlreadyMergedError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "CONTACT_ALREADY_MERGED";
+
+  constructor(
+    message = "Contact has already been merged into another contact.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Optimistic concurrency conflict on alert rules (NWB-P1-008).
+ */
+export class AlertRuleVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "ALERT_RULE_VERSION_CONFLICT";
+
+  constructor(
+    message = "Alert rule was modified concurrently. Please reload and retry.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Optimistic concurrency conflict on app config / feature flags (NWB-P1-009).
+ */
+export class ConfigVersionConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "CONFIG_VERSION_CONFLICT";
+
+  constructor(
+    message = "Configuration entry was modified concurrently. Please reload and retry.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Modification of a locked configuration entry attempted (NWB-P1-009).
+ */
+export class ConfigLockedError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "CONFIG_LOCKED";
+
+  constructor(
+    message = "This configuration entry is locked and cannot be modified.",
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Feature flag disabled gate error (NWB-P1-009).
+ */
+export class FeatureFlagDisabledError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "FEATURE_FLAG_DISABLED";
+
+  constructor(
+    featureKey: string,
+    message = `Feature flag '${featureKey}' is disabled.`,
+  ) {
+    super(message);
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

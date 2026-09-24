@@ -110,8 +110,8 @@ import {
 export const contacts = pgTable(
   "contacts",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Kind ────────────────────────────────────────────────────────────────
     // Determines which detail table has the matching row
@@ -166,11 +166,11 @@ export const contacts = pgTable(
     // Set when the user explicitly deletes a contact. Survives backups
     // and admin restore is possible. Hard-delete is never used in app code.
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
-    deletedById: varchar("deleted_by_id", { length: 32 }),
+    deletedById: varchar("deleted_by_id", { length: 64 }),
 
     // Set when this contact was merged into another during deduplication.
     // NOT a FK — merged contacts are kept for history.
-    mergedIntoId: varchar("merged_into_id", { length: 32 }),
+    mergedIntoId: varchar("merged_into_id", { length: 64 }),
     mergedAt: timestamp("merged_at", { withTimezone: true }),
 
     // ─── Concurrency ─────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ export const contacts = pgTable(
 
     // ─── Audit ───────────────────────────────────────────────────────────────
     // Not FK — contact record outlives the user who added it
-    createdById: varchar("created_by_id", { length: 32 }).notNull(),
+    createdById: varchar("created_by_id", { length: 64 }).notNull(),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -360,27 +360,27 @@ export const contacts = pgTable(
 export const contactInteractions = pgTable(
   "contact_interactions",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Contact Reference ────────────────────────────────────────────────────
     // Real FK — enforced by Postgres via contacts base table
-    contactId: varchar("contact_id", { length: 32 })
+    contactId: varchar("contact_id", { length: 64 })
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
 
     // ─── Campaign Context (all nullable, all intentionally non-FK) ────────────
     // pr_initiatives.id OR influencer_programs.id (determined by contact.kind)
-    campaignId: varchar("campaign_id", { length: 32 }),
+    campaignId: varchar("campaign_id", { length: 64 }),
 
     // press_releases.id — journalist interactions only
-    pressReleaseId: varchar("press_release_id", { length: 32 }),
+    pressReleaseId: varchar("press_release_id", { length: 64 }),
 
     // influencer_program_assignments.id — influencer interactions only
-    assignmentId: varchar("assignment_id", { length: 32 }),
+    assignmentId: varchar("assignment_id", { length: 64 }),
 
     // content_deliveries.id — journalist distribution interactions only
-    distributionId: varchar("distribution_id", { length: 32 }),
+    distributionId: varchar("distribution_id", { length: 64 }),
 
     // ─── Interaction Details ──────────────────────────────────────────────────
     interactionType: contactInteractionTypeEnum("interaction_type").notNull(),
@@ -433,7 +433,7 @@ export const contactInteractions = pgTable(
 
     // ─── Audit ───────────────────────────────────────────────────────────────
     // Not FK — interaction must outlive the user who logged it
-    createdById: varchar("created_by_id", { length: 32 }).notNull(),
+    createdById: varchar("created_by_id", { length: 64 }).notNull(),
 
     // Append-only — no updatedAt (only followUp fields can change)
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

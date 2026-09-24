@@ -109,15 +109,17 @@ export {
 } from "./organization/organizations";
 
 // =============================================================================
-// COMPLIANCE MODULE (partial — NWB-P1-010)
+// COMPLIANCE MODULE (partial — NWB-P1-010, NWB-P1-009)
 // =============================================================================
 
-// Only the adopted tables are re-exported: `legal_holds` + `backup_records` (NWB-P1-010).
-// `impersonation_sessions`, `dsar_requests`, `data_retention_policies` and `app_config` stay
+// Re-exported adopted tables: `legal_holds` + `backup_records` (NWB-P1-010), `app_config` (NWB-P1-009).
+// `impersonation_sessions`, `dsar_requests`, and `data_retention_policies` stay
 // dormant — their tickets re-export them here when they adopt them. Importing from
 // `./compliance/index` pulls the whole module's definitions, but drizzle-kit migrates only
 // what this file re-exports, so granularity lives here, not in tsconfig.
 export {
+  appConfig,
+  appConfigRelations,
   backupRecords,
   backupRecordsRelations,
   legalHolds,

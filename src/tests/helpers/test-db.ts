@@ -86,3 +86,31 @@ export async function ensureAnonymizationTrigger(db: Db): Promise<void> {
 export async function ensureRetentionTables(db: Db): Promise<void> {
   return ensureMigrationApplied(db, "0003_legal_holds_backup_records.sql");
 }
+
+/**
+ * Ensure the templates table has updated column lengths by executing migration 0005.
+ */
+export async function ensureTemplatesSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0005_templates_id_lengths.sql");
+}
+
+/**
+ * Ensure the contacts table has updated column lengths by executing migration 0006.
+ */
+export async function ensureContactsSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0006_contacts_id_lengths.sql");
+}
+
+/**
+ * Ensure the alert tables have updated column lengths by executing migration 0007.
+ */
+export async function ensureAlertsSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0007_alerts_id_lengths.sql");
+}
+
+/**
+ * Ensure the app_config table exists by executing migration 0008.
+ */
+export async function ensureAppConfigSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0008_app_config.sql");
+}
