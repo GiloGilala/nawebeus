@@ -114,3 +114,11 @@ export async function ensureAlertsSchema(db: Db): Promise<void> {
 export async function ensureAppConfigSchema(db: Db): Promise<void> {
   return ensureMigrationApplied(db, "0008_app_config.sql");
 }
+
+/**
+ * Ensure media_assets id columns are at their migration-0010 width (the 0005/0006/0007
+ * lesson: pushed-but-stale dev databases predate the widening).
+ */
+export async function ensureMediaSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0010_media_assets_id_lengths.sql");
+}

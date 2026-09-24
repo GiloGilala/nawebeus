@@ -341,6 +341,26 @@ async function seed() {
       action: "delete",
       name: "Delete Feature Flags",
     },
+    // Media library (NWB-P1-005): read is everyone; upload is the content-creation tier;
+    // delete is the approval tier (same shape as templates/contacts).
+    {
+      string: "media.read",
+      resource: "media",
+      action: "read",
+      name: "View Media Library",
+    },
+    {
+      string: "media.create",
+      resource: "media",
+      action: "create",
+      name: "Upload Media",
+    },
+    {
+      string: "media.delete",
+      resource: "media",
+      action: "delete",
+      name: "Delete Media",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -418,6 +438,7 @@ async function seed() {
     "contacts.read",
     "alerts.read",
     "flags.read",
+    "media.read",
   ];
   const teamManagement = [
     "members.read",
@@ -439,6 +460,7 @@ async function seed() {
     "contacts.update",
     "alerts.create",
     "alerts.update",
+    "media.create",
   ];
   const contentApproval = [
     "posts.publish",
@@ -446,6 +468,7 @@ async function seed() {
     "templates.delete",
     "contacts.delete",
     "alerts.delete",
+    "media.delete",
   ];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [

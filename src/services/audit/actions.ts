@@ -336,6 +336,18 @@ export const AUDIT_ACTIONS = {
     category: "system_config",
     resourceType: "system_config",
   },
+  "media.deleted": {
+    description:
+      "A library media asset was soft-deleted; recovery runs inside the 30-day window (NWB-P1-005).",
+    category: "data_ops",
+    resourceType: "media_asset",
+  },
+  "media.uploaded": {
+    description:
+      "A media asset was stored; metadata only — the bytes never enter the audit trail (NWB-P1-005).",
+    category: "data_ops",
+    resourceType: "media_asset",
+  },
   "email.delivered": {
     description:
       "An outbound email was accepted by the transport (Resend or console); recipient masked, template kind and provider id recorded.",

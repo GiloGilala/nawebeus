@@ -63,7 +63,7 @@ bun run email:smoke -- --to you@example.com  # one real send through the configu
   schemas are pinned by `src/tests/validation-schemas.test.ts` (Hono and SFs import the same
   object). `bun test` only — do not add Vitest or Jest.
 - **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
-- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 92.9% / 97.1% (NWB-P1-003). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
+- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 93.5% / 96.6% (NWB-P1-005). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
 ### CI
@@ -134,6 +134,10 @@ src/server/index.ts       ← Hono app factory (CORS, request context + access l
     users/   /users/admin impersonation surface: POST /:userId/impersonate,
             /impersonations/:sessionId/{token,end}, GET /impersonations (NWB-P1-011;
             registered before the /:userId block — Hono resolves in registration order)
+    media/   /media (multipart upload, library list), /media/:assetId (metadata,
+            DELETE ?version=N optimistic soft delete), /media/:assetId/content (authed
+            bytes), /media/signed/:assetId (cookie-less HMAC URLs — registered FIRST,
+            same registration-order rule; storage_url never in a response) (NWB-P1-005)
   auth/types/             ← auth request/response types
   organization/types/     ← organization types
 src/app/                  ← Web layer (TanStack Start): routes/ (file-based pages),
@@ -167,6 +171,10 @@ src/services/             ← Business logic (single source of truth)
            resolveLiveImpersonation), ability (BR-ADMIN-009 deny-list) (NWB-P1-011)
   email/   types, console + resend transports, mask, service (queue-or-direct `emailService`),
            index.ts as the only import path (NWB-P1-004)
+  storage/ types (`StorageTransport`, structural `S3ClientLike`, `storage_url = <driver>://<key>`
+           internal URI), local (dev disk adapter — resolved-path traversal guard, HMAC app-URL
+           signing), r2 (`Bun.s3`, zero deps), service (upload/org-scoped reads/signed URLs/
+           library soft delete/keyset list with µs-precision cursors), index barrel (NWB-P1-005)
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
   rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), impersonation-expire.ts (*/5,

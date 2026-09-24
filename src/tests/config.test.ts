@@ -155,9 +155,14 @@ describe("config: email transport (EMAIL_PROVIDER / RESEND_* / EMAIL_FROM)", () 
     expect(() => loadConfig({ ...baseEnv, NODE_ENV: "production" })).toThrow(
       /EMAIL_PROVIDER: production needs a real email provider/,
     );
+    // STORAGE_DRIVER=local keeps the storage production rule out of the email assertion's way.
     expect(
-      loadConfig({ ...baseEnv, NODE_ENV: "production", EMAIL_PROVIDER: "console" })
-        .EMAIL_PROVIDER_RESOLVED,
+      loadConfig({
+        ...baseEnv,
+        NODE_ENV: "production",
+        EMAIL_PROVIDER: "console",
+        STORAGE_DRIVER: "local",
+      }).EMAIL_PROVIDER_RESOLVED,
     ).toBe("console");
     expect(
       loadConfig({
@@ -165,6 +170,7 @@ describe("config: email transport (EMAIL_PROVIDER / RESEND_* / EMAIL_FROM)", () 
         NODE_ENV: "production",
         RESEND_API_KEY: "re_1",
         EMAIL_FROM: "a@b.co",
+        STORAGE_DRIVER: "local",
       }).EMAIL_PROVIDER_RESOLVED,
     ).toBe("resend");
   });
@@ -172,5 +178,68 @@ describe("config: email transport (EMAIL_PROVIDER / RESEND_* / EMAIL_FROM)", () 
   test("tryGetConfig returns the loaded singleton and never throws", () => {
     const loaded = loadConfig({ ...baseEnv });
     expect(tryGetConfig()).toBe(loaded);
+  });
+});
+
+describe("config: storage driver derivation (STORAGE_DRIVER / R2_* / MEDIA_MAX_UPLOAD_MB)", () => {
+  const baseEnv = {
+    DATABASE_URL: "postgresql://localhost:5432/test",
+    JWT_ACCESS_SECRET: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    JWT_REFRESH_SECRET: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  };
+  const quartet = {
+    R2_ACCOUNT_ID: "acct",
+    R2_ACCESS_KEY_ID: "key",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET: "bucket",
+  };
+
+  afterAll(() => {
+    try {
+      loadConfig();
+    } catch {
+      // env restoration is best-effort in tests; nothing to do
+    }
+  });
+
+  test("unset driver: full quartet selects r2, otherwise local (dev default)", () => {
+    const r2 = loadConfig({ ...baseEnv, ...quartet });
+    expect(r2.STORAGE_DRIVER_RESOLVED).toBe("r2");
+    expect(r2.R2_ENDPOINT_RESOLVED).toBe("https://acct.r2.cloudflarestorage.com");
+
+    const local = loadConfig({ ...baseEnv });
+    expect(local.STORAGE_DRIVER_RESOLVED).toBe("local");
+    expect(local.STORAGE_LOCAL_ROOT).toBe(".data/media");
+    expect(local.MEDIA_MAX_UPLOAD_MB).toBe(25);
+  });
+
+  test("an explicit STORAGE_DRIVER wins over the quartet", () => {
+    const config = loadConfig({ ...baseEnv, ...quartet, STORAGE_DRIVER: "local" });
+    expect(config.STORAGE_DRIVER_RESOLVED).toBe("local");
+  });
+
+  test("a partial quartet is refused in every environment", () => {
+    expect(() => loadConfig({ ...baseEnv, R2_ACCOUNT_ID: "acct" })).toThrow(/R2_/);
+    expect(() => loadConfig({ ...baseEnv, ...quartet, R2_BUCKET: "  " })).toThrow(/R2_/);
+  });
+
+  test("production refuses local-by-omission but accepts local when stated", () => {
+    expect(() => loadConfig({ ...baseEnv, NODE_ENV: "production" })).toThrow(
+      /STORAGE_DRIVER: production needs a real object store/,
+    );
+    const stated = loadConfig({
+      ...baseEnv,
+      NODE_ENV: "production",
+      STORAGE_DRIVER: "local",
+      EMAIL_PROVIDER: "console", // the email production rule is a separate gate
+    });
+    expect(stated.STORAGE_DRIVER_RESOLVED).toBe("local");
+  });
+
+  test("MEDIA_MAX_UPLOAD_MB must be a positive number of megabytes", () => {
+    expect(() => loadConfig({ ...baseEnv, MEDIA_MAX_UPLOAD_MB: "0" })).toThrow(
+      /MEDIA_MAX_UPLOAD_MB/,
+    );
+    expect(loadConfig({ ...baseEnv, MEDIA_MAX_UPLOAD_MB: "50" }).MEDIA_MAX_UPLOAD_MB).toBe(50);
   });
 });

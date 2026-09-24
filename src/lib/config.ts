@@ -246,6 +246,33 @@ const envSchema = z.object({
   /** How long one provider call may take before the transport calls it a retryable timeout. */
   EMAIL_SEND_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(10_000),
 
+  // ─── Media storage (DEC-028's twin · NWB-P1-005, D6) ──────────────────────
+  //
+  // The same derivation shape as email: `STORAGE_DRIVER` stated wins; otherwise an R2
+  // credential triple present means R2, otherwise the local-disk transport (dev, tests, and a
+  // single-box deployment that says so on purpose). Production refuses local-by-omission —
+  // see the refinement beside the email one.
+
+  /** `local` writes under `STORAGE_LOCAL_ROOT`; `r2` presigns against Cloudflare R2. Unset: derived from the R2 credentials. */
+  STORAGE_DRIVER: z.enum(["local", "r2"]).optional(),
+  /** Root directory for the local transport. Created on demand; override per deployment. */
+  STORAGE_LOCAL_ROOT: z.string().default(".data/media"),
+  /** Cloudflare R2 — the three credentials together select R2 when `STORAGE_DRIVER` is unset. */
+  R2_ACCOUNT_ID: optionalEnv(),
+  R2_ACCESS_KEY_ID: optionalEnv(),
+  R2_SECRET_ACCESS_KEY: optionalEnv(),
+  /** The bucket every key lives in. Required for R2. */
+  R2_BUCKET: optionalEnv(),
+  /** Upload cap in megabytes. The schema wants size > 0; the cap is the abuse half. */
+  MEDIA_MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(512).default(25),
+  /**
+   * HMAC key for local-transport signed URLs. Unset means derived from `JWT_ACCESS_SECRET`
+   * (a deployed secret that already exists), which keeps one more secret from being mandatory
+   * for a dev/single-box feature. Set it to decouple the two — rotating the JWT secret then
+   * does not break every media link ever emitted.
+   */
+  STORAGE_SIGNING_SECRET: optionalEnv(),
+
   // Seed credentials
   SEED_ADMIN_EMAIL: z.string().email().default("admin@nawebeus.com"),
   SEED_ADMIN_PASSWORD: z.string().min(8).default("Admin@123456"),
@@ -253,6 +280,29 @@ const envSchema = z.object({
 
 /** The transport `emailService` will use once the optional keys have been resolved against each other. */
 export type EmailProvider = "console" | "resend";
+
+export type StorageProvider = "local" | "r2";
+
+/**
+ * `STORAGE_DRIVER` when stated; otherwise R2 when the full credential quartet is present, else
+ * the local disk. The refinement in the schema guarantees production never reaches `local` by
+ * omission, and that a partial quartet is an error before this function is ever consulted.
+ */
+function resolveStorageProvider(env: {
+  STORAGE_DRIVER?: StorageProvider | undefined;
+  R2_ACCOUNT_ID?: string | undefined;
+  R2_ACCESS_KEY_ID?: string | undefined;
+  R2_SECRET_ACCESS_KEY?: string | undefined;
+  R2_BUCKET?: string | undefined;
+}): StorageProvider {
+  if (env.STORAGE_DRIVER) return env.STORAGE_DRIVER;
+  const complete =
+    env.R2_ACCOUNT_ID !== undefined &&
+    env.R2_ACCESS_KEY_ID !== undefined &&
+    env.R2_SECRET_ACCESS_KEY !== undefined &&
+    env.R2_BUCKET !== undefined;
+  return complete ? "r2" : "local";
+}
 
 /** `EMAIL_PROVIDER` when stated; otherwise Resend if there is a key for it, else the console. */
 function resolveEmailProvider(env: {
@@ -297,6 +347,42 @@ const envSchemaWithEmailRules = envSchema.superRefine((env, ctx) => {
         "production needs a real email provider: set RESEND_API_KEY and EMAIL_FROM, or opt into log-only email explicitly with EMAIL_PROVIDER=console",
     });
   }
+
+  // Storage (NWB-P1-005) mirrors the email rule: `.data/media` on a production box is a
+  // deployment decision, not a default — say `STORAGE_DRIVER=local` on purpose, or bring
+  // the R2 triple. A partial triple is a typo, not a choice, in any environment.
+  const r2Parts = [
+    env.R2_ACCOUNT_ID,
+    env.R2_ACCESS_KEY_ID,
+    env.R2_SECRET_ACCESS_KEY,
+    env.R2_BUCKET,
+  ];
+  const r2Complete = r2Parts.every((v) => v !== undefined && v !== "");
+  const r2Partial = r2Parts.some((v) => v !== undefined && v !== "");
+  if (env.STORAGE_DRIVER === "r2" && !r2Complete) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["STORAGE_DRIVER"],
+      message:
+        "required when STORAGE_DRIVER=r2: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET",
+    });
+  }
+  if (env.STORAGE_DRIVER === undefined && r2Partial && !r2Complete) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["STORAGE_DRIVER"],
+      message:
+        "the R2 credentials are partially set — set all four (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET) or none",
+    });
+  }
+  if (env.NODE_ENV === "production" && env.STORAGE_DRIVER === undefined && !r2Complete) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["STORAGE_DRIVER"],
+      message:
+        "production needs a real object store: set the R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET quartet, or opt into local disk explicitly with STORAGE_DRIVER=local",
+    });
+  }
 });
 
 export type Config = z.infer<typeof envSchema> & {
@@ -312,6 +398,13 @@ export type Config = z.infer<typeof envSchema> & {
    * resolved against each other. Derived, like the base URL: read this, never re-derive it.
    */
   EMAIL_PROVIDER_RESOLVED: EmailProvider;
+  /**
+   * The media storage transport this process uses, after `STORAGE_DRIVER` and the R2 credential
+   * quartet have been resolved against each other (NWB-P1-005). Derived: read, never re-derive.
+   */
+  STORAGE_DRIVER_RESOLVED: StorageProvider;
+  /** Where the R2 S3 endpoint lives, once the account id is known. Empty for the local driver. */
+  R2_ENDPOINT_RESOLVED: string;
 };
 
 /** A single http(s) URL — no lists, no `*`. */
@@ -344,6 +437,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ...result.data,
     APP_BASE_URL_RESOLVED: appBaseUrl,
     EMAIL_PROVIDER_RESOLVED: resolveEmailProvider(result.data),
+    STORAGE_DRIVER_RESOLVED: resolveStorageProvider(result.data),
+    R2_ENDPOINT_RESOLVED: result.data.R2_ACCOUNT_ID
+      ? `https://${result.data.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+      : "",
   };
   return _config;
 }

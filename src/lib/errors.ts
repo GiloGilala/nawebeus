@@ -117,6 +117,16 @@ export class GoneError extends AppError {
   readonly code = "GONE";
 }
 
+/**
+ * An upload exceeded the configured media cap (NWB-P1-005). Distinct from a validation error
+ * because the request was well-formed — the payload is simply too big — and 413 is the status
+ * a client's upload progress bar can actually react to.
+ */
+export class PayloadTooLargeError extends AppError {
+  readonly statusCode = 413;
+  readonly code = "PAYLOAD_TOO_LARGE";
+}
+
 export class ConflictError extends AppError {
   readonly statusCode = 409;
   readonly code = "CONFLICT";

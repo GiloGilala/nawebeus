@@ -18,7 +18,7 @@
 | NWB-P1-002 | Audit service formalization | ✅ **DONE 2026-09-21** — §12.2 for what landed and the verification log. Was: `writeAuditLog` exists; no reads; TS `AuditModule` had 5 values against a 15-value database enum | Extend `AuditModule` taxonomy to cover PRD modules 3–10 + non-PRD domains; add query service (by actor/subject/org/category/date-range, paginated — fixes F-19 first half); retention + legal-hold hook in P1-010. **As delivered:** the taxonomy fix is TS-side only — the schema enum already had all 15 values, so no migration was needed and none was written; the chain moved to NWB-P1-014 and anonymization to NWB-P1-015 by the ticket's Q1/Q4 answers. |
 | NWB-P1-003 | Approval service | ✅ **DONE 2026-09-22** — `src/services/approvals`, `/api/approvals` (submit, inbox/mine/all, approve/reject/request-changes/recall), `approvals.read/create/decide` permissions, hourly `approvals.expire-stale` job, migration 0004. Ticket: `.scratch/p1-shared-infra/issues/08-approval-service.md`. Was: `db/shared/approval.ts` active (2 tables), unused | Gates responses (P7), releases (PR phase), content (Publishing if D12=B/C). |
 | NWB-P1-004 | Email transport: Resend adapter | ✅ **DONE 2026-09-22** — `src/services/email/` (Resend over `fetch`, console for dev), durable `email.deliver` outbox on pg-boss with direct-send fallback, `email.delivered`/`email.delivery_failed` audit (masked recipient, tenant-scoped), `bun run email:smoke` for the exit-gate evidence. Was: console-only; DEC-028 approved | Flipped the Phase 1 "verification hard-block" checkbox (NWB-P0-015 note): 403 `EMAIL_NOT_VERIFIED` outside `/api/auth/*` and `/api/users/me*`; invitation acceptance counts as verification. Exit-gate evidence (a real Resend send) needs an API key + verified domain — see spec.md. |
-| NWB-P1-005 | Media/storage service | none; `media_assets` table active-ready; D6 open | Interface mirrors `EmailTransport`; R2 adapter prod / local-disk dev per docs; signed URLs; soft delete. Avatars (PRD `/me/avatar`) and report exports (P12) consume this. |
+| NWB-P1-005 | Media/storage service | ✅ **DONE 2026-09-24** — §12.5 for what landed and the verification log. Was: `media_assets` active but written by nothing, id columns `varchar(32)` (a Nawebeus uuid does not fit) | Interface mirrors `EmailTransport`; R2 adapter prod / local-disk dev per docs; signed URLs; soft delete. Avatars (PRD `/me/avatar`) and report exports (P12) consume this. |
 | NWB-P1-006 | Templates service | `templates` table active-ready | |
 | NWB-P1-007 | Contacts service | `contacts` + `contact_interactions` active-ready | Reused by PR/Influencer (Option B/C) — build regardless (cheap, spec'd). |
 | NWB-P1-008 | Notification engine core | `alerts` tables (2) active-ready | create/recipients/delivery-log; channels in P6. |
@@ -29,7 +29,7 @@
 
 **Schema adoptions in this phase:** none new (approval/contacts/alerts/media/templates/analytics are already active). Any drift found while wiring is fixed in the schema + migration (ground rule 7), recorded in the ticket.
 
-**Exit gate (plan §5 + this audit):** scheduled worker executes in dev **and** under the CI test job (a no-op scheduled job proves the loop); email actually sends via Resend in a dev sandbox (evidence in spec.md); approval queue works end-to-end; media upload→signed-URL works against local adapter (R2 smoke when credentials available); feature flag gates a live code path; observability: a request can be traced by correlation id from log to audit row; all purge/reclamation workers running on schedule. **Nothing downstream starts until this gate passes.** **Six of the seven clauses are met** as of 2026-09-24: the worker loop runs in dev and under the CI test job (NWB-P1-001 — the `queue/loop` suite runs there), approval queue end-to-end (NWB-P1-003), feature flag gating a live code path (NWB-P1-009), purge/reclamation scheduled (NWB-P1-001), correlation id from log to audit row (NWB-P1-012), email tooling delivered (NWB-P1-004 — the *send* itself awaits the operator's `email:smoke` run in spec.md). **Open: media upload → signed URL (NWB-P1-005, blocked on D6) and the Resend sandbox evidence.**
+**Exit gate (plan §5 + this audit):** scheduled worker executes in dev **and** under the CI test job (a no-op scheduled job proves the loop); email actually sends via Resend in a dev sandbox (evidence in spec.md); approval queue works end-to-end; media upload→signed-URL works against local adapter (R2 smoke when credentials available); feature flag gates a live code path; observability: a request can be traced by correlation id from log to audit row; all purge/reclamation workers running on schedule. **Nothing downstream starts until this gate passes.** **All seven clauses are now engineering-complete** as of 2026-09-24: the worker loop runs in dev and under the CI test job (NWB-P1-001 — the `queue/loop` suite fires a real cron tick there; that *is* the no-op-scheduled-job proof, recorded at the gate rather than rebuilt), approval queue end-to-end (NWB-P1-003), feature flag gating a live code path (NWB-P1-009), purge/reclamation scheduled (NWB-P1-001), correlation id from log to audit row (NWB-P1-012), email tooling delivered (NWB-P1-004), and **media upload → signed URL against the local adapter (NWB-P1-005, §12.5)**. Two operator actions remain and neither is engineering work: the Resend sandbox `email:smoke` send and the R2 live smoke (D6 action items, `D6-storage-decision-memo.md` §3).
 
 ### 12.1 What NWB-P1-001 actually landed (2026-09-21)
 
@@ -272,5 +272,45 @@ end-to-end test proves it through `DELETE /api/auth/sessions/:id`. Ending from *
 target's abilities) and clears the cookie. **Verification:** typecheck, lint (0 errors), build;
 `bun test` **837 pass / 0 fail** with a live PostgreSQL (809 before, +28); `coverage:check` green
 (services 94.1%, lib 96.8%).
+
+---
+
+### 12.5 What NWB-P1-005 actually landed (2026-09-24)
+
+New: `src/services/storage/` (`types.ts` — `StorageTransport` put/get/delete/signedUrl +
+`S3ClientLike`, structural so tests fake it without a vendor SDK; `local.ts` — `LocalDiskStorageTransport`
+with a resolved-`realpath` traversal guard and HMAC-signed **app URLs** `/api/media/signed/:assetId`
+(cookie-less by design, `timingSafeEqual` at the route); `r2.ts` — `R2StorageTransport` over the
+lazy `Bun.s3` adapter in `bun-s3.ts`, **zero new dependencies**, `NoSuchKey` → `undefined`;
+`service.ts` — `createStorageService` with upload (bytes-before-row, sanitize, 413 cap), org-scoped
+reads, `assetOrg` for the signed route, signed-URL issuance with a 1–3600 s clamp, `readContent`,
+library-only optimistic soft delete, keyset listing; `index.ts` barrel),
+`src/server/api/media/media.route.ts` (multipart upload with `Location`, library list, metadata,
+authed `/content`, optimistic delete, and the signed route registered **first** — the F-11
+registration-order lesson, pinned by a no-DB test), `src/tests/storage/` (adapters 11 · service 10
+· routes 8), migration `0010_media_assets_id_lengths.sql` (the four id columns 32→64 — the
+2026-09-13 audit-note lesson applied *before* production, not after). Changed: `db/shared/media.ts`
+(widths + header notes), `src/lib/config.ts` (STORAGE_DRIVER / STORAGE_LOCAL_ROOT / R2 quartet /
+MEDIA_MAX_UPLOAD_MB / STORAGE_SIGNING_SECRET + `STORAGE_DRIVER_RESOLVED` / `R2_ENDPOINT_RESOLVED`,
+derivation mirroring email: explicit wins → quartet → local; production refuses local-by-omission;
+partial quartet refused everywhere), `src/lib/errors.ts` (+`PayloadTooLargeError` 413),
+`src/services/audit/actions.ts` (+`media.uploaded` / `media.deleted` — states carry name, type,
+size, mime, driver; **never bytes**), `src/seed.ts` (`media.read` everyone, `media.create` creator
+tier, `media.delete` approval tier), `.env.example` (the storage block), `.scratch/p1-shared-infra/`
+(`D6-storage-decision-memo.md` — recommendation: R2 via `Bun.s3`, Bunny CDN later, local disk for
+dev; only the account/bucket/credentials remain, at which point the production smoke is a config act).
+
+**As-built, in one paragraph.** An asset's bytes live under `{orgId}/{med_uuid}/{sanitizedName}`
+via the org's derived driver; the row keeps `storage_url = <driver>://<key>` — an internal URI the
+schema header forbids exposing, and no projection does. Downloads go through HMAC-signed URLs:
+local signs app URLs (`exp` + `sig`, expiry checked first, missing-or-deleted both → the same 404
+so the route is no existence oracle), R2 issues true presigned GETs. Soft delete is library-only
+and optimistic (`?version=N` → 409 on mismatch; attached assets are refused in the service — the
+DB CHECK `chk_ma_soft_delete_library_only` is the same rule in stone). The library list filters
+deleted + attached at the source with (created_at, id) keyset pagination whose cursor value carries
+microsecond precision (`to_char(… 'USOF')`, the api-key list's solution — `toISOString()`
+truncation silently drops same-transaction ties). **Verification:** typecheck, lint (0 errors),
+`bun test` **871 pass / 0 fail** with a live PostgreSQL (837 before, +34), `coverage:check` green
+(services 93.5%, lib 96.6%). Residuals (operator-side): R2 live smoke + Resend sandbox send.
 
 ---

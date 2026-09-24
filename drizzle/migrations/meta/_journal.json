@@ -71,6 +71,13 @@
       "when": 1790283639337,
       "tag": "0009_impersonation_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790286527137,
+      "tag": "0010_media_assets_id_lengths",
+      "breakpoints": true
     }
   ]
 }

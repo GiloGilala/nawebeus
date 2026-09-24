@@ -3,21 +3,25 @@
 **Feature slug:** `p1-shared-infra`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/07-phase-2-shared-infra.md` (§12) · execution plan §5 P1
-**Status:** in-progress — **15 of 16 tickets done** (the roadmap's 12 plus four found during
+**Status:** in-progress — **16 of 16 tickets done** (the roadmap's 12 plus four found during
 delivery: 013–016). Queue, audit (+chain, +anonymization), approvals, retention, email, templates,
 contacts, notifications, flags, invitation expiry all **done 2026-09-21/22** — see the index.
 **NWB-P1-012** (observability baseline: request ids + access log + error tracking + readiness
 probe) **done 2026-09-24** — this ticket closed the exit-gate clause *"a request can be traced by
 correlation id from log to audit row"* (evidence in issues/14). **NWB-P1-011** (impersonation
 sessions — start/end, full audit, clean end) **done 2026-09-24** (evidence in issues/15): the
-`unified_audit_log` impersonation machinery finally has a writer. Remaining: **NWB-P1-005**
-(media/storage — blocked on D6) and the operator-run Resend send for the email clause.
+`unified_audit_log` impersonation machinery finally has a writer. **NWB-P1-005** (media/storage —
+transport interface, local adapter, signed URLs, soft delete) **done 2026-09-24** (evidence in
+issues/16). Remaining for the exit gate itself: the operator-run Resend send (email clause) and the
+R2 production smoke (D6 action items — engineering-independent, see `D6-storage-decision-memo.md`).
 
 **Goal:** land the cross-cutting services every domain module needs. Per the execution plan this is
 "the single largest multiplier in the plan" — nothing downstream starts before the exit gate.
 
 **Entry gate:** Phase 1 (P0) exit gate met ✅ · D5 (queue runtime) decided ✅ (ADR-028: pg-boss).
-D6 (object storage) is **still open** and blocks NWB-P1-005 only.
+D6 (object storage) was **open for NWB-P1-005 only** — the ticket's D6-independent core is now
+built; D6's remainder is an operations action (R2 account + bucket + quartet), prepared in
+`D6-storage-decision-memo.md`.
 
 **Exit gate (plan §5 + roadmap §12):** a scheduled worker executes in dev **and** under the CI test
 job (a no-op scheduled job proves the loop) · email actually sends via Resend in a dev sandbox
@@ -26,9 +30,13 @@ against the local adapter · a feature flag gates a live code path · a request 
 correlation id from log to audit row ✅ (NWB-P1-012, 2026-09-24 — `src/tests/observability.test.ts`
 proves log line → `unified_audit_log.request_id` → `GET /api/audit?requestId=`) · all
 purge/reclamation workers running on schedule.
-**Nothing downstream starts until this gate passes.** Clauses still open: media upload → signed
-URL (NWB-P1-005, blocked on D6) · the Resend sandbox send (operator run) · the CI no-op scheduled
-job (verify at the gate, not per ticket).
+**Nothing downstream starts until this gate passes.** Clause states: media upload → signed URL ✅
+against the local adapter (NWB-P1-005, 2026-09-24 — `src/tests/storage/media.route.test.ts` drives
+multipart upload → cookie-less signed-URL fetch → exact bytes through the real app; R2 smoke
+pending credentials) · the Resend sandbox send (operator run — the only email work left) · the CI
+no-op scheduled job ✅ **already proven, recorded**: `src/tests/queue/loop.test.ts` fires a real
+cron tick (`* * * * * *`, `cronMonitorIntervalSeconds: 1`) and asserts the scheduled loop executes
+against pg-boss in CI — the clause needs no new code, only this recording.
 
 ## Ticket index
 
@@ -42,7 +50,7 @@ job (verify at the gate, not per ticket).
 | NWB-P1-015 | Anonymize audit actor context on hard purge (F-29 / BR-AUTH-043) | S–M | [issues/05-audit-anonymization-on-purge.md](issues/05-audit-anonymization-on-purge.md) | **done** 2026-09-21 — subject scrub in `beforeDelete`, 0002 trigger exception, `auditAnonymized` |
 | NWB-P1-016 | Expire lapsed invitations (split out of P1-015's residuals) | S–M | [issues/06-expired-invitation-cleanup.md](issues/06-expired-invitation-cleanup.md) | **done** 2026-09-22 — `expireInvitations` + resource-scoped invitee scrub, 5th job |
 | NWB-P1-004 | Email transport: Resend adapter behind `EmailTransport` | M | [issues/09-email-transport-resend.md](issues/09-email-transport-resend.md) | **done** 2026-09-22 — `src/services/email/` (Resend over `fetch`, console for dev), `email.deliver` outbox on pg-boss (8th job, on-demand) with direct-send fallback, `email.delivered`/`email.delivery_failed` audit with masked recipient, 403 `EMAIL_NOT_VERIFIED` gate, invitation acceptance = verified; fixed two latent verification bugs the gate exposed. **Exit-gate evidence pending operator run** — see below |
-| NWB-P1-005 | Media/storage service | L | to file | **blocked on D6** |
+| NWB-P1-005 | Media/storage service | L | [issues/16-media-storage-service.md](issues/16-media-storage-service.md) | **done** 2026-09-24 — `src/services/storage/` (`StorageTransport`; local-disk dev adapter with resolved-path traversal guard + HMAC app-URL signing; R2 adapter over `Bun.s3` with zero new deps behind a structural `S3ClientLike`), `/api/media` (multipart upload, library list, metadata, authed content, optimistic soft delete, cookie-less `GET /media/signed/:assetId` registered first), driver derivation mirroring email (quartet→r2, explicit wins, production refuses local-by-omission), migration 0010 (media id columns 32→64), `media.uploaded`/`media.deleted` audit, `media.read/create/delete` seeded; D6 memo filed; R2 live smoke pending credentials |
 | NWB-P1-006 | Templates service | M | [issues/10-templates-service.md](issues/10-templates-service.md) | **done** 2026-09-22 — unified template service with CRUD, optimistic concurrency, platform variants, variable rendering, usage tracking, approval workflow, seeded permissions, audit events, and migration 0005 |
 | NWB-P1-007 | Contacts service | M | [issues/11-contacts-service.md](issues/11-contacts-service.md) | **done** 2026-09-22 — shared contact CRUD, optimistic concurrency, deduplication merge with interaction repointing, timeline tracking, follow-up state machine, keyset pagination, audit events, RBAC, and migration 0006 |
 | NWB-P1-008 | Notification engine core | L | [issues/12-notification-engine-core.md](issues/12-notification-engine-core.md) | **done** 2026-09-22 — alert rules CRUD, rate limiting (cooldown & daily cap), multi-recipient fan-out, email dispatch, alert event state machine (read, ack, escalate), keyset pagination, audit events, RBAC, and migration 0007 |
