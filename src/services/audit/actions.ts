@@ -348,6 +348,12 @@ export const AUDIT_ACTIONS = {
     category: "data_ops",
     resourceType: "media_asset",
   },
+  "socialaccount.connected": {
+    description:
+      "A social platform account was connected (or reconnected) to the organization; profile metadata only — token material never enters the audit trail (NWB-P2-001).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
   "email.delivered": {
     description:
       "An outbound email was accepted by the transport (Resend or console); recipient masked, template kind and provider id recorded.",

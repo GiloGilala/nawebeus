@@ -10,7 +10,7 @@
 
 | ID | Ticket | Notes |
 |---|---|---|
-| NWB-P2-001 | OAuth flow (initiate, single-use state with TTL, callback, connect) | State must be consumed once (replay test required). |
+| NWB-P2-001 | OAuth flow (initiate, single-use state with TTL, callback, connect) | ✅ **DONE 2026-09-24** — `.scratch/p2-social-accounts/issues/01-oauth-flow.md`: schema adopted (0011, ids 64 from birth), `src/lib/crypto.ts` AES-256-GCM, DEC-009 registry + injectable-fetch exchange client, single-use state machine (replay test), `/api/social` initiate + public callback, `socialaccounts.connect` seeded manager+; 889/889. Was: `db/social-accounts/` aspirational, no OAuth code |
 | NWB-P2-002 | Token lifecycle (encrypted at rest, refresh worker, rotation, failure surfacing) | **Encryption:** spec requires AES-256 for tokens; use `crypto.subtle` (Bun native) behind a small `src/lib/crypto.ts` helper — record as new-but-justified (existing `tokens.ts` is for one-time web tokens, not OAuth secrets). |
 | NWB-P2-003 | Account health checks + circuit breaker | Breaker must block dispatch (P3/P7 consumers). |
 | NWB-P2-004 | Quota tracking (`hasQuotaRemaining`, `updateQuotaUsage`) | Feeds P13 plan limits. |

@@ -162,6 +162,7 @@ describe("config: email transport (EMAIL_PROVIDER / RESEND_* / EMAIL_FROM)", () 
         NODE_ENV: "production",
         EMAIL_PROVIDER: "console",
         STORAGE_DRIVER: "local",
+        SOCIAL_TOKEN_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       }).EMAIL_PROVIDER_RESOLVED,
     ).toBe("console");
     expect(
@@ -171,6 +172,7 @@ describe("config: email transport (EMAIL_PROVIDER / RESEND_* / EMAIL_FROM)", () 
         RESEND_API_KEY: "re_1",
         EMAIL_FROM: "a@b.co",
         STORAGE_DRIVER: "local",
+        SOCIAL_TOKEN_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       }).EMAIL_PROVIDER_RESOLVED,
     ).toBe("resend");
   });
@@ -232,6 +234,7 @@ describe("config: storage driver derivation (STORAGE_DRIVER / R2_* / MEDIA_MAX_U
       NODE_ENV: "production",
       STORAGE_DRIVER: "local",
       EMAIL_PROVIDER: "console", // the email production rule is a separate gate
+      SOCIAL_TOKEN_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // the social-token gate too
     });
     expect(stated.STORAGE_DRIVER_RESOLVED).toBe("local");
   });

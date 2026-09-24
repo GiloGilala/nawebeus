@@ -361,6 +361,14 @@ async function seed() {
       action: "delete",
       name: "Delete Media",
     },
+    // Social connections (NWB-P2-001): Module 3 §6.2 gives connect to Admin + Manager only —
+    // the contentApproval tier in this codebase's role matrix.
+    {
+      string: "socialaccounts.connect",
+      resource: "socialaccounts",
+      action: "connect",
+      name: "Connect Social Accounts",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -469,6 +477,7 @@ async function seed() {
     "contacts.delete",
     "alerts.delete",
     "media.delete",
+    "socialaccounts.connect",
   ];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [

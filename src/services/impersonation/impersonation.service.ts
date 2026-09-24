@@ -712,7 +712,8 @@ export async function listImpersonations(
       FROM impersonation_sessions s
       LEFT JOIN users admin_u ON admin_u.id = s.admin_user_id::uuid
       LEFT JOIN users target_u ON target_u.id = s.target_user_id::uuid
-      WHERE s.organization_id = ${organizationId}${scopeClause}
+      WHERE s.organization_id = ${organizationId}
+      ${scopeClause}
       ORDER BY s.started_at DESC, s.id DESC
       ${cursorClause}
       LIMIT ${page.limit + 1}

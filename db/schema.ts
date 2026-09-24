@@ -127,3 +127,21 @@ export {
   legalHolds,
   legalHoldsRelations,
 } from "./compliance/index";
+
+// =============================================================================
+// SOCIAL ACCOUNTS MODULE (adopted — NWB-P2-001)
+// =============================================================================
+
+// All four tables adopt together (they reference each other's shapes and the migration-doc
+// M2 row covers the module as a unit). `db/social-accounts/index.ts` carries the module's
+// design header: token columns are ciphertext, `oauth_states.id` is the state parameter.
+export {
+  oauthStates,
+  oauthStatesRelations,
+  socialAccountHealthLog,
+  socialAccountHealthLogRelations,
+  socialAccounts,
+  socialAccountsRelations,
+  tokenRefreshLog,
+  tokenRefreshLogRelations,
+} from "./social-accounts/index";

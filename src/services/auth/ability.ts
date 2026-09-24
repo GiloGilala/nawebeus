@@ -18,7 +18,8 @@ export type Actions =
   | "publish"
   | "export"
   | "decide"
-  | "impersonate";
+  | "impersonate"
+  | "connect";
 export type Subjects = string;
 
 type AppAbility = Ability<[Actions, Subjects]>;

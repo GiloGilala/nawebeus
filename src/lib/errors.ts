@@ -129,7 +129,16 @@ export class PayloadTooLargeError extends AppError {
 
 export class ConflictError extends AppError {
   readonly statusCode = 409;
-  readonly code = "CONFLICT";
+  readonly code = "CONFLICT" as string;
+}
+
+/**
+ * The platform account is already live on this organization (FR-SOC-004). Its own code rather
+ * than `CONFLICT` because the module spec names the error and the UI branches on it (the
+ * "manage the existing connection" path, not a generic retry).
+ */
+export class AccountAlreadyConnectedError extends ConflictError {
+  override readonly code = "ACCOUNT_ALREADY_CONNECTED" as string;
 }
 
 /**

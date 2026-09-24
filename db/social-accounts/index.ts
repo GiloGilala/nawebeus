@@ -2,6 +2,13 @@
 //
 // Social account connection & health module.
 //
+// ADOPTED 2026-09-24 by NWB-P2-001 (ground rule 7 / migration-doc M2): exports joined
+// `db/schema.ts`, the tsconfig exclude was removed, migration 0011 creates the four tables.
+// Every id-shaped column below is `varchar(64)` from birth — the 2026-09-13 audit note and
+// migrations 0005/0006/0007/0010 lesson applied before a 36-char prefixed uuid could hit a
+// 32-char column, not after. Nawebeus id prefixes here: `soc_<uuid>` (social_accounts);
+// `oauth_states.id` is the state parameter itself (128-char random string, per its JSDoc).
+//
 // Tables:
 //   social_accounts           — OAuth-connected social platform accounts
 //   oauth_states              — CSRF protection for OAuth flows
@@ -91,7 +98,6 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import {
-  apiQuotaStatusEnum,
   platformEnum,
   socialAccountStatusEnum,
   socialAccountTypeEnum,
@@ -148,10 +154,10 @@ import {
 export const socialAccounts = pgTable(
   "social_accounts",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // Not FK — social account may outlive the org (retention period)
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Platform Identity ────────────────────────────────────────────────────
     platform: platformEnum("platform").notNull(),
@@ -191,9 +197,9 @@ export const socialAccounts = pgTable(
 
     // ─── Connection ───────────────────────────────────────────────────────────
     // Not FK — user who connected may leave the org
-    connectedBy: varchar("connected_by", { length: 32 }).notNull(),
+    connectedBy: varchar("connected_by", { length: 64 }).notNull(),
     connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
-    primaryManagerId: varchar("primary_manager_id", { length: 32 }),
+    primaryManagerId: varchar("primary_manager_id", { length: 64 }),
     teamIds: text("team_ids").array(),
 
     // ─── Sync & Health ────────────────────────────────────────────────────────
@@ -223,7 +229,7 @@ export const socialAccounts = pgTable(
 
     // ─── Disconnection ────────────────────────────────────────────────────────
     disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
-    disconnectedBy: varchar("disconnected_by", { length: 32 }),
+    disconnectedBy: varchar("disconnected_by", { length: 64 }),
     disconnectionReason: text("disconnection_reason"),
     // Data retention deadline — after this date, the retention worker
     // deletes all data associated with this social account
@@ -350,7 +356,7 @@ export const socialAccounts = pgTable(
     // Circuit breaker check
     index("idx_sa_circuit_breaker")
       .on(table.circuitBreakerOpenedAt)
-      .where(sql`${table.circuit_breaker_open} = TRUE`),
+      .where(sql`${table.circuitBreakerOpen} = TRUE`),
 
     // Connection attribution
     index("idx_sa_connected_by").on(table.connectedBy),
@@ -412,10 +418,10 @@ export const oauthStates = pgTable(
     id: varchar("id", { length: 128 }).notNull().primaryKey(),
 
     // Not FK — state may outlive very briefly during a race condition
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // Not FK — the user who initiated the OAuth flow
-    userId: varchar("user_id", { length: 32 }).notNull(),
+    userId: varchar("user_id", { length: 64 }).notNull(),
 
     // Which platform the OAuth flow is for
     platform: platformEnum("platform").notNull(),
@@ -497,10 +503,10 @@ export const oauthStates = pgTable(
 export const socialAccountHealthLog = pgTable(
   "social_account_health_log",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // FK to social_accounts — CASCADE on delete
-    socialAccountId: varchar("social_account_id", { length: 32 })
+    socialAccountId: varchar("social_account_id", { length: 64 })
       .notNull()
       .references(() => socialAccounts.id, { onDelete: "cascade" }),
 
@@ -621,10 +627,10 @@ export const socialAccountHealthLog = pgTable(
 export const tokenRefreshLog = pgTable(
   "token_refresh_log",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // FK to social_accounts — CASCADE on delete
-    socialAccountId: varchar("social_account_id", { length: 32 })
+    socialAccountId: varchar("social_account_id", { length: 64 })
       .notNull()
       .references(() => socialAccounts.id, { onDelete: "cascade" }),
 

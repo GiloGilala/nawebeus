@@ -45,7 +45,8 @@
     "db/monitoring/**",
     "db/pr/**",
     "db/publishing/**",
-    "db/social-accounts/**",
+    // db/social-accounts/** is wired since NWB-P2-001 (the four tables adopted; OAuth flow
+    // consumes them).
     "db/relations.ts"
   ]
 }

@@ -273,6 +273,26 @@ const envSchema = z.object({
    */
   STORAGE_SIGNING_SECRET: optionalEnv(),
 
+  // ─── Social platform OAuth (Module 3 · NWB-P2-001) ─────────────────────────
+  //
+  // Per-platform OAuth client pairs (the DEC-009 five). A platform is "configured" when both
+  // of its pair are set; the flow refuses to half-start otherwise. Token sealing uses
+  // SOCIAL_TOKEN_ENCRYPTION_KEY (AES-256-GCM, FR-SOC-003); production refuses the derived
+  // fallback — see the refinement beside the storage one.
+
+  OAUTH_YOUTUBE_CLIENT_ID: optionalEnv(),
+  OAUTH_YOUTUBE_CLIENT_SECRET: optionalEnv(),
+  OAUTH_TWITTER_X_CLIENT_ID: optionalEnv(),
+  OAUTH_TWITTER_X_CLIENT_SECRET: optionalEnv(),
+  OAUTH_INSTAGRAM_CLIENT_ID: optionalEnv(),
+  OAUTH_INSTAGRAM_CLIENT_SECRET: optionalEnv(),
+  OAUTH_FACEBOOK_CLIENT_ID: optionalEnv(),
+  OAUTH_FACEBOOK_CLIENT_SECRET: optionalEnv(),
+  OAUTH_REDDIT_CLIENT_ID: optionalEnv(),
+  OAUTH_REDDIT_CLIENT_SECRET: optionalEnv(),
+  /** Base64url of 32 random bytes. Unset (non-production): AES key derived from JWT_ACCESS_SECRET. */
+  SOCIAL_TOKEN_ENCRYPTION_KEY: optionalEnv(),
+
   // Seed credentials
   SEED_ADMIN_EMAIL: z.string().email().default("admin@nawebeus.com"),
   SEED_ADMIN_PASSWORD: z.string().min(8).default("Admin@123456"),
@@ -381,6 +401,21 @@ const envSchemaWithEmailRules = envSchema.superRefine((env, ctx) => {
       path: ["STORAGE_DRIVER"],
       message:
         "production needs a real object store: set the R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET quartet, or opt into local disk explicitly with STORAGE_DRIVER=local",
+    });
+  }
+
+  // Social tokens are third-party credentials sealed at rest (FR-SOC-003); deriving the AES
+  // key from the JWT secret in production would tie two security domains to one rotation —
+  // bring a dedicated key, like the storage rule brings a real store.
+  if (
+    env.NODE_ENV === "production" &&
+    (env.SOCIAL_TOKEN_ENCRYPTION_KEY === undefined || env.SOCIAL_TOKEN_ENCRYPTION_KEY === "")
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["SOCIAL_TOKEN_ENCRYPTION_KEY"],
+      message:
+        "production seals social OAuth tokens with a dedicated AES-256 key: set SOCIAL_TOKEN_ENCRYPTION_KEY (base64url of 32 random bytes)",
     });
   }
 });
