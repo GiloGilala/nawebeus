@@ -294,6 +294,12 @@ const envSchema = z.object({
   OAUTH_REDDIT_CLIENT_SECRET: optionalEnv(),
   /** Base64url of 32 random bytes. Unset (non-production): AES key derived from JWT_ACCESS_SECRET. */
   SOCIAL_TOKEN_ENCRYPTION_KEY: optionalEnv(),
+  /**
+   * The unit budget a brand-new quota bucket materializes with (NWB-P2-004). Platform adapters
+   * overwrite it per bucket when the platform states a real budget (YouTube: 10,000/day).
+   * Bounded so "unknown bucket" can never silently mean "unlimited".
+   */
+  SOCIAL_QUOTA_DEFAULT_LIMIT: z.coerce.number().int().min(1).max(10_000_000).default(10_000),
 
   // Seed credentials
   SEED_ADMIN_EMAIL: z.string().email().default("admin@nawebeus.com"),

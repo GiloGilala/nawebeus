@@ -361,6 +361,27 @@ export const AUDIT_ACTIONS = {
     category: "data_ops",
     resourceType: "social_account",
   },
+  "socialaccount.quota_warning": {
+    description:
+      "A social account's quota bucket crossed 80% utilization — non-essential polling should slow (FR-SOC-033); one event per crossing (NWB-P2-004).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccount.quota_critical": {
+    description:
+      "A social account's quota bucket crossed 95% utilization — admin alert threshold (FR-SOC-038); one event per crossing (NWB-P2-004).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccount.quota_exhausted": {
+    description:
+      "A social account's quota bucket hit 100% — non-essential syncing pauses until reset (FR-SOC-034/035); one event per crossing (NWB-P2-004).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "critical",
+  },
   "socialaccount.breaker_opened": {
     description:
       "A social account hit the consecutive-failure threshold and its circuit breaker opened — all dispatch stops until a health check recovers it (NWB-P2-003).",

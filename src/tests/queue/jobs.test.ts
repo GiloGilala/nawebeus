@@ -120,7 +120,7 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
 
       // Ground rule 4, on the data: the same job in the same window finds nothing left to do.
       const second = await rateLimitReclaimJob.handle({ db, job: ATTEMPT }, null);
-      expect(second).toEqual({ deleted: 0, graceMs: RATE_LIMIT_RECLAIM_GRACE_MS });
+      expect(second).toEqual({ deleted: 0, graceMs: RATE_LIMIT_RECLAIM_GRACE_MS, quotaReset: 0 });
     });
   });
 
@@ -134,12 +134,14 @@ describe.skipIf(!hasDb())("queue jobs against a live database", () => {
       expect(await rateLimitReclaimJob.handle({ db, job: ATTEMPT }, null)).toEqual({
         deleted: 0,
         graceMs: RATE_LIMIT_RECLAIM_GRACE_MS,
+        quotaReset: 0,
       });
       expect(await bucketExists(db, recent)).toBe(true);
 
       expect(await rateLimitReclaimJob.handle({ db, job: ATTEMPT }, { graceMs: 0 })).toEqual({
         deleted: 1,
         graceMs: 0,
+        quotaReset: 0,
       });
       expect(await bucketExists(db, recent)).toBe(false);
     });

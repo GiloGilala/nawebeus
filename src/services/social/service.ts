@@ -66,6 +66,16 @@ export const HEALTH_CHECK_BATCH_LIMIT = 50;
 export const HEALTH_CHECK_INTERVAL_SECONDS = 6 * 3_600;
 export const CHRONIC_FAILURE_AFTER_SECONDS = 24 * 3_600;
 
+/**
+ * Quota thresholds (NWB-P2-004, Module 3 §3.5): polling slows at 80% (FR-SOC-033), syncing
+ * pauses at 100% (FR-SOC-034/035), and the admin-alert crossings land at 80% and 95%
+ * (FR-SOC-038). `quota_status` is the worst bucket's band.
+ */
+export const QUOTA_WARNING_PERCENT = 80;
+export const QUOTA_CRITICAL_PERCENT = 95;
+export type QuotaBucketKind = "read" | "write";
+export type QuotaStatus = "healthy" | "warning" | "critical" | "exhausted";
+
 /** 128 hex chars from 64 random bytes — `oauth_states.id` is the state parameter itself. */
 function generateState(): string {
   return randomBytes(64).toString("hex");
@@ -166,14 +176,43 @@ export interface SocialServiceOptions {
   readonly oauthClient?: PlatformOAuthClient | undefined;
   /** Injectable fetch for the health probes (the Resend-transport pattern; CI never calls out). */
   readonly probeFetch?: typeof fetch | undefined;
+  /** The budget a brand-new quota bucket materializes with (config `SOCIAL_QUOTA_DEFAULT_LIMIT`). */
+  readonly defaultQuotaLimit?: number | undefined;
   readonly newId?: (() => string) | undefined;
   readonly now?: (() => Date) | undefined;
+}
+
+interface QuotaBucketJson {
+  limit: number;
+  used: number;
+  resetsAt?: string | undefined;
+}
+
+/** Worst-bucket-wins: `warning` < `critical` < `exhausted` (an account is as usable as its tightest bucket). */
+const CROSSING_ORDER: QuotaStatus[] = ["healthy", "warning", "critical", "exhausted"];
+
+function bucketStatus(bucket: QuotaBucketJson): QuotaStatus {
+  const percent = bucket.limit > 0 ? (bucket.used / bucket.limit) * 100 : 100;
+  if (percent >= 100) return "exhausted";
+  if (percent >= QUOTA_CRITICAL_PERCENT) return "critical";
+  if (percent >= QUOTA_WARNING_PERCENT) return "warning";
+  return "healthy";
+}
+
+function quotaStatusFor(tracking: Record<string, QuotaBucketJson>): QuotaStatus {
+  let worst: QuotaStatus = "healthy";
+  for (const bucket of Object.values(tracking)) {
+    const status = bucketStatus(bucket);
+    if (CROSSING_ORDER.indexOf(status) > CROSSING_ORDER.indexOf(worst)) worst = status;
+  }
+  return worst;
 }
 
 export function createSocialService(options: SocialServiceOptions) {
   const { readEnv, keyMaterial, appBaseUrl } = options;
   const oauthClient = options.oauthClient ?? new HttpPlatformOAuthClient();
   const probeFetch = options.probeFetch ?? globalThis.fetch;
+  const defaultQuotaLimit = options.defaultQuotaLimit ?? 10_000;
   const now = options.now ?? (() => new Date());
 
   function redirectUriFor(platform: SocialPlatform): string {
@@ -1214,6 +1253,282 @@ export function createSocialService(options: SocialServiceOptions) {
         escalated += 1;
       }
       return escalated;
+    },
+
+    /**
+     * The quota gate (NWB-P2-004, FR-SOC-031) — every adapter call passes through this before
+     * spending platform units. A bucket that has never been seen materializes bounded (config
+     * default) rather than silently unlimited; a bucket whose `resetsAt` has passed reads as
+     * empty (the nightly roll resets it). `false` is the caller's signal to queue, not to fail
+     * (FR-SOC-035: no data loss — process after the reset).
+     */
+    async hasQuotaRemaining(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string; kind: QuotaBucketKind; units?: number },
+    ): Promise<boolean> {
+      const rows = (await db.execute<{
+        quota_tracking: Record<string, QuotaBucketJson> | null;
+      }>(sql`
+        SELECT quota_tracking FROM social_accounts
+        WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+        LIMIT 1
+      `)) as any;
+      const tracking = (
+        rows.rows?.[0] as { quota_tracking: Record<string, QuotaBucketJson> | null } | undefined
+      )?.quota_tracking;
+      if (!tracking) return true;
+      const bucket = tracking[input.kind];
+      if (!bucket) return true; // nothing spent yet — fresh bucket has full headroom
+      const units = Math.max(1, input.units ?? 1);
+      if (bucket.resetsAt && new Date(bucket.resetsAt) <= now()) return true; // window rolled
+      return bucket.used + units <= bucket.limit;
+    },
+
+    /**
+     * Spend units atomically: one `jsonb_set` UPDATE (concurrent spenders cannot lose an
+     * increment; the optimistic version refuses a stale writer), `resetsAt` stamped when
+     * supplied, and `quota_status` re-derived as the worst bucket's band — with one audit event
+     * per *crossing* into warning/critical/exhausted (FR-SOC-038's alert record; delivery is
+     * P6).
+     */
+    async updateQuotaUsage(
+      db: NodePgDatabase<Record<string, any>>,
+      input: {
+        organizationId: string;
+        accountId: string;
+        kind: QuotaBucketKind;
+        units: number;
+        resetsAt?: Date | undefined;
+        /** Set by the reset roll: zero instead of increment. */
+        reset?: boolean;
+      },
+    ): Promise<{ used: number; limit: number; status: QuotaStatus; crossedTo?: QuotaStatus }> {
+      if (input.units < 0) {
+        throw new ValidationError("Quota usage cannot be negative", [
+          { field: "units", message: "Spend a positive number of units" },
+        ]);
+      }
+
+      // Atomic spend: the increment arithmetic happens *inside* the UPDATE, on the live jsonb —
+      // two concurrent spenders serialize on the row lock and no increment is lost (the read
+      // CTE takes FOR UPDATE; the harness's single client makes that safe, and production runs
+      // each request on its own transaction). `quota_status` is re-derived from the post-spend
+      // document as the worst bucket's band, and both statuses return so the crossing — the
+      // audit event — is computed here against the truth, not a stale read.
+      // NOTE: `reset` is optional — an interpolated `undefined` renders as an empty string in
+      // Drizzle's SQL (param vanishes, `WHEN ::boolean` = syntax error), so normalize it to a
+      // concrete boolean before it touches the template.
+      const resetFlag = input.reset === true;
+      const updated = (await db.execute<{
+        doc: Record<string, QuotaBucketJson>;
+        status: QuotaStatus;
+        prior_status: QuotaStatus;
+        used: number;
+        limit: number;
+      }>(sql`
+        WITH prev AS (
+          SELECT quota_tracking, quota_status FROM social_accounts
+          WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+          FOR UPDATE
+        ), spent AS (
+          -- PG 18: jsonb_set no longer creates missing *intermediate* objects (a 2-level path
+          -- on '{}' is a silent no-op), so compose the full bucket and merge it at the top
+          -- level — a 1-element path works on '{}'.
+          SELECT jsonb_set(
+            COALESCE(prev.quota_tracking, '{}'::jsonb),
+            ARRAY[${input.kind}::text],
+            COALESCE(prev.quota_tracking -> ${input.kind}::text, '{}'::jsonb) || jsonb_build_object(
+              'limit',
+                COALESCE((prev.quota_tracking -> ${input.kind}::text ->> 'limit')::bigint, ${defaultQuotaLimit}::bigint),
+              'used',
+                CASE WHEN ${resetFlag}::boolean THEN 0::bigint
+                  ELSE COALESCE((prev.quota_tracking -> ${input.kind}::text ->> 'used')::bigint, 0) + ${input.units}::bigint END,
+              'resetsAt',
+                COALESCE(
+                  ${input.resetsAt !== undefined ? sql`to_jsonb(${(input.resetsAt as Date).toISOString()}::text)` : sql`NULL::jsonb`},
+                  prev.quota_tracking -> ${input.kind}::text -> 'resetsAt')
+            )
+          ) AS doc, prev.quota_status AS prior_status
+          FROM prev
+        ), worst AS (
+          SELECT spent.doc, spent.prior_status,
+            (SELECT COALESCE(max(
+               CASE WHEN (value ->> 'limit')::bigint > 0
+                 THEN LEAST(100, ((value ->> 'used')::bigint * 100) / (value ->> 'limit')::bigint)
+                 ELSE 100 END), 0)
+             FROM jsonb_each(spent.doc)) AS worst_percent,
+            (spent.doc -> ${input.kind}::text ->> 'used')::bigint AS used,
+            (spent.doc -> ${input.kind}::text ->> 'limit')::bigint AS limit
+          FROM spent
+        ), derived AS (
+          SELECT worst.*, (CASE
+            WHEN worst_percent >= 100 THEN 'exhausted'
+            WHEN worst_percent >= ${QUOTA_CRITICAL_PERCENT} THEN 'critical'
+            WHEN worst_percent >= ${QUOTA_WARNING_PERCENT} THEN 'warning'
+            ELSE 'healthy' END)::varchar AS status
+          FROM worst
+        )
+        UPDATE social_accounts sa SET
+          quota_tracking = derived.doc,
+          quota_status = derived.status,
+          version = sa.version + 1,
+          updated_at = now()
+        FROM derived
+        WHERE sa.id = ${input.accountId}
+          AND sa.organization_id = ${input.organizationId}
+          AND sa.version = (SELECT version FROM social_accounts WHERE id = ${input.accountId})
+        RETURNING derived.status, derived.prior_status, derived.used, derived.limit, derived.doc
+      `)) as any;
+      const updatedRow = (
+        updated.rows as
+          | {
+              status: QuotaStatus;
+              prior_status: QuotaStatus;
+              used: number;
+              limit: number;
+            }[]
+          | undefined
+      )?.[0];
+      if (!updatedRow) {
+        // No RETURNING row: either the account never existed (→ NotFoundError, the caller's
+        // 404) or a concurrent writer moved the version between the locking read and the
+        // UPDATE (→ retry the call; nothing was spent). A fresh existence read tells them
+        // apart without guessing.
+        const exists = (await db.execute(sql`
+          SELECT 1 FROM social_accounts
+          WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+          LIMIT 1
+        `)) as any;
+        if (!exists.rows?.length) {
+          throw new NotFoundError("Social account not found");
+        }
+        throw new Error("social account row changed during quota update; retry the call");
+      }
+      const status = updatedRow.status;
+      const used = Number(updatedRow.used);
+      const limit = Number(updatedRow.limit);
+      const crossedTo =
+        status !== updatedRow.prior_status &&
+        CROSSING_ORDER.indexOf(status) > CROSSING_ORDER.indexOf(updatedRow.prior_status)
+          ? status
+          : undefined;
+      void updated;
+
+      if (crossedTo && crossedTo !== "healthy") {
+        const action =
+          crossedTo === "warning"
+            ? "socialaccount.quota_warning"
+            : crossedTo === "critical"
+              ? "socialaccount.quota_critical"
+              : "socialaccount.quota_exhausted";
+        await writeAuditLog({
+          db,
+          module: "social_accounts",
+          organizationId: input.organizationId,
+          actorId: undefined,
+          actorType: "system",
+          action,
+          resourceId: input.accountId,
+          afterState: {
+            bucket: input.kind,
+            used,
+            limit,
+            percent: Math.round((used / limit) * 100),
+          },
+        });
+      }
+
+      return { used, limit, status, ...(crossedTo !== undefined ? { crossedTo } : {}) };
+    },
+
+    /** The read behind the P2-006 usage route and P13 plan limits: buckets + utilization. */
+    async getQuotaSnapshot(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string },
+    ): Promise<{
+      status: QuotaStatus;
+      buckets: Record<
+        string,
+        { used: number; limit: number; percent: number; resetsAt: string | null }
+      >;
+    }> {
+      const rows = (await db.execute<{
+        quota_tracking: Record<string, QuotaBucketJson> | null;
+        quota_status: string;
+      }>(sql`
+        SELECT quota_tracking, quota_status FROM social_accounts
+        WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+        LIMIT 1
+      `)) as any;
+      const row = rows.rows?.[0] as
+        | { quota_tracking: Record<string, QuotaBucketJson> | null; quota_status: string }
+        | undefined;
+      if (!row) throw new NotFoundError("Social account not found");
+      const tracking = row.quota_tracking ?? {};
+      const buckets: Record<
+        string,
+        { used: number; limit: number; percent: number; resetsAt: string | null }
+      > = {};
+      for (const [kind, bucket] of Object.entries(tracking)) {
+        buckets[kind] = {
+          used: bucket.used,
+          limit: bucket.limit,
+          percent:
+            bucket.limit > 0 ? Math.min(100, Math.round((bucket.used / bucket.limit) * 100)) : 100,
+          resetsAt: bucket.resetsAt ?? null,
+        };
+      }
+      return { status: row.quota_status as QuotaStatus, buckets };
+    },
+
+    /**
+     * Roll every bucket whose `resetsAt` has passed back to zero + `healthy` (FR-SOC-034's
+     * "resume immediately after reset"). Idempotent; the nightly reclamation job calls this in
+     * the same pass as the rate-limit sweep.
+     */
+    async resetDueQuotas(db: NodePgDatabase<Record<string, any>>): Promise<{ reset: number }> {
+      const rows = (await db.execute<{
+        id: string;
+        organization_id: string;
+        quota_tracking: Record<string, QuotaBucketJson>;
+      }>(sql`
+        SELECT id, organization_id, quota_tracking FROM social_accounts
+        WHERE quota_status <> 'healthy'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_each_text(quota_tracking) AS t(kind, value)
+            WHERE (value::jsonb ->> 'resetsAt') IS NOT NULL
+              AND (value::jsonb ->> 'resetsAt')::timestamptz <= now()
+          )
+        LIMIT ${HEALTH_CHECK_BATCH_LIMIT * 4}
+      `)) as any;
+
+      let reset = 0;
+      for (const raw of (rows.rows ?? []) as {
+        id: string;
+        organization_id: string;
+        quota_tracking: Record<string, QuotaBucketJson>;
+      }[]) {
+        const tracking: Record<string, QuotaBucketJson> = {};
+        let changed = false;
+        for (const [kind, bucket] of Object.entries(raw.quota_tracking)) {
+          const due = bucket.resetsAt !== undefined && new Date(bucket.resetsAt) <= now();
+          tracking[kind] = due ? { ...bucket, used: 0 } : bucket;
+          if (due) changed = true;
+        }
+        if (!changed) continue;
+        const status = quotaStatusFor(tracking);
+        const updated = (await db.execute(sql`
+          UPDATE social_accounts SET
+            quota_tracking = ${JSON.stringify(tracking)}::jsonb,
+            quota_status = ${status},
+            version = version + 1,
+            updated_at = now()
+          WHERE id = ${raw.id} AND quota_status <> 'healthy'
+          RETURNING id
+        `)) as any;
+        if (((updated.rows as unknown[]) ?? []).length > 0) reset += 1;
+      }
+      return { reset };
     },
 
     /**

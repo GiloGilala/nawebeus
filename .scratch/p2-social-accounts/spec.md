@@ -3,7 +3,7 @@
 **Feature slug:** `p2-social-accounts`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/08-phase-3-4-modules.md` (§13) · execution plan §5 P2 · PRD Module 3
-**Status:** in-progress — **3 of 6 tickets done** (P2-005 splits into five per-platform tickets
+**Status:** in-progress — **4 of 6 tickets done** (P2-005 splits into five per-platform tickets
 per the roadmap note, so the *ticket* count is 6 and the *platform-adapter* work inside P2-005 is
 five). **NWB-P2-001** (OAuth flow) **done 2026-09-24** (evidence in issues/01): schema adoption
 (0011), AES-256-GCM sealing, platform registry + exchange client, single-use state machine with
@@ -15,7 +15,12 @@ transition + audit event, every attempt in `token_refresh_log`. **NWB-P2-003** (
 **done 2026-09-24** (evidence in issues/03): the */5 health-check job (tenth queue) probing open
 breakers every tick (half-open recovery) and the rest six-hourly, the 10-failure breaker
 (FR-SOC-056) with `assertDispatchAllowed` as the P3/P7 dispatch gate, 401→refresh-once→re-probe,
-429 advancing nothing, chronic >24h escalation to a critical audit. 909/909 tests.
+429 advancing nothing, chronic >24h escalation to a critical audit. **NWB-P2-004** (quota
+tracking) **done 2026-09-25** (evidence in issues/04): the jsonb ledger (`quota_tracking` +
+derived `quota_status`) with an atomic single-statement spend, the worst-bucket-wins ladder
+healthy→warning(≥80%)→critical(≥95%)→exhausted(≥100%) with one audit event per crossing
+(FR-SOC-033/034/038), the `hasQuotaRemaining` gate (FR-SOC-035), and the `resetDueQuotas` roll
+riding `rate-limit-reclaim` for automatic resume. 915/915 tests; coverage gate 91.1% / 96.8%.
 
 **Goal:** org-scoped OAuth connections to the DEC-009 five (YouTube, X, Instagram, Facebook,
 Reddit), with tokens encrypted at rest, a health/breaker layer that protects downstream
@@ -27,7 +32,9 @@ dispatch (P3 publishing, P7 engage), and quota tracking for P13 plan limits.
 strength of that record.
 
 **Exit gate (plan §13):** all five platforms connect, refresh unattended, report health; breaker
-trips and recovers demonstrably.
+trips and recovers demonstrably. P2-004 adds the quota half: per-platform quota *numbers*
+(default 10 000/day via `SOCIAL_QUOTA_DEFAULT_LIMIT` until real platform limits are configured)
+are P13 plan-limit config, not schema work — P13 reads the same ledger this phase writes.
 **Security note (plan §13):** the OAuth callback is a public endpoint — CSRF via single-use state
 (replay-tested); token secrets never in responses or logs (FR-SOC-023 / BR-SOC-016).
 

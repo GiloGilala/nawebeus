@@ -63,7 +63,7 @@ bun run email:smoke -- --to you@example.com  # one real send through the configu
   schemas are pinned by `src/tests/validation-schemas.test.ts` (Hono and SFs import the same
   object). `bun test` only — do not add Vitest or Jest.
 - **`src/tests/queue/loop.test.ts` is the one suite that does not use `withTestDb`, and it must not.** pg-boss claims jobs on its own connection, outside any transaction the harness opens, so rollback-based isolation cannot contain it; the suite installs into a throwaway `pgboss_test_*` schema and drops it in `afterAll`. Write a queue test that way or don't write one — pointing pg-boss at the app schema commits real rows.
-- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 90.9% / 96.8% (NWB-P2-003). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
+- **Coverage:** `bun run coverage` writes `coverage/lcov.info`, then `bun run coverage:check` enforces the gate (`src/scripts/check-coverage.ts`). Thresholds are **aggregate line coverage per directory**: `src/services` ≥ 85%, `src/lib` ≥ 90% (Engineering Standards p. 730). Currently 91.1% / 96.8% (NWB-P2-004). Deliberately *graduated* — only those two directories are gated; routes and server functions join in Phase 2 with the queue services, because gating them today would be permanently red. The gate also fails if a gated directory is **absent** from the report, so deleting a test suite cannot read as a coverage improvement. **It is not yet a CI step** (the workflow file cannot be pushed by the Arena GitHub App — same block as NWB-P0-005), so treat it as a local/maintainer gate, not an enforced one. See NWB-P0-031.
 - **Coverage gating cannot be done via `bunfig.toml` on Bun 1.4.** `coverageThreshold` is per-file, prints no failure message, is enforced only when the `text` reporter is enabled, cannot tolerate a file at 0% coverage at *any* threshold (including `0.0`), has no missing-file guard, and silently accepts keys it doesn't recognise. The docs' proposed `--coverage-threshold='{"services":85,"lib":90}'` is not a real flag — it is silently ignored, so it can never fail. Enforce coverage from a script over `coverage/lcov.info` instead. Verified findings: `.scratch/p0-foundation-gap/issues/03-ci-pipeline.md`.
 
 ### CI
@@ -186,7 +186,9 @@ src/jobs/                 ← Queue job definitions (thin adapters over services
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
   rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), impersonation-expire.ts (*/5,
   NWB-P1-011), social-token-refresh.ts (*/5, NWB-P2-002), social-health-check.ts (*/5,
-  NWB-P2-003 — probes + circuit breaker + chronic escalation), purge-expired-accounts.ts,
+  NWB-P2-003 — probes + circuit breaker + chronic escalation; rate-limit-reclaim additionally
+  rolls due quota windows back to healthy via `resetDueQuotas`, NWB-P2-004),
+  purge-expired-accounts.ts,
   purge-expired-organizations.ts, purge-expired-invitations.ts, retention-enforce.ts,
   audit-chain-verify.ts, email-deliver.ts (on-demand outbox, not scheduled)
 src/lib/                  ← Infrastructure
