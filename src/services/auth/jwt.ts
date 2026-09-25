@@ -2,6 +2,15 @@ export interface AccessPayload {
   userId: string;
   orgId: string;
   type: "access";
+  /**
+   * NWB-P1-011 — present only on an impersonation access token: the
+   * `impersonation_sessions` row this token belongs to. The middleware treats
+   * its presence as the signal to re-validate the row on every request and to
+   * enter the impersonation audit scope.
+   */
+  impersonationSessionId?: string;
+  /** NWB-P1-011 — the admin whose credentials started the impersonation session. */
+  impersonatorId?: string;
 }
 
 export interface RefreshPayload {
@@ -70,6 +79,48 @@ export async function verifyToken(token: string, secret: string): Promise<JwtPay
 
 export function signAccessToken(userId: string, orgId: string, secret: string): Promise<string> {
   return signToken({ userId, orgId, type: "access" }, secret, 900);
+}
+
+/**
+ * `true` when an access payload is an impersonation token (NWB-P1-011) — both
+ * fields are set, or neither is: a payload carrying one without the other is a
+ * hand-crafted token, and `verifyToken`'s signature check is the only thing
+ * between it and the middleware.
+ */
+export function isImpersonationToken(
+  payload: AccessPayload,
+): payload is AccessPayload & { impersonationSessionId: string; impersonatorId: string } {
+  return Boolean(payload.impersonationSessionId && payload.impersonatorId);
+}
+
+/**
+ * The impersonation access token (NWB-P1-011): a normal short-lived access JWT
+ * for the **target's** identity, plus the two fields that make it impossible to
+ * mistake for the target's own credential. The TTL is the caller's problem —
+ * the service caps it at the impersonation window's remainder, never more than
+ * the normal 900 s.
+ */
+export function signImpersonationToken(
+  payload: {
+    targetUserId: string;
+    orgId: string;
+    impersonationSessionId: string;
+    impersonatorId: string;
+  },
+  secret: string,
+  ttlSec: number,
+): Promise<string> {
+  return signToken(
+    {
+      userId: payload.targetUserId,
+      orgId: payload.orgId,
+      type: "access",
+      impersonationSessionId: payload.impersonationSessionId,
+      impersonatorId: payload.impersonatorId,
+    },
+    secret,
+    ttlSec,
+  );
 }
 
 export function signRefreshToken(

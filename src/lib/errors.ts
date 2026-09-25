@@ -117,9 +117,67 @@ export class GoneError extends AppError {
   readonly code = "GONE";
 }
 
+/**
+ * An upload exceeded the configured media cap (NWB-P1-005). Distinct from a validation error
+ * because the request was well-formed — the payload is simply too big — and 413 is the status
+ * a client's upload progress bar can actually react to.
+ */
+export class PayloadTooLargeError extends AppError {
+  readonly statusCode = 413;
+  readonly code = "PAYLOAD_TOO_LARGE";
+}
+
 export class ConflictError extends AppError {
   readonly statusCode = 409;
-  readonly code = "CONFLICT";
+  readonly code = "CONFLICT" as string;
+}
+
+/**
+ * The account's circuit breaker is open (FR-SOC-056): all dispatch to that account is stopped
+ * until a health check recovers it. 503, not 409 — the resource is not in conflict, the *path to
+ * the provider* is down; callers (P3 publishing, P7 engagement) treat it as "skip, retry later".
+ */
+export class CircuitBreakerOpenError extends AppError {
+  readonly statusCode = 503;
+  readonly code = "CIRCUIT_BREAKER_OPEN";
+}
+
+/**
+ * The platform account is already live on this organization (FR-SOC-004). Its own code rather
+ * than `CONFLICT` because the module spec names the error and the UI branches on it (the
+ * "manage the existing connection" path, not a generic retry).
+ */
+export class AccountAlreadyConnectedError extends ConflictError {
+  override readonly code = "ACCOUNT_ALREADY_CONNECTED" as string;
+}
+
+/**
+ * An admin tried to impersonate themselves (NWB-P1-011, BR-ADMIN-008's sibling
+ * rule). The database has its own CHECK (`chk_imp_no_self_impersonation`), but
+ * the request deserves the module spec's named 403, not a 500 with a
+ * constraint message that names neither the table nor the rule.
+ */
+export class SelfImpersonationError extends AppError {
+  readonly statusCode = 403;
+  readonly code = "SELF_IMPERSONATION_DENIED";
+}
+
+/**
+ * Another admin already holds an active impersonation session on this target
+ * (NWB-P1-011). Two impersonators in one account would weave two audit trails
+ * through the same window — each tagged with a different session id and neither
+ * able to say who was really driving. One at a time, second caller gets 409.
+ */
+export class ImpersonationActiveError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "IMPERSONATION_ACTIVE";
+
+  constructor(
+    message: string,
+    readonly sessionId: string,
+  ) {
+    super(message);
+  }
 }
 
 /**

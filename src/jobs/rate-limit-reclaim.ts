@@ -8,6 +8,7 @@
 import { QUEUE_JOBS } from "../lib/queue";
 import { RATE_LIMIT_RECLAIM_GRACE_MS, reclaimRateLimits } from "../lib/rate-limit";
 import type { JobDefinition } from "../lib/worker";
+import { getSocialService } from "../services/social";
 
 export interface RateLimitReclaimData {
   /**
@@ -38,6 +39,9 @@ export const rateLimitReclaimJob: JobDefinition<RateLimitReclaimData | null> = {
   async handle({ db }, data) {
     const graceMs = data?.graceMs ?? RATE_LIMIT_RECLAIM_GRACE_MS;
     const deleted = await reclaimRateLimits(db, graceMs);
-    return { deleted, graceMs };
+    // Same 02:00 slot, second duty (NWB-P2-004): daily quota windows (YouTube's 10k/day) roll
+    // at midnight — by 02:00 every due bucket is zeroed and `quota_status` back to `healthy`.
+    const { reset: quotaReset } = await getSocialService().resetDueQuotas(db);
+    return { deleted, graceMs, quotaReset };
   },
 };

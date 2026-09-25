@@ -64,6 +64,27 @@
       "when": 1790109044782,
       "tag": "0008_app_config",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790283639337,
+      "tag": "0009_impersonation_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790286527137,
+      "tag": "0010_media_assets_id_lengths",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790291444306,
+      "tag": "0011_social_accounts_adoption",
+      "breakpoints": true
     }
   ]
 }

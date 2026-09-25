@@ -96,6 +96,11 @@ export const requestContext: MiddlewareHandler = async (c, next) => {
     // Set by authMiddleware on authenticated routes; undefined on public ones.
     const user = c.get("user") as { userId: string; orgId: string } | undefined;
     const authMethod = c.get("authMethod");
+    // Set by authMiddleware when the access token is an impersonation token
+    // (NWB-P1-011). The support session's id joins the access line, so "who was
+    // inside this account" is answerable from the log alone, without joining to
+    // the audit table.
+    const impersonation = c.get("impersonation") as { impersonationSessionId: string } | undefined;
     logger.info("request", {
       requestId,
       method: c.req.method,
@@ -106,6 +111,7 @@ export const requestContext: MiddlewareHandler = async (c, next) => {
       durationMs: Date.now() - startedAt,
       ...(user ? { orgId: user.orgId, userId: user.userId } : {}),
       ...(user && authMethod ? { authMethod } : {}),
+      ...(impersonation ? { impersonationSessionId: impersonation.impersonationSessionId } : {}),
     });
   };
 

@@ -112,8 +112,8 @@ export {
 // COMPLIANCE MODULE (partial — NWB-P1-010, NWB-P1-009)
 // =============================================================================
 
-// Re-exported adopted tables: `legal_holds` + `backup_records` (NWB-P1-010), `app_config` (NWB-P1-009).
-// `impersonation_sessions`, `dsar_requests`, and `data_retention_policies` stay
+// Re-exported adopted tables: `legal_holds` + `backup_records` (NWB-P1-010), `app_config` (NWB-P1-009),
+// `impersonation_sessions` (NWB-P1-011). `dsar_requests` and `data_retention_policies` stay
 // dormant — their tickets re-export them here when they adopt them. Importing from
 // `./compliance/index` pulls the whole module's definitions, but drizzle-kit migrates only
 // what this file re-exports, so granularity lives here, not in tsconfig.
@@ -122,6 +122,26 @@ export {
   appConfigRelations,
   backupRecords,
   backupRecordsRelations,
+  impersonationSessions,
+  impersonationSessionsRelations,
   legalHolds,
   legalHoldsRelations,
 } from "./compliance/index";
+
+// =============================================================================
+// SOCIAL ACCOUNTS MODULE (adopted — NWB-P2-001)
+// =============================================================================
+
+// All four tables adopt together (they reference each other's shapes and the migration-doc
+// M2 row covers the module as a unit). `db/social-accounts/index.ts` carries the module's
+// design header: token columns are ciphertext, `oauth_states.id` is the state parameter.
+export {
+  oauthStates,
+  oauthStatesRelations,
+  socialAccountHealthLog,
+  socialAccountHealthLogRelations,
+  socialAccounts,
+  socialAccountsRelations,
+  tokenRefreshLog,
+  tokenRefreshLogRelations,
+} from "./social-accounts/index";

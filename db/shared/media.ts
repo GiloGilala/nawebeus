@@ -173,8 +173,11 @@ import { mediaAssetTypeEnum, mediaAttachedToTypeEnum } from "../shared/enums";
 export const mediaAssets = pgTable(
   "media_assets",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    // varchar(64), not 32 — Nawebeus ids are uuids / prefixed ids (`med_<uuid>`), and a 36-char
+    // uuid in a 32-char column is the `unified_audit_log` 2026-09-13 failure again. Same widening
+    // migrations 0005/0006 applied to templates and contacts (NWB-P1-005).
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Attachment Context ───────────────────────────────────────────────────
     // NULL = library asset (reusable, org-owned, organized by folder)
@@ -183,7 +186,7 @@ export const mediaAssets = pgTable(
 
     // Polymorphic entity ID — resolved by attachedToType at application layer
     // NULL when attachedToType is NULL (library asset)
-    attachedToId: varchar("attached_to_id", { length: 32 }),
+    attachedToId: varchar("attached_to_id", { length: 64 }),
 
     // ─── Reverse index for library assets (denormalized, same pattern as
     //     the original media_assets.usedInPosts) ────────────────────────────
@@ -267,7 +270,7 @@ export const mediaAssets = pgTable(
 
     // ─── Audit ───────────────────────────────────────────────────────────────
     // Not FK — asset must survive uploader leaving the org
-    uploadedBy: varchar("uploaded_by", { length: 32 }).notNull(),
+    uploadedBy: varchar("uploaded_by", { length: 64 }).notNull(),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

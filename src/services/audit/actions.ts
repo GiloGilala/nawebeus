@@ -68,6 +68,38 @@ export const AUDIT_ACTION_FORMAT =
   /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*)+$/;
 
 export const AUDIT_ACTIONS = {
+  "admin.impersonation.ended": {
+    description: "An impersonation session ended by its own admin (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.expired": {
+    description:
+      "Lapsed impersonation sessions closed as `expired` by the scheduled sweep (NWB-P1-011).",
+    category: "compliance",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.reentered": {
+    description: "A fresh token issued inside a still-active impersonation window (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
+  "impersonation.expire": {
+    description:
+      "Run-level tick of the five-minute impersonation expiry sweep (NWB-P1-011); per-session evidence is the `admin.impersonation.expired` row each closure writes.",
+    category: "compliance",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.started": {
+    description: "Support impersonation of a user started after an MFA step-up (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
+  "admin.impersonation.terminated": {
+    description: "An impersonation session terminated by a different admin (NWB-P1-011).",
+    category: "security",
+    resourceType: "impersonation_session",
+  },
   "account.deleted": {
     description: "Account soft-deleted; the 30-day grace window starts now.",
     category: "security",
@@ -303,6 +335,84 @@ export const AUDIT_ACTIONS = {
     description: "A system configuration setting was updated.",
     category: "system_config",
     resourceType: "system_config",
+  },
+  "media.deleted": {
+    description:
+      "A library media asset was soft-deleted; recovery runs inside the 30-day window (NWB-P1-005).",
+    category: "data_ops",
+    resourceType: "media_asset",
+  },
+  "media.uploaded": {
+    description:
+      "A media asset was stored; metadata only — the bytes never enter the audit trail (NWB-P1-005).",
+    category: "data_ops",
+    resourceType: "media_asset",
+  },
+  "socialaccount.needs_reauth": {
+    description:
+      "A connected account failed every token-refresh attempt (one retry, FR-SOC-021) and now needs re-authentication; reason and provider code recorded, never token material (NWB-P2-002).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccounts.refreshed": {
+    description:
+      "The scheduled token-refresh sweep ran; per-account evidence is in token_refresh_log, counts here (NWB-P2-002).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
+  "socialaccount.quota_warning": {
+    description:
+      "A social account's quota bucket crossed 80% utilization — non-essential polling should slow (FR-SOC-033); one event per crossing (NWB-P2-004).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccount.quota_critical": {
+    description:
+      "A social account's quota bucket crossed 95% utilization — admin alert threshold (FR-SOC-038); one event per crossing (NWB-P2-004).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccount.quota_exhausted": {
+    description:
+      "A social account's quota bucket hit 100% — non-essential syncing pauses until reset (FR-SOC-034/035); one event per crossing (NWB-P2-004).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "critical",
+  },
+  "socialaccount.breaker_opened": {
+    description:
+      "A social account hit the consecutive-failure threshold and its circuit breaker opened — all dispatch stops until a health check recovers it (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccount.breaker_recovered": {
+    description:
+      "A health-check probe succeeded against a breaker-open account; the breaker closed and dispatch resumes (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
+  "socialaccount.chronic_failure": {
+    description:
+      "An account's breaker has been open for over 24 hours — escalated to critical for support attention (FR-SOC-059); notification dispatch is a P6 channel (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "critical",
+  },
+  "socialaccounts.health-checked": {
+    description:
+      "The scheduled health-check sweep ran; per-probe evidence is in social_account_health_log, counts here (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
+  "socialaccount.connected": {
+    description:
+      "A social platform account was connected (or reconnected) to the organization; profile metadata only — token material never enters the audit trail (NWB-P2-001).",
+    category: "data_ops",
+    resourceType: "social_account",
   },
   "email.delivered": {
     description:

@@ -27,7 +27,8 @@ export type EmailKind =
   | "mfa_enabled"
   | "invitation"
   | "alert"
-  | "notification";
+  | "notification"
+  | "impersonation";
 
 /** Whose email this is, for the audit row. Both optional: a password reset has no tenant. */
 export interface EmailContext {

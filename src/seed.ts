@@ -39,6 +39,18 @@ async function seed() {
       action: "delete",
       name: "Delete Users",
     },
+    {
+      // NWB-P1-011: support impersonation. Granted to `owner` and `super_admin`
+      // only (they take the full catalog below); the module spec gives it to the
+      // platform admin, and an organization's owner is its top support
+      // authority. `admin` and below never see it — and it is stripped from the
+      // ability of anyone acting inside an impersonation session, so the verb
+      // cannot chain through a borrowed account.
+      string: "users.impersonate",
+      resource: "users",
+      action: "impersonate",
+      name: "Impersonate Users for Support",
+    },
     // Organization
     {
       string: "org.read",
@@ -329,6 +341,34 @@ async function seed() {
       action: "delete",
       name: "Delete Feature Flags",
     },
+    // Media library (NWB-P1-005): read is everyone; upload is the content-creation tier;
+    // delete is the approval tier (same shape as templates/contacts).
+    {
+      string: "media.read",
+      resource: "media",
+      action: "read",
+      name: "View Media Library",
+    },
+    {
+      string: "media.create",
+      resource: "media",
+      action: "create",
+      name: "Upload Media",
+    },
+    {
+      string: "media.delete",
+      resource: "media",
+      action: "delete",
+      name: "Delete Media",
+    },
+    // Social connections (NWB-P2-001): Module 3 §6.2 gives connect to Admin + Manager only —
+    // the contentApproval tier in this codebase's role matrix.
+    {
+      string: "socialaccounts.connect",
+      resource: "socialaccounts",
+      action: "connect",
+      name: "Connect Social Accounts",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -406,6 +446,7 @@ async function seed() {
     "contacts.read",
     "alerts.read",
     "flags.read",
+    "media.read",
   ];
   const teamManagement = [
     "members.read",
@@ -427,6 +468,7 @@ async function seed() {
     "contacts.update",
     "alerts.create",
     "alerts.update",
+    "media.create",
   ];
   const contentApproval = [
     "posts.publish",
@@ -434,6 +476,8 @@ async function seed() {
     "templates.delete",
     "contacts.delete",
     "alerts.delete",
+    "media.delete",
+    "socialaccounts.connect",
   ];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [

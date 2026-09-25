@@ -18,18 +18,18 @@
 | NWB-P1-002 | Audit service formalization | ✅ **DONE 2026-09-21** — §12.2 for what landed and the verification log. Was: `writeAuditLog` exists; no reads; TS `AuditModule` had 5 values against a 15-value database enum | Extend `AuditModule` taxonomy to cover PRD modules 3–10 + non-PRD domains; add query service (by actor/subject/org/category/date-range, paginated — fixes F-19 first half); retention + legal-hold hook in P1-010. **As delivered:** the taxonomy fix is TS-side only — the schema enum already had all 15 values, so no migration was needed and none was written; the chain moved to NWB-P1-014 and anonymization to NWB-P1-015 by the ticket's Q1/Q4 answers. |
 | NWB-P1-003 | Approval service | ✅ **DONE 2026-09-22** — `src/services/approvals`, `/api/approvals` (submit, inbox/mine/all, approve/reject/request-changes/recall), `approvals.read/create/decide` permissions, hourly `approvals.expire-stale` job, migration 0004. Ticket: `.scratch/p1-shared-infra/issues/08-approval-service.md`. Was: `db/shared/approval.ts` active (2 tables), unused | Gates responses (P7), releases (PR phase), content (Publishing if D12=B/C). |
 | NWB-P1-004 | Email transport: Resend adapter | ✅ **DONE 2026-09-22** — `src/services/email/` (Resend over `fetch`, console for dev), durable `email.deliver` outbox on pg-boss with direct-send fallback, `email.delivered`/`email.delivery_failed` audit (masked recipient, tenant-scoped), `bun run email:smoke` for the exit-gate evidence. Was: console-only; DEC-028 approved | Flipped the Phase 1 "verification hard-block" checkbox (NWB-P0-015 note): 403 `EMAIL_NOT_VERIFIED` outside `/api/auth/*` and `/api/users/me*`; invitation acceptance counts as verification. Exit-gate evidence (a real Resend send) needs an API key + verified domain — see spec.md. |
-| NWB-P1-005 | Media/storage service | none; `media_assets` table active-ready; D6 open | Interface mirrors `EmailTransport`; R2 adapter prod / local-disk dev per docs; signed URLs; soft delete. Avatars (PRD `/me/avatar`) and report exports (P12) consume this. |
+| NWB-P1-005 | Media/storage service | ✅ **DONE 2026-09-24** — §12.5 for what landed and the verification log. Was: `media_assets` active but written by nothing, id columns `varchar(32)` (a Nawebeus uuid does not fit) | Interface mirrors `EmailTransport`; R2 adapter prod / local-disk dev per docs; signed URLs; soft delete. Avatars (PRD `/me/avatar`) and report exports (P12) consume this. |
 | NWB-P1-006 | Templates service | `templates` table active-ready | |
 | NWB-P1-007 | Contacts service | `contacts` + `contact_interactions` active-ready | Reused by PR/Influencer (Option B/C) — build regardless (cheap, spec'd). |
 | NWB-P1-008 | Notification engine core | `alerts` tables (2) active-ready | create/recipients/delivery-log; channels in P6. |
 | NWB-P1-009 | Feature flags + system config | none | `evaluateFlag`, `getConfigValue`, audited config writes; used by billing limits + Phase 7 dark launches. |
 | NWB-P1-010 | Retention + legal holds + backup records | none | 7-year audit retention (Module 1 spec) enforced by worker; holds block purge workers from P1/NWB-P0-023. |
-| NWB-P1-011 | Impersonation sessions | `AuditActorType` already includes `"impersonation"` | Start/end, full audit, clean end; support tooling (P15-006). |
+| NWB-P1-011 | Impersonation sessions | ✅ **DONE 2026-09-24** — §12.4 for what landed and the verification log. Was: `AuditActorType` already includes `"impersonation"` but nothing wrote it | Start/end, full audit, clean end; support tooling (P15-006) builds the UI on this API. |
 | NWB-P1-012 | Observability baseline | ✅ **DONE 2026-09-24** — §12.3 for what landed and the verification log. Was: `logger` with zero callers in the tree, no request ids, `errorHandler` silent unless `NWB_DEBUG_ERRORS`, static `{status:"ok"}` health | Request-context middleware (honored/echoed `x-request-id` ≤100 chars, else `req_<uuid>`), one access line per request (route **template**, never a raw path — tokens live in path params), `writeAuditLog` defaults `request_id` from a request-scope ALS, always-on structured 5xx lines (stack behind `NWB_DEBUG_ERRORS`), `/api/health` = DB ping + queue depth (503 only when the DB fails; queue trouble = `degraded`, still 200, per ADR-007). Infra §6.2 stack (Prometheus/Alertmanager) stays Phase 8; Phase 2 made the data exist. |
 
 **Schema adoptions in this phase:** none new (approval/contacts/alerts/media/templates/analytics are already active). Any drift found while wiring is fixed in the schema + migration (ground rule 7), recorded in the ticket.
 
-**Exit gate (plan §5 + this audit):** scheduled worker executes in dev **and** under the CI test job (a no-op scheduled job proves the loop); email actually sends via Resend in a dev sandbox (evidence in spec.md); approval queue works end-to-end; media upload→signed-URL works against local adapter (R2 smoke when credentials available); feature flag gates a live code path; observability: a request can be traced by correlation id from log to audit row; all purge/reclamation workers running on schedule. **Nothing downstream starts until this gate passes.** **Six of the seven clauses are met** as of 2026-09-24: the worker loop runs in dev and under the CI test job (NWB-P1-001 — the `queue/loop` suite runs there), approval queue end-to-end (NWB-P1-003), feature flag gating a live code path (NWB-P1-009), purge/reclamation scheduled (NWB-P1-001), correlation id from log to audit row (NWB-P1-012), email tooling delivered (NWB-P1-004 — the *send* itself awaits the operator's `email:smoke` run in spec.md). **Open: media upload → signed URL (NWB-P1-005, blocked on D6) and the Resend sandbox evidence.**
+**Exit gate (plan §5 + this audit):** scheduled worker executes in dev **and** under the CI test job (a no-op scheduled job proves the loop); email actually sends via Resend in a dev sandbox (evidence in spec.md); approval queue works end-to-end; media upload→signed-URL works against local adapter (R2 smoke when credentials available); feature flag gates a live code path; observability: a request can be traced by correlation id from log to audit row; all purge/reclamation workers running on schedule. **Nothing downstream starts until this gate passes.** **All seven clauses are now engineering-complete** as of 2026-09-24: the worker loop runs in dev and under the CI test job (NWB-P1-001 — the `queue/loop` suite fires a real cron tick there; that *is* the no-op-scheduled-job proof, recorded at the gate rather than rebuilt), approval queue end-to-end (NWB-P1-003), feature flag gating a live code path (NWB-P1-009), purge/reclamation scheduled (NWB-P1-001), correlation id from log to audit row (NWB-P1-012), email tooling delivered (NWB-P1-004), and **media upload → signed URL against the local adapter (NWB-P1-005, §12.5)**. Two operator actions remain and neither is engineering work: the Resend sandbox `email:smoke` send and the R2 live smoke (D6 action items, `D6-storage-decision-memo.md` §3).
 
 ### 12.1 What NWB-P1-001 actually landed (2026-09-21)
 
@@ -227,5 +227,90 @@ as NWB-P0-027 — fixed here by the gate run's `biome check --write`. **Verifica
 `bun run lint`, `bun run build` exit 0; `bun test` **809 pass / 0 fail** with a live PostgreSQL
 (778 before); `coverage:check` green (services 92.9%, lib 96.8%); live smoke against `bun run dev`
 (health probe with depth, generated + honored ids, token-free route templates in stderr).
+
+### 12.4 What NWB-P1-011 actually landed (2026-09-24)
+
+New: `src/services/impersonation/` (`impersonation.service.ts` — start / mint / end / expiry
+sweep / org-scoped list / `resolveLiveImpersonation`; `ability.ts` — the BR-ADMIN-009 deny-list;
+`index.ts` barrel), `src/lib/impersonation-context.ts` (the third request-scope ALS), `src/jobs/`
+`impersonation-expire.ts` (`impersonation.expire`, `*/5 * * * *`, third in the schedule order),
+`src/tests/impersonation/` (27 tests across service / routes / ability), migration
+`0009_impersonation_sessions`. Changed: `db/compliance/index.ts` + `db/schema.ts` (the dormant
+`impersonation_sessions` table adopted — ids widened to `varchar(64)`, `organization_id NOT NULL`
+added, `ip_address` made nullable, `session_token_hash` dropped: an impersonation has no refresh
+token to hash), `src/services/audit/write.ts` (+`impersonationSessionId` param and the
+request-scope retagging: inside the scope every row becomes `actor_type='impersonation'` with the
+**admin** as `actor_id`, the session id, and the token user defaulting `target_user_id` —
+explicit call-site values win, the DB's CHECK pair backstops both directions),
+`src/services/audit/actions.ts` (five `admin.impersonation.*` events + the run-level
+`impersonation.expire`), `src/services/auth/jwt.ts` (`impersonationSessionId`/`impersonatorId`
+payload fields + `signImpersonationToken` + `isImpersonationToken`), `src/services/auth/ability.ts`
+(the `impersonate` verb joins `Actions` — the `decide` precedent), `src/server/middleware/auth.ts`
+(per-request row validation: ended/expired/terminated or a suspended/removed admin kills the
+session on the next request — the row, not the token `exp`, is the truth), `src/server/middleware/
+request-context.ts` (access log gains `impersonationSessionId`), `src/server/api/users/admin.route.ts`
+(impersonate / token / end / list, registered **before** the `/:userId` block — Hono resolves in
+registration order, verified empirically and pinned by a test), `src/server/api/route-params.ts`
+(+`patternParam` for `imp_<uuid>` ids), `src/server/api/auth/session-cookies.ts` (the cookie
+swap + clear), `src/seed.ts` (`users.impersonate`, granted to `owner` + `super_admin` only),
+`src/lib/queue.ts`/`scheduler.ts`/`config.ts`/`src/jobs/index.ts` (the job set), email `types.ts`
+(+`impersonation` kind — the target is told, best-effort, with `security_notified` as the flag).
+
+**As-built, in one paragraph.** `POST /api/users/admin/:userId/impersonate` requires
+`users.impersonate`, a written reason (10–2000 chars), and an MFA step-up (no enrollment →
+`MFA_REQUIRED` — BR-ADMIN-008 is a precondition, not an option); the target must be an active
+member of the caller's org (anything else is a flat 404, so the route cannot enumerate accounts);
+one impersonator per target (second admin → 409 `IMPERSONATION_ACTIVE`; same admin → re-entry of
+the same row); windows default 60 min and clamp to 5–240. The response swaps the access cookie
+for a ≤900 s impersonation JWT whose payload names the session and the admin; every subsequent
+request re-validates the row, so `security_terminated` (a different impersonate-holder ending it)
+and the five-minute `expired` sweep bite the next request, not the next token. Inside the
+session the ability is the target's minus billing / `org.delete` / team writes / nested
+impersonation, and every audited action lands as `impersonation` with the admin as actor — the
+end-to-end test proves it through `DELETE /api/auth/sessions/:id`. Ending from *inside* is legal
+(the route binds to the caller's own session id — a "Stop" button must not deadlock behind the
+target's abilities) and clears the cookie. **Verification:** typecheck, lint (0 errors), build;
+`bun test` **837 pass / 0 fail** with a live PostgreSQL (809 before, +28); `coverage:check` green
+(services 94.1%, lib 96.8%).
+
+---
+
+### 12.5 What NWB-P1-005 actually landed (2026-09-24)
+
+New: `src/services/storage/` (`types.ts` — `StorageTransport` put/get/delete/signedUrl +
+`S3ClientLike`, structural so tests fake it without a vendor SDK; `local.ts` — `LocalDiskStorageTransport`
+with a resolved-`realpath` traversal guard and HMAC-signed **app URLs** `/api/media/signed/:assetId`
+(cookie-less by design, `timingSafeEqual` at the route); `r2.ts` — `R2StorageTransport` over the
+lazy `Bun.s3` adapter in `bun-s3.ts`, **zero new dependencies**, `NoSuchKey` → `undefined`;
+`service.ts` — `createStorageService` with upload (bytes-before-row, sanitize, 413 cap), org-scoped
+reads, `assetOrg` for the signed route, signed-URL issuance with a 1–3600 s clamp, `readContent`,
+library-only optimistic soft delete, keyset listing; `index.ts` barrel),
+`src/server/api/media/media.route.ts` (multipart upload with `Location`, library list, metadata,
+authed `/content`, optimistic delete, and the signed route registered **first** — the F-11
+registration-order lesson, pinned by a no-DB test), `src/tests/storage/` (adapters 11 · service 10
+· routes 8), migration `0010_media_assets_id_lengths.sql` (the four id columns 32→64 — the
+2026-09-13 audit-note lesson applied *before* production, not after). Changed: `db/shared/media.ts`
+(widths + header notes), `src/lib/config.ts` (STORAGE_DRIVER / STORAGE_LOCAL_ROOT / R2 quartet /
+MEDIA_MAX_UPLOAD_MB / STORAGE_SIGNING_SECRET + `STORAGE_DRIVER_RESOLVED` / `R2_ENDPOINT_RESOLVED`,
+derivation mirroring email: explicit wins → quartet → local; production refuses local-by-omission;
+partial quartet refused everywhere), `src/lib/errors.ts` (+`PayloadTooLargeError` 413),
+`src/services/audit/actions.ts` (+`media.uploaded` / `media.deleted` — states carry name, type,
+size, mime, driver; **never bytes**), `src/seed.ts` (`media.read` everyone, `media.create` creator
+tier, `media.delete` approval tier), `.env.example` (the storage block), `.scratch/p1-shared-infra/`
+(`D6-storage-decision-memo.md` — recommendation: R2 via `Bun.s3`, Bunny CDN later, local disk for
+dev; only the account/bucket/credentials remain, at which point the production smoke is a config act).
+
+**As-built, in one paragraph.** An asset's bytes live under `{orgId}/{med_uuid}/{sanitizedName}`
+via the org's derived driver; the row keeps `storage_url = <driver>://<key>` — an internal URI the
+schema header forbids exposing, and no projection does. Downloads go through HMAC-signed URLs:
+local signs app URLs (`exp` + `sig`, expiry checked first, missing-or-deleted both → the same 404
+so the route is no existence oracle), R2 issues true presigned GETs. Soft delete is library-only
+and optimistic (`?version=N` → 409 on mismatch; attached assets are refused in the service — the
+DB CHECK `chk_ma_soft_delete_library_only` is the same rule in stone). The library list filters
+deleted + attached at the source with (created_at, id) keyset pagination whose cursor value carries
+microsecond precision (`to_char(… 'USOF')`, the api-key list's solution — `toISOString()`
+truncation silently drops same-transaction ties). **Verification:** typecheck, lint (0 errors),
+`bun test` **871 pass / 0 fail** with a live PostgreSQL (837 before, +34), `coverage:check` green
+(services 93.5%, lib 96.6%). Residuals (operator-side): R2 live smoke + Resend sandbox send.
 
 ---

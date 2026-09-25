@@ -17,7 +17,9 @@ import { auditRootRouter } from "./api/audit";
 import { authRouter } from "./api/auth";
 import { configRouter } from "./api/config";
 import { contactRouter } from "./api/contacts";
+import { mediaRouter } from "./api/media";
 import { orgRootRouter } from "./api/orgs";
+import { socialRouter } from "./api/social";
 import { templateRootRouter } from "./api/templates";
 import { userRouter } from "./api/users";
 import { healthHandler } from "./health";
@@ -43,6 +45,8 @@ function mountApiRouters(app: Hono): void {
   app.route("/api", contactRouter);
   app.route("/api", alertRouter);
   app.route("/api", configRouter);
+  app.route("/api", mediaRouter);
+  app.route("/api", socialRouter);
 }
 
 export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {

@@ -109,12 +109,27 @@ import {
 export const impersonationSessions = pgTable(
   "impersonation_sessions",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    // NWB-P1-011 adoption adjustments (this ticket, recorded where the table is defined):
+    //   - ids widened varchar(32) → 64 (Nawebeus ids are UUIDs / prefixed ids — the
+    //     `unified_audit_log` 2026-09-13 lesson; 0005/0006 did the same for templates/contacts);
+    //   - `organization_id varchar(64) NOT NULL` added — impersonation is org-scoped here
+    //     (start resolves the target inside the caller's org), and the column gives the
+    //     oversight list, retention, and the audit module filter a straight lookup;
+    //   - `ip_address` is nullable — the request layer passes `normaliseIp(header)`, which is
+    //     NULL when no client IP is reachable ("unknown" is rejected by `inet`, NWB-P0-017);
+    //   - `session_token_hash` is DROPPED — impersonation mints a short stateless access JWT
+    //     that is re-validated against this row on every request; there is no refresh token,
+    //     so there is nothing to hash (the `sessions` table keeps that job).
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+
+    // ─── Tenant ───────────────────────────────────────────────────────────────
+    // Plain varchar, not an FK — compliance records outlive orgs (module header note).
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Participants ─────────────────────────────────────────────────────────
     // Not FK — must survive user deletion
-    adminUserId: varchar("admin_user_id", { length: 32 }).notNull(),
-    targetUserId: varchar("target_user_id", { length: 32 }).notNull(),
+    adminUserId: varchar("admin_user_id", { length: 64 }).notNull(),
+    targetUserId: varchar("target_user_id", { length: 64 }).notNull(),
 
     // ─── Justification ────────────────────────────────────────────────────────
     // Free-text reason — required, shown to security reviewers
@@ -123,16 +138,13 @@ export const impersonationSessions = pgTable(
     // External support ticket reference e.g. 'SUPPORT-12345'
     ticketId: varchar("ticket_id", { length: 100 }),
 
-    // Second-admin approval (enterprise tier only)
+    // Second-admin approval (enterprise tier only — reserved, NULL until a tier model exists)
     // Not FK — must survive user deletion
-    approvedBy: varchar("approved_by", { length: 32 }),
+    approvedBy: varchar("approved_by", { length: 64 }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
 
     // ─── Session ──────────────────────────────────────────────────────────────
-    // SHA-256 hash of the session token — never store the raw token
-    sessionTokenHash: varchar("session_token_hash", { length: 255 }).notNull(),
-
-    ipAddress: inet("ip_address").notNull(),
+    ipAddress: inet("ip_address"),
     userAgent: text("user_agent"),
 
     // ─── Device & Geo Context ────────────────────────────────────────────────
