@@ -2,6 +2,13 @@
  * Social account services (NWB-P2-001) — the module's only import path (the email barrel rule):
  * route handlers and tests import from `services/social`, never from an inner file.
  */
+
+export {
+  type AdapterProbeRequest,
+  PLATFORM_ADAPTERS,
+  type PlatformAdapter,
+  REDDIT_USER_AGENT,
+} from "./adapters";
 export {
   HttpPlatformOAuthClient,
   OAuthExchangeError,

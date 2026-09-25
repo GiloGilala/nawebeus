@@ -28,6 +28,7 @@ import {
   ValidationError,
 } from "../../lib/errors";
 import { writeAuditLog } from "../audit";
+import { PLATFORM_ADAPTERS } from "./adapters";
 import { HttpPlatformOAuthClient, OAuthExchangeError } from "./oauth-client";
 import {
   classifyPlatformHttpError,
@@ -805,9 +806,10 @@ export function createSocialService(options: SocialServiceOptions) {
       let res: Response | undefined;
       let networkError: string | undefined;
       try {
-        res = await probeFetch(profile.probeUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        // The adapter owns the request's dialect (FR-SOC-039) — e.g. Reddit's required
+        // User-Agent — while the service keeps timing, logging, and classification.
+        const probeRequest = PLATFORM_ADAPTERS[account.platform].probeRequest(accessToken);
+        res = await probeFetch(probeRequest.url, { headers: probeRequest.headers });
       } catch (error) {
         networkError = error instanceof Error ? error.message : String(error);
       }
@@ -862,11 +864,14 @@ export function createSocialService(options: SocialServiceOptions) {
         const retryStarted = Date.now();
         let retryRes: Response | undefined;
         try {
-          retryRes = await probeFetch(profile.probeUrl, {
-            headers: {
-              Authorization: `Bearer ${await this.unsealAccessToken(db, account.organizationId, account.id)}`,
-            },
-          });
+          // The probe reached the 401 branch, so a sealed token existed moments ago; the
+          // re-seal's undefined (row vanished mid-probe) degrades to a failed retry, which
+          // the code below already treats as "refresh did not recover the account".
+          const retryToken = await this.unsealAccessToken(db, account.organizationId, account.id);
+          if (retryToken) {
+            const retryRequest = PLATFORM_ADAPTERS[account.platform].probeRequest(retryToken);
+            retryRes = await probeFetch(retryRequest.url, { headers: retryRequest.headers });
+          }
         } catch {
           // treated as a failed retry below
         }

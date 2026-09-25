@@ -3,7 +3,7 @@
 **Feature slug:** `p2-social-accounts`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/08-phase-3-4-modules.md` (§13) · execution plan §5 P2 · PRD Module 3
-**Status:** in-progress — **4 of 6 tickets done** (P2-005 splits into five per-platform tickets
+**Status:** in-progress — **5 of 6 tickets done** (P2-005 splits into five per-platform tickets
 per the roadmap note, so the *ticket* count is 6 and the *platform-adapter* work inside P2-005 is
 five). **NWB-P2-001** (OAuth flow) **done 2026-09-24** (evidence in issues/01): schema adoption
 (0011), AES-256-GCM sealing, platform registry + exchange client, single-use state machine with
@@ -20,7 +20,12 @@ tracking) **done 2026-09-25** (evidence in issues/04): the jsonb ledger (`quota_
 derived `quota_status`) with an atomic single-statement spend, the worst-bucket-wins ladder
 healthy→warning(≥80%)→critical(≥95%)→exhausted(≥100%) with one audit event per crossing
 (FR-SOC-033/034/038), the `hasQuotaRemaining` gate (FR-SOC-035), and the `resetDueQuotas` roll
-riding `rate-limit-reclaim` for automatic resume. 915/915 tests; coverage gate 91.1% / 96.8%.
+riding `rate-limit-reclaim` for automatic resume. **NWB-P2-005** (platform adapters ×5)
+**done 2026-09-25** (evidence in issues/05): the `PlatformAdapter` interface (PRD 8.3.2) with a
+registry over all five platforms, the profile-fetch dialects moved out of the OAuth client (zero
+per-platform branches left), probe request shaping per platform (Reddit's required User-Agent),
+and the Meta pair's native refresh grants (`fb_exchange_token` POST-form / `ig_refresh_token`,
+both `rotated: false` keeping the stored token). 929/929 tests; coverage gate 93.5% / 96.8%.
 
 **Goal:** org-scoped OAuth connections to the DEC-009 five (YouTube, X, Instagram, Facebook,
 Reddit), with tokens encrypted at rest, a health/breaker layer that protects downstream
