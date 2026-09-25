@@ -33,6 +33,8 @@ export const QUEUE_JOBS = {
   approvalsExpireStale: "approvals.expire-stale",
   /** NWB-P1-011 — five-minute closure of impersonation sessions past their window. */
   impersonationExpire: "impersonation.expire",
+  /** NWB-P2-002 — five-minute proactive OAuth token refresh for the social accounts. */
+  socialTokenRefresh: "socialaccounts.token-refresh",
   /** F-18 — hard deletion of accounts past their 30-day grace window (NDPR erasure). */
   purgeExpiredAccounts: "retention.purge-expired-accounts",
   /** NWB-P0-023 — hard deletion of organizations past their 30-day grace window. */
@@ -69,6 +71,9 @@ export const SCHEDULED_QUEUE_JOB_NAMES = [
   // Outside the nightly chain like its hourly sibling above: a support window is measured
   // in minutes (max 240), so an expiry that lands at 02:00 is no expiry at all.
   QUEUE_JOBS.impersonationExpire,
+  // Outside the nightly chain like the two jobs above it: OAuth tokens die on provider clocks
+  // (Google's in an hour), so a 02:00-only sweep would leave every account dead each morning.
+  QUEUE_JOBS.socialTokenRefresh,
   QUEUE_JOBS.purgeExpiredOrganizations,
   QUEUE_JOBS.purgeExpiredInvitations,
   QUEUE_JOBS.purgeExpiredAccounts,

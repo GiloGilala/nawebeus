@@ -348,6 +348,19 @@ export const AUDIT_ACTIONS = {
     category: "data_ops",
     resourceType: "media_asset",
   },
+  "socialaccount.needs_reauth": {
+    description:
+      "A connected account failed every token-refresh attempt (one retry, FR-SOC-021) and now needs re-authentication; reason and provider code recorded, never token material (NWB-P2-002).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccounts.refreshed": {
+    description:
+      "The scheduled token-refresh sweep ran; per-account evidence is in token_refresh_log, counts here (NWB-P2-002).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
   "socialaccount.connected": {
     description:
       "A social platform account was connected (or reconnected) to the organization; profile metadata only — token material never enters the audit trail (NWB-P2-001).",

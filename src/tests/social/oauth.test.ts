@@ -45,6 +45,9 @@ function fakeClient(exchange: OAuthExchangeResult) {
         });
         return exchange;
       },
+      async refreshTokens() {
+        throw new Error("service tests fake refresh per-test");
+      },
     },
     calls,
   };

@@ -23,7 +23,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { decryptSecret, derivedKeyMaterial, encryptSecret } from "../../lib/crypto";
 import { AccountAlreadyConnectedError, ValidationError } from "../../lib/errors";
 import { writeAuditLog } from "../audit";
-import { HttpPlatformOAuthClient } from "./oauth-client";
+import { HttpPlatformOAuthClient, OAuthExchangeError } from "./oauth-client";
 import {
   type OAuthExchangeResult,
   PLATFORM_OAUTH_PROFILES,
@@ -39,6 +39,15 @@ export const OAUTH_STATE_TTL_SECONDS = 600;
 export const OAUTH_STATE_RETENTION_SECONDS = 24 * 3_600;
 
 export const SOCIAL_ACCOUNT_ID_PATTERN = /^soc_[0-9a-f-]{36}$/i;
+
+/**
+ * Token lifecycle constants (NWB-P2-002): refresh one hour before expiry (BR-SOC-013) on a
+ * five-minute schedule (FR-SOC-019), with exactly one retry before `needs_reauth` (FR-SOC-021),
+ * in batches so one tick can never walk the whole table.
+ */
+export const TOKEN_REFRESH_WINDOW_SECONDS = 3_600;
+export const TOKEN_REFRESH_RETRY_MAX = 1;
+export const TOKEN_REFRESH_BATCH_LIMIT = 50;
 
 /** 128 hex chars from 64 random bytes — `oauth_states.id` is the state parameter itself. */
 function generateState(): string {
@@ -380,6 +389,285 @@ export function createSocialService(options: SocialServiceOptions) {
       });
 
       return { account, reconnected, returnUrl: stateRow.return_url };
+    },
+
+    /**
+     * One refresh attempt against one account (the refresh grant over the stored refresh
+     * token). Success: new tokens sealed (rotation replaces the refresh token, absence keeps
+     * it — provider-dependent), row advanced under its optimistic `version`, a success row in
+     * `token_refresh_log`. Failure: the error propagates to the caller — `refreshDueTokens`
+     * owns the retry and the `needs_reauth` escalation, so this primitive stays single-purpose.
+     */
+    async refreshAccountToken(
+      db: NodePgDatabase<Record<string, any>>,
+      account: {
+        id: string;
+        organizationId: string;
+        platform: SocialPlatform;
+        status: string;
+        tokenExpiresAt: Date | null;
+        version: number;
+      },
+      options: {
+        trigger: "proactive" | "on_demand" | "error_recovery" | "scheduled";
+        retryCount?: number;
+      },
+    ): Promise<{ ok: true; tokenExpiresAt: Date; rotated: boolean }> {
+      const profile = PLATFORM_OAUTH_PROFILES[account.platform];
+      const credentials = requireCredentials(account.platform);
+
+      const rows = (await db.execute<{ refresh_token_encrypted: string | null }>(sql`
+        SELECT refresh_token_encrypted FROM social_accounts WHERE id = ${account.id}
+      `)) as any;
+      const sealedRefresh = (
+        rows.rows?.[0] as { refresh_token_encrypted: string | null } | undefined
+      )?.refresh_token_encrypted;
+      if (!sealedRefresh) {
+        // No refresh token to try (a platform that issues none, or a legacy row): there is
+        // nothing a retry could change — go straight to surfacing.
+        throw new OAuthExchangeError(
+          account.platform,
+          "no_refresh_token",
+          "no refresh token is stored",
+        );
+      }
+
+      const startedAt = Date.now();
+      const refreshToken = await decryptSecret(sealedRefresh, keyMaterial);
+      // The decrypt→call pair is the only plaintext moment; the sealed value never leaves.
+      const result = await oauthClient.refreshTokens({
+        platform: account.platform,
+        refreshToken,
+        credentials,
+      });
+      const nowDate = now();
+      const newExpiry = new Date(
+        nowDate.getTime() + (result.expiresInSeconds ?? profile.defaultExpiresInSeconds) * 1_000,
+      );
+      const newAccessSealed = await encryptSecret(result.accessToken, keyMaterial);
+      const newRefreshSealed = result.refreshToken
+        ? await encryptSecret(result.refreshToken, keyMaterial)
+        : null;
+
+      // Optimistic update — the schema header's rule: many writers (sync, health, breaker), so
+      // a stale refresh must not silently overwrite a concurrent status change.
+      const updated = (await db.execute(sql`
+        UPDATE social_accounts SET
+          access_token_encrypted = ${newAccessSealed},
+          refresh_token_encrypted = COALESCE(${newRefreshSealed}, refresh_token_encrypted),
+          token_expires_at = ${newExpiry},
+          token_last_refreshed_at = now(),
+          status = 'active',
+          consecutive_error_count = 0,
+          last_error_at = NULL,
+          last_error_message = NULL,
+          last_error_code = NULL,
+          version = version + 1,
+          updated_at = now()
+        WHERE id = ${account.id} AND version = ${account.version}
+      `)) as any;
+      if ((updated.rowCount ?? 0) === 0) {
+        throw new OAuthExchangeError(
+          account.platform,
+          "concurrent_modification",
+          "the account row changed during the refresh; the next tick retries",
+        );
+      }
+
+      const duration = Math.max(0, Date.now() - startedAt);
+      await db.execute(sql`
+        INSERT INTO token_refresh_log (
+          id, social_account_id, success, triggered_by, old_token_expiry, new_token_expiry,
+          refresh_duration, new_refresh_token_issued, retry_count
+        ) VALUES (
+          ${"trl_" + crypto.randomUUID()}, ${account.id}, true, ${options.trigger},
+          ${account.tokenExpiresAt}, ${newExpiry}, ${duration}, ${result.rotated},
+          ${options.retryCount ?? 0}
+        )
+      `);
+      return { ok: true, tokenExpiresAt: newExpiry, rotated: result.rotated };
+    },
+
+    /**
+     * Surface a dead refresh: `needs_reauth` (optimistic), a health-log transition row (the
+     * schema requires an error message on that status), and the audit event — that trio *is*
+     * FR-SOC-022's surfacing; the message dispatch to manager/admins lands with P2-006.
+     */
+    async markNeedsReauth(
+      db: NodePgDatabase<Record<string, any>>,
+      account: {
+        id: string;
+        organizationId: string;
+        platform: SocialPlatform;
+        status: string;
+        version: number;
+      },
+      input: { reason: string; code: string | null; trigger: string; retryCount: number },
+    ): Promise<boolean> {
+      const updated = (await db.execute(sql`
+        UPDATE social_accounts SET
+          status = 'needs_reauth',
+          is_active = false,
+          last_error_at = now(),
+          last_error_message = ${input.reason},
+          last_error_code = ${input.code},
+          version = version + 1,
+          updated_at = now()
+        WHERE id = ${account.id}
+          AND version = ${account.version}
+          AND status NOT IN ('disconnected')
+      `)) as any;
+      if ((updated.rowCount ?? 0) === 0) return false;
+
+      await db.execute(sql`
+        INSERT INTO social_account_health_log (
+          id, social_account_id, status, previous_status, error_message, error_code
+        ) VALUES (
+          ${"sahl_" + crypto.randomUUID()}, ${account.id}, 'needs_reauth', ${account.status},
+          ${input.reason}, ${input.code}
+        )
+      `);
+
+      await writeAuditLog({
+        db,
+        module: "social_accounts",
+        organizationId: account.organizationId,
+        actorId: undefined,
+        actorType: "system",
+        action: "socialaccount.needs_reauth",
+        resourceId: account.id,
+        afterState: {
+          platform: account.platform,
+          reason: input.reason,
+          providerCode: input.code,
+          trigger: input.trigger,
+          attempts: input.retryCount + 1,
+        },
+      });
+      return true;
+    },
+
+    /**
+     * One `token_refresh_log` failure row per failed attempt (FR-SOC-024: every attempt,
+     * success or failure, logged with context; the provider's error code and HTTP status are
+     * the debugging context, the token material never is).
+     */
+    async logRefreshFailure(
+      db: NodePgDatabase<Record<string, any>>,
+      account: { id: string; tokenExpiresAt: Date | null },
+      input: {
+        reason: string;
+        code: string | null;
+        httpStatusCode: number | null;
+        retryCount: number;
+      },
+    ): Promise<void> {
+      await db.execute(sql`
+        INSERT INTO token_refresh_log (
+          id, social_account_id, success, failure_reason, failure_code, http_status_code,
+          triggered_by, old_token_expiry, retry_count
+        ) VALUES (
+          ${"trl_" + crypto.randomUUID()}, ${account.id}, false, ${input.reason}, ${input.code},
+          ${input.httpStatusCode}, 'proactive', ${account.tokenExpiresAt}, ${input.retryCount}
+        )
+      `);
+    },
+
+    /**
+     * The refresh sweep (NWB-P2-002): every active account whose token dies within the next
+     * hour gets a proactive refresh, and a failed attempt retries exactly once (FR-SOC-021)
+     * before the account surfaces as `needs_reauth`. Returns counts; never throws for one bad
+     * account — a batch is reported, not held hostage (the worker convention).
+     */
+    async refreshDueTokens(
+      db: NodePgDatabase<Record<string, any>>,
+      options: { limit?: number; now?: Date } = {},
+    ): Promise<{
+      due: number;
+      refreshed: number;
+      rotated: number;
+      needsReauth: number;
+      failures: { accountId: string; reason: string }[];
+    }> {
+      const limit = Math.min(options.limit ?? TOKEN_REFRESH_BATCH_LIMIT, TOKEN_REFRESH_BATCH_LIMIT);
+      const horizon = new Date(
+        (options.now ?? now()).getTime() + TOKEN_REFRESH_WINDOW_SECONDS * 1_000,
+      );
+      const dueRows = (await db.execute<
+        SocialAccountRowRaw & { refresh_token_encrypted: string | null }
+      >(sql`
+        SELECT ${ACCOUNT_COLUMNS}, refresh_token_encrypted FROM social_accounts
+        WHERE status = 'active'
+          AND is_active = true
+          AND token_expires_at IS NOT NULL
+          AND token_expires_at <= ${horizon}
+        ORDER BY token_expires_at ASC
+        LIMIT ${limit}
+      `)) as any;
+
+      const due = (dueRows.rows ?? []) as (SocialAccountRowRaw & {
+        refresh_token_encrypted: string | null;
+      })[];
+      let refreshed = 0;
+      let rotated = 0;
+      let needsReauth = 0;
+      const failures: { accountId: string; reason: string }[] = [];
+
+      for (const raw of due) {
+        const account = mapRow(raw);
+        try {
+          const outcome = await this.refreshAccountToken(db, account, { trigger: "proactive" });
+          refreshed += 1;
+          if (outcome.rotated) rotated += 1;
+        } catch (firstError) {
+          // FR-SOC-021: one retry before surfacing — a blip is not a dead token. Every failed
+          // attempt gets its own token_refresh_log row (FR-SOC-024) before escalation.
+          const detail = (code: unknown): string =>
+            code instanceof OAuthExchangeError
+              ? `${code.providerError ?? "error"}: ${code.message}`
+              : code instanceof Error
+                ? code.message
+                : String(code);
+          const partsOf = (
+            code: unknown,
+          ): { reason: string; providerCode: string | null; http: number | null } => ({
+            reason: detail(code),
+            providerCode:
+              code instanceof OAuthExchangeError
+                ? (code.providerError ?? code.httpStatusCode?.toString() ?? null)
+                : null,
+            http: code instanceof OAuthExchangeError ? code.httpStatusCode : null,
+          });
+          const first = partsOf(firstError);
+          await this.logRefreshFailure(db, account, {
+            reason: first.reason,
+            code: first.providerCode,
+            httpStatusCode: first.http,
+            retryCount: 0,
+          });
+          try {
+            await this.refreshAccountToken(db, account, { trigger: "proactive", retryCount: 1 });
+            refreshed += 1;
+          } catch (secondError) {
+            const second = partsOf(secondError);
+            await this.logRefreshFailure(db, account, {
+              reason: second.reason,
+              code: second.providerCode,
+              httpStatusCode: second.http,
+              retryCount: 1,
+            });
+            failures.push({ accountId: account.id, reason: second.reason });
+            const surfaced = await this.markNeedsReauth(db, account, {
+              reason: second.reason,
+              code: second.providerCode,
+              trigger: "proactive",
+              retryCount: TOKEN_REFRESH_RETRY_MAX,
+            });
+            if (surfaced) needsReauth += 1;
+          }
+        }
+      }
+      return { due: due.length, refreshed, rotated, needsReauth, failures };
     },
 
     /**

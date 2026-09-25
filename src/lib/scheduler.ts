@@ -90,6 +90,9 @@ export const QUEUE_SCHEDULE_DEFAULTS: Record<ScheduledQueueJobName, string> = {
   // and the middleware already refuses a lapsed session on every request — the sweep exists
   // so the *record* closes as cleanly as the access does.
   [QUEUE_JOBS.impersonationExpire]: "*/5 * * * *",
+  // Five minutes for the same clock-shaped reason: tokens are refreshed one hour before they
+  // die (BR-SOC-013), and the refresh window is only ever as fresh as the last tick (NWB-P2-002).
+  [QUEUE_JOBS.socialTokenRefresh]: "*/5 * * * *",
   [QUEUE_JOBS.purgeExpiredOrganizations]: "15 2 * * *",
   [QUEUE_JOBS.purgeExpiredInvitations]: "30 2 * * *",
   [QUEUE_JOBS.purgeExpiredAccounts]: "45 2 * * *",
@@ -129,6 +132,15 @@ export function resolveSchedules(config: Config = getConfig()): JobSchedule[] {
       cron:
         config.QUEUE_CRON_IMPERSONATION_EXPIRE ??
         QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.impersonationExpire],
+      tz,
+      data: null,
+      missed: "once",
+    },
+    {
+      job: QUEUE_JOBS.socialTokenRefresh,
+      cron:
+        config.QUEUE_CRON_SOCIAL_TOKEN_REFRESH ??
+        QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.socialTokenRefresh],
       tz,
       data: null,
       missed: "once",

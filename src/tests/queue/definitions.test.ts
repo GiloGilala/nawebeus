@@ -100,6 +100,22 @@ describe("queue job set", () => {
     });
   });
 
+  test("the social token refresh is five-minute and sits with the minutes-scale jobs (NWB-P2-002)", () => {
+    // Provider clocks are hours at most (Google: one), so a nightly-only sweep would wake up
+    // to a fully dead account list; the window is only as fresh as the last tick.
+    expect(QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.socialTokenRefresh]).toBe("*/5 * * * *");
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    expect(order.indexOf(QUEUE_JOBS.socialTokenRefresh)).toBe(
+      order.indexOf(QUEUE_JOBS.impersonationExpire) + 1,
+    );
+    const job = MAINTENANCE_JOBS.find((entry) => entry.name === QUEUE_JOBS.socialTokenRefresh);
+    expect(job?.audit).toEqual({
+      action: "socialaccounts.refreshed",
+      category: "data_ops",
+      resourceType: "social_account",
+    });
+  });
+
   test("invitations purge between the purges — member rows cascade on both ends (NWB-P1-016)", () => {
     const order = MAINTENANCE_JOBS.map((job) => job.name);
     // After the org purge (invites of just-purged workspaces are already gone), before the

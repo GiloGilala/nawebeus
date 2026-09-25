@@ -105,6 +105,9 @@ describe.skipIf(!hasDb())("social routes — DB", () => {
           async exchangeCode() {
             return EXCHANGE;
           },
+          async refreshTokens() {
+            throw new Error("route tests never refresh");
+          },
         },
       }),
     );

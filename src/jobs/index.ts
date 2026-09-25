@@ -30,6 +30,7 @@ import { purgeExpiredInvitationsJob } from "./purge-expired-invitations";
 import { purgeExpiredOrganizationsJob } from "./purge-expired-organizations";
 import { rateLimitReclaimJob } from "./rate-limit-reclaim";
 import { retentionEnforceJob } from "./retention-enforce";
+import { socialTokenRefreshJob } from "./social-token-refresh";
 
 /**
  * Every job this application runs, in the order `QUEUE_JOB_NAMES` declares them: the scheduled
@@ -44,6 +45,7 @@ export const MAINTENANCE_JOBS: readonly AnyJobDefinition[] = [
   rateLimitReclaimJob,
   approvalsExpireStaleJob,
   impersonationExpireJob,
+  socialTokenRefreshJob,
   purgeExpiredOrganizationsJob,
   purgeExpiredInvitationsJob,
   purgeExpiredAccountsJob,

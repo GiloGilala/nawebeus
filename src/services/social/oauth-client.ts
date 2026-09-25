@@ -14,6 +14,7 @@
 import type {
   ConnectedProfile,
   OAuthExchangeResult,
+  OAuthRefreshResult,
   PlatformCredentials,
   PlatformOAuthClient,
   PlatformOAuthProfile,
@@ -25,12 +26,20 @@ import { PLATFORM_OAUTH_PROFILES } from "./types";
 export class OAuthExchangeError extends Error {
   readonly platform: SocialPlatform;
   readonly providerError: string | null;
+  /** The provider's HTTP status, when there was one — goes into the refresh log, not the logs. */
+  readonly httpStatusCode: number | null;
 
-  constructor(platform: SocialPlatform, providerError: string | null, detail: string) {
+  constructor(
+    platform: SocialPlatform,
+    providerError: string | null,
+    detail: string,
+    httpStatusCode: number | null = null,
+  ) {
     super(`oauth exchange failed for ${platform}: ${detail}`);
     this.name = "OAuthExchangeError";
     this.platform = platform;
     this.providerError = providerError;
+    this.httpStatusCode = httpStatusCode;
   }
 }
 
@@ -90,7 +99,12 @@ async function parseTokenResponse(
   }
   if (!res.ok || typeof json.access_token !== "string" || json.access_token.length === 0) {
     const providerError = typeof json.error === "string" ? json.error : `HTTP ${res.status}`;
-    throw new OAuthExchangeError(platform, providerError, "token endpoint refused the exchange");
+    throw new OAuthExchangeError(
+      platform,
+      providerError,
+      "token endpoint refused the exchange",
+      res.status,
+    );
   }
   const expiresInSeconds = typeof json.expires_in === "number" ? json.expires_in : null;
   return {
@@ -215,6 +229,67 @@ async function fetchProfile(
 }
 
 export class HttpPlatformOAuthClient implements PlatformOAuthClient {
+  /** The refresh grant: same endpoint and auth style as the exchange, `grant_type=refresh_token`. */
+  async refreshTokens(args: {
+    platform: SocialPlatform;
+    refreshToken: string;
+    credentials: PlatformCredentials;
+    fetchImpl?: typeof fetch | undefined;
+  }): Promise<OAuthRefreshResult> {
+    const profile = PLATFORM_OAUTH_PROFILES[args.platform];
+    const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: args.refreshToken,
+    });
+    if (profile.tokenAuth === "post") {
+      body.set("client_id", args.credentials.clientId);
+      body.set("client_secret", args.credentials.clientSecret);
+    }
+    let res: Response;
+    try {
+      res = await fetchImpl(profile.tokenUrl, {
+        method: "POST",
+        headers: formAuthHeaders(profile, args.credentials),
+        body,
+      });
+    } catch (error) {
+      throw new OAuthExchangeError(
+        args.platform,
+        null,
+        `token endpoint unreachable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    let json: Record<string, unknown>;
+    try {
+      json = (await res.json()) as Record<string, unknown>;
+    } catch {
+      throw new OAuthExchangeError(
+        args.platform,
+        null,
+        `token endpoint returned non-JSON (HTTP ${res.status})`,
+        res.status,
+      );
+    }
+    if (!res.ok || typeof json.access_token !== "string" || json.access_token.length === 0) {
+      const providerError = typeof json.error === "string" ? json.error : `HTTP ${res.status}`;
+      throw new OAuthExchangeError(
+        args.platform,
+        providerError,
+        "token endpoint refused the refresh",
+        res.status,
+      );
+    }
+    const nextRefresh = typeof json.refresh_token === "string" ? json.refresh_token : null;
+    return {
+      accessToken: json.access_token,
+      refreshToken: nextRefresh,
+      rotated: nextRefresh !== null,
+      expiresInSeconds: typeof json.expires_in === "number" ? json.expires_in : null,
+      scope: typeof json.scope === "string" ? json.scope : null,
+    };
+  }
+
   async exchangeCode(args: {
     platform: SocialPlatform;
     code: string;

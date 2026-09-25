@@ -3,14 +3,15 @@
 **Feature slug:** `p2-social-accounts`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/08-phase-3-4-modules.md` (§13) · execution plan §5 P2 · PRD Module 3
-**Status:** in-progress — **1 of 6 tickets done** (P2-005 splits into five per-platform tickets
+**Status:** in-progress — **2 of 6 tickets done** (P2-005 splits into five per-platform tickets
 per the roadmap note, so the *ticket* count is 6 and the *platform-adapter* work inside P2-005 is
-five). **NWB-P2-001** (OAuth flow) **done 2026-09-24** (evidence in issues/01): the four
-`db/social-accounts/` tables adopted (migration 0011, id columns 64 from birth, the
-`idx_sa_circuit_breaker` TS-property bug fixed pre-compile), `src/lib/crypto.ts` AES-256-GCM
-sealing, the DEC-009 platform registry + generic exchange client (injectable fetch), the
-single-use state machine with the required replay test, `/api/social` initiate + public callback,
-`socialaccounts.connect` seeded to manager+. 889/889 tests.
+five). **NWB-P2-001** (OAuth flow) **done 2026-09-24** (evidence in issues/01): schema adoption
+(0011), AES-256-GCM sealing, platform registry + exchange client, single-use state machine with
+the required replay test, `/api/social` initiate + public callback, `socialaccounts.connect`
+seeded manager+. **NWB-P2-002** (token lifecycle) **done 2026-09-24** (evidence in issues/02):
+the refresh sweep (`socialaccounts.token-refresh`, */5, ninth job) refreshing tokens one hour
+before expiry, rotation recorded, exactly one retry before `needs_reauth` surfaces with a health
+transition + audit event, every attempt in `token_refresh_log`. 897/897 tests.
 
 **Goal:** org-scoped OAuth connections to the DEC-009 five (YouTube, X, Instagram, Facebook,
 Reddit), with tokens encrypted at rest, a health/breaker layer that protects downstream
@@ -65,6 +66,12 @@ Collected here as tickets land. Current: the connect half of "all five platforms
 proven against fakes (the roadmap's own test bar — real provider calls are the P2-005
 per-platform tickets' concern, credentials are ops actions). Refresh-unattended, health, and
 breaker clauses await P2-002/P2-003.
+
+### Exit-gate progress
+
+"Refresh unattended" is now demonstrated: the sweep runs on the shipped `*/5` cron, refreshes
+within the BR-SOC-013 window, rotates, and degrades to `needs_reauth` on dead tokens (the
+gate's "report health" arrives with P2-003's checks and P2-006's health surface).
 
 ### Environment note (2026-09-24)
 

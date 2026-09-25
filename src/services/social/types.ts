@@ -152,6 +152,12 @@ export interface OAuthTokenResponse {
   scope: string | null;
 }
 
+/** A refresh-grant response: the access token plus a refresh token only when rotated. */
+export interface OAuthRefreshResult extends OAuthTokenResponse {
+  /** True when the provider issued a replacement refresh token (rotation — X does, Meta often). */
+  rotated: boolean;
+}
+
 /** What an exchange yields: the tokens plus the profile the connection row needs (FR-SOC-006). */
 export interface OAuthExchangeResult extends OAuthTokenResponse {
   platformUserId: string;
@@ -176,6 +182,18 @@ export interface PlatformOAuthClient {
     codeVerifier: string | undefined;
     fetchImpl?: typeof fetch | undefined;
   }): Promise<OAuthExchangeResult>;
+  /**
+   * The refresh grant (RFC 6749 §6) — the token-lifecycle half of the adapter abstraction
+   * (NWB-P2-002). `refreshToken` is the *stored, still-sealed-on-our-side* refresh token in
+   * plaintext at this boundary only. Returns the new access token and, when the provider
+   * rotates, the replacement refresh token.
+   */
+  refreshTokens(args: {
+    platform: SocialPlatform;
+    refreshToken: string;
+    credentials: PlatformCredentials;
+    fetchImpl?: typeof fetch | undefined;
+  }): Promise<OAuthRefreshResult>;
 }
 
 /** Metadata about the connected account used by the service (never includes tokens). */

@@ -23,6 +23,7 @@ export {
   credentialEnvNames,
   isSocialPlatform,
   type OAuthExchangeResult,
+  type OAuthRefreshResult,
   PLATFORM_OAUTH_PROFILES,
   type PlatformCredentials,
   type PlatformOAuthClient,
