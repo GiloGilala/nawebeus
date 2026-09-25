@@ -53,4 +53,29 @@ export const redditAdapter: PlatformAdapter = {
   },
 
   // No refreshTokens override — Reddit speaks the RFC grant (Basic auth, duration=permanent).
+
+  revokeRequest({
+    token,
+    credentials,
+  }: {
+    token: string;
+    credentials: { clientId: string; clientSecret: string };
+  }) {
+    // Reddit's revoke: Basic-auth POST with the token in the form body.
+    const basic = Buffer.from(`${credentials.clientId}:${credentials.clientSecret}`).toString(
+      "base64",
+    );
+    return {
+      url: "https://www.reddit.com/api/v1/revoke_token",
+      init: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${basic}`,
+          "User-Agent": REDDIT_USER_AGENT,
+        },
+        body: `token=${encodeURIComponent(token)}`,
+      },
+    };
+  },
 };
