@@ -30,6 +30,7 @@ import { purgeExpiredInvitationsJob } from "./purge-expired-invitations";
 import { purgeExpiredOrganizationsJob } from "./purge-expired-organizations";
 import { rateLimitReclaimJob } from "./rate-limit-reclaim";
 import { retentionEnforceJob } from "./retention-enforce";
+import { socialHealthCheckJob } from "./social-health-check";
 import { socialTokenRefreshJob } from "./social-token-refresh";
 
 /**
@@ -46,6 +47,7 @@ export const MAINTENANCE_JOBS: readonly AnyJobDefinition[] = [
   approvalsExpireStaleJob,
   impersonationExpireJob,
   socialTokenRefreshJob,
+  socialHealthCheckJob,
   purgeExpiredOrganizationsJob,
   purgeExpiredInvitationsJob,
   purgeExpiredAccountsJob,

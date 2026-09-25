@@ -21,10 +21,16 @@ import { createHash, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { decryptSecret, derivedKeyMaterial, encryptSecret } from "../../lib/crypto";
-import { AccountAlreadyConnectedError, ValidationError } from "../../lib/errors";
+import {
+  AccountAlreadyConnectedError,
+  CircuitBreakerOpenError,
+  NotFoundError,
+  ValidationError,
+} from "../../lib/errors";
 import { writeAuditLog } from "../audit";
 import { HttpPlatformOAuthClient, OAuthExchangeError } from "./oauth-client";
 import {
+  classifyPlatformHttpError,
   type OAuthExchangeResult,
   PLATFORM_OAUTH_PROFILES,
   type PlatformOAuthClient,
@@ -48,6 +54,17 @@ export const SOCIAL_ACCOUNT_ID_PATTERN = /^soc_[0-9a-f-]{36}$/i;
 export const TOKEN_REFRESH_WINDOW_SECONDS = 3_600;
 export const TOKEN_REFRESH_RETRY_MAX = 1;
 export const TOKEN_REFRESH_BATCH_LIMIT = 50;
+
+/**
+ * Health-check constants (NWB-P2-003): the breaker opens at the module spec's 10 consecutive
+ * failures (FR-SOC-056 — the schema header's sketched "5" loses to the requirement), routine
+ * probes follow the 6-hour cadence (FR-SOC-039) while breaker-open accounts probe every run
+ * (half-open recovery), and 24 h open escalates to critical (FR-SOC-059).
+ */
+export const CIRCUIT_BREAKER_THRESHOLD = 10;
+export const HEALTH_CHECK_BATCH_LIMIT = 50;
+export const HEALTH_CHECK_INTERVAL_SECONDS = 6 * 3_600;
+export const CHRONIC_FAILURE_AFTER_SECONDS = 24 * 3_600;
 
 /** 128 hex chars from 64 random bytes — `oauth_states.id` is the state parameter itself. */
 function generateState(): string {
@@ -147,6 +164,8 @@ export interface SocialServiceOptions {
   /** The absolute base the callback redirect URIs hang off (config's `APP_BASE_URL_RESOLVED`). */
   readonly appBaseUrl: string;
   readonly oauthClient?: PlatformOAuthClient | undefined;
+  /** Injectable fetch for the health probes (the Resend-transport pattern; CI never calls out). */
+  readonly probeFetch?: typeof fetch | undefined;
   readonly newId?: (() => string) | undefined;
   readonly now?: (() => Date) | undefined;
 }
@@ -154,6 +173,7 @@ export interface SocialServiceOptions {
 export function createSocialService(options: SocialServiceOptions) {
   const { readEnv, keyMaterial, appBaseUrl } = options;
   const oauthClient = options.oauthClient ?? new HttpPlatformOAuthClient();
+  const probeFetch = options.probeFetch ?? globalThis.fetch;
   const now = options.now ?? (() => new Date());
 
   function redirectUriFor(platform: SocialPlatform): string {
@@ -548,6 +568,40 @@ export function createSocialService(options: SocialServiceOptions) {
     },
 
     /**
+     * One `social_account_health_log` row per probe outcome. Transition semantics follow the
+     * schema's own CHECK: `previous_status` is set only when the account's status actually
+     * changed (a row recording "nothing changed" is not a transition event).
+     */
+    async writeHealthLog(
+      db: NodePgDatabase<Record<string, any>>,
+      account: { id: string; status: string },
+      input: {
+        status: string;
+        errorMessage?: string | undefined;
+        errorCode?: string | null | undefined;
+        httpStatusCode?: number | null | undefined;
+        apiSuccess?: boolean | null | undefined;
+        apiLatency?: number | null | undefined;
+        endpoint?: string | null | undefined;
+        diagnosticData?: Record<string, unknown> | undefined;
+      },
+    ): Promise<void> {
+      const previous = account.status === input.status ? null : account.status;
+      await db.execute(sql`
+        INSERT INTO social_account_health_log (
+          id, social_account_id, status, previous_status, error_message, error_code,
+          diagnostic_data, api_latency, api_success, http_status_code, endpoint
+        ) VALUES (
+          ${"sahl_" + crypto.randomUUID()}, ${account.id}, ${input.status}, ${previous},
+          ${input.errorMessage ?? null}, ${input.errorCode ?? null},
+          ${input.diagnosticData ? JSON.stringify(input.diagnosticData) : null}::jsonb,
+          ${input.apiLatency ?? null}, ${input.apiSuccess ?? null},
+          ${input.httpStatusCode ?? null}, ${input.endpoint ?? null}
+        )
+      `);
+    },
+
+    /**
      * One `token_refresh_log` failure row per failed attempt (FR-SOC-024: every attempt,
      * success or failure, logged with context; the provider's error code and HTTP status are
      * the debugging context, the token material never is).
@@ -668,6 +722,526 @@ export function createSocialService(options: SocialServiceOptions) {
         }
       }
       return { due: due.length, refreshed, rotated, needsReauth, failures };
+    },
+
+    /**
+     * One health probe (NWB-P2-003): a cheap authenticated GET against the platform (FR-SOC-039),
+     * classified per FR-SOC-053. A 401 is never retried as itself (FR-SOC-055) — it triggers one
+     * `on_demand` token refresh (P2-002's primitive) and a single re-probe; a refresh failure
+     * surfaces as `needs_reauth`. Returns the outcome class so the sweep can count.
+     */
+    async probeAccount(
+      db: NodePgDatabase<Record<string, any>>,
+      account: {
+        id: string;
+        organizationId: string;
+        platform: SocialPlatform;
+        status: string;
+        version: number;
+        consecutiveErrorCount: number;
+        circuitBreakerOpen: boolean;
+        tokenExpiresAt: Date | null;
+      },
+    ): Promise<"healthy" | "error" | "rate_limited" | "needs_reauth"> {
+      const profile = PLATFORM_OAUTH_PROFILES[account.platform];
+      const accessToken = await this.unsealAccessToken(db, account.organizationId, account.id);
+      if (!accessToken) {
+        // An active account with no usable token is the auth failure case, full stop.
+        await this.markNeedsReauth(db, account, {
+          reason: "health probe found no usable access token",
+          code: "no_access_token",
+          trigger: "proactive",
+          retryCount: 0,
+        });
+        await this.writeHealthLog(db, account, {
+          status: "error",
+          errorMessage: "health probe found no usable access token",
+          errorCode: "no_access_token",
+          endpoint: profile.probeUrl,
+        });
+        return "needs_reauth";
+      }
+
+      const startedAt = Date.now();
+      let res: Response | undefined;
+      let networkError: string | undefined;
+      try {
+        res = await probeFetch(profile.probeUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      } catch (error) {
+        networkError = error instanceof Error ? error.message : String(error);
+      }
+      const latency = Math.max(0, Date.now() - startedAt);
+
+      if (!res) {
+        await this.applyProbeFailure(db, account, {
+          outcome: "error",
+          reason: `probe unreachable: ${networkError}`,
+          code: "network_error",
+          httpStatusCode: null,
+          latency,
+          endpoint: profile.probeUrl,
+        });
+        return "error";
+      }
+
+      const errorClass = classifyPlatformHttpError(res.status);
+      if (res.ok) {
+        await this.applyProbeSuccess(db, account, {
+          latency,
+          endpoint: profile.probeUrl,
+          httpStatusCode: res.status,
+        });
+        return "healthy";
+      }
+      if (errorClass === "auth") {
+        // FR-SOC-055: no retry of the 401 — one on_demand refresh, one re-probe, then surface.
+        try {
+          await this.refreshAccountToken(db, account, { trigger: "on_demand" });
+        } catch {
+          await this.markNeedsReauth(db, account, {
+            reason: `probe got 401 and the token refresh failed`,
+            code: "auth_refresh_failed",
+            trigger: "on_demand",
+            retryCount: 0,
+          });
+          await this.writeHealthLog(db, account, {
+            status: "error",
+            errorMessage: "probe got 401 and the token refresh failed",
+            errorCode: "auth_refresh_failed",
+            httpStatusCode: res.status,
+            apiSuccess: false,
+            apiLatency: latency,
+            endpoint: profile.probeUrl,
+          });
+          return "needs_reauth";
+        }
+        // The refresh advanced the row's version — the success bookkeeping must not try to
+        // update against the stale one (optimistic locking with a re-read, per the schema rule).
+        const afterRefresh = await this.getProbeAccount(db, account.id);
+        const retryStarted = Date.now();
+        let retryRes: Response | undefined;
+        try {
+          retryRes = await probeFetch(profile.probeUrl, {
+            headers: {
+              Authorization: `Bearer ${await this.unsealAccessToken(db, account.organizationId, account.id)}`,
+            },
+          });
+        } catch {
+          // treated as a failed retry below
+        }
+        if (retryRes?.ok) {
+          await this.applyProbeSuccess(db, afterRefresh ?? account, {
+            latency: Math.max(0, Date.now() - retryStarted),
+            endpoint: profile.probeUrl,
+            httpStatusCode: retryRes.status,
+          });
+          return "healthy";
+        }
+        await this.markNeedsReauth(db, account, {
+          reason: `probe got 401 and the refreshed token also failed`,
+          code: "auth_refresh_insufficient",
+          trigger: "on_demand",
+          retryCount: 1,
+        });
+        await this.writeHealthLog(db, account, {
+          status: "error",
+          errorMessage: "probe got 401 and the refreshed token also failed",
+          errorCode: "auth_refresh_insufficient",
+          httpStatusCode: retryRes?.status ?? res.status,
+          apiSuccess: false,
+          endpoint: profile.probeUrl,
+        });
+        return "needs_reauth";
+      }
+      if (errorClass === "rate_limited") {
+        // BR-SOC-019: respect the limit — record it, advance nothing. Rate limits are not
+        // account failures.
+        await this.writeHealthLog(db, account, {
+          status: "rate_limited",
+          errorMessage: "probe hit the platform's rate limit",
+          errorCode: "rate_limited",
+          httpStatusCode: res.status,
+          apiSuccess: false,
+          apiLatency: latency,
+          endpoint: profile.probeUrl,
+        });
+        return "rate_limited";
+      }
+      await this.applyProbeFailure(db, account, {
+        outcome: "error",
+        reason: `probe failed with HTTP ${res.status}`,
+        code: `http_${res.status}`,
+        httpStatusCode: res.status,
+        latency,
+        endpoint: profile.probeUrl,
+      });
+      return "error";
+    },
+
+    /** Re-read an account into the probe shape (after a refresh moved its version). */
+    async getProbeAccount(
+      db: NodePgDatabase<Record<string, any>>,
+      accountId: string,
+    ): Promise<
+      | {
+          id: string;
+          organizationId: string;
+          platform: SocialPlatform;
+          status: string;
+          version: number;
+          consecutiveErrorCount: number;
+          circuitBreakerOpen: boolean;
+          tokenExpiresAt: Date | null;
+        }
+      | undefined
+    > {
+      const rows = (await db.execute(sql`
+        SELECT id, organization_id, platform, status, version,
+               consecutive_error_count, circuit_breaker_open, token_expires_at
+        FROM social_accounts WHERE id = ${accountId}
+      `)) as any;
+      const raw = rows.rows?.[0] as
+        | {
+            id: string;
+            organization_id: string;
+            platform: string;
+            status: string;
+            version: number;
+            consecutive_error_count: number;
+            circuit_breaker_open: boolean;
+            token_expires_at: Date | null;
+          }
+        | undefined;
+      if (!raw) return undefined;
+      return {
+        id: raw.id,
+        organizationId: raw.organization_id,
+        platform: raw.platform as SocialPlatform,
+        status: raw.status,
+        version: raw.version,
+        consecutiveErrorCount: raw.consecutive_error_count,
+        circuitBreakerOpen: raw.circuit_breaker_open,
+        tokenExpiresAt: raw.token_expires_at,
+      };
+    },
+
+    /** Failure bookkeeping: increment, stamp, health row, and open the breaker at 10 (FR-SOC-056). */
+    async applyProbeFailure(
+      db: NodePgDatabase<Record<string, any>>,
+      account: {
+        id: string;
+        organizationId: string;
+        platform: SocialPlatform;
+        status: string;
+        version: number;
+        consecutiveErrorCount: number;
+        circuitBreakerOpen: boolean;
+      },
+      input: {
+        outcome: "error";
+        reason: string;
+        code: string | null;
+        httpStatusCode: number | null;
+        latency: number;
+        endpoint: string;
+      },
+    ): Promise<void> {
+      const nextCount = account.consecutiveErrorCount + 1;
+      const opensNow = !account.circuitBreakerOpen && nextCount >= CIRCUIT_BREAKER_THRESHOLD;
+      await db.execute(sql`
+        UPDATE social_accounts SET
+          consecutive_error_count = ${nextCount},
+          last_error_at = now(),
+          last_error_message = ${input.reason},
+          last_error_code = ${input.code},
+          ${
+            opensNow
+              ? sql`circuit_breaker_open = true, circuit_breaker_opened_at = now(), status = 'error',`
+              : sql``
+          }
+          version = version + 1,
+          updated_at = now()
+        WHERE id = ${account.id} AND version = ${account.version}
+      `);
+
+      await this.writeHealthLog(db, account, {
+        status: "error",
+        errorMessage: input.reason,
+        errorCode: input.code,
+        httpStatusCode: input.httpStatusCode,
+        apiSuccess: false,
+        apiLatency: input.latency,
+        endpoint: input.endpoint,
+      });
+
+      if (opensNow) {
+        await writeAuditLog({
+          db,
+          module: "social_accounts",
+          organizationId: account.organizationId,
+          actorId: undefined,
+          actorType: "system",
+          action: "socialaccount.breaker_opened",
+          resourceId: account.id,
+          afterState: {
+            platform: account.platform,
+            consecutiveFailures: nextCount,
+            lastError: input.reason,
+            httpStatusCode: input.httpStatusCode,
+          },
+        });
+      }
+    },
+
+    /** Success bookkeeping: zero the ledger, close an open breaker (the recovery path), health row. */
+    async applyProbeSuccess(
+      db: NodePgDatabase<Record<string, any>>,
+      account: {
+        id: string;
+        organizationId: string;
+        platform: SocialPlatform;
+        status: string;
+        version: number;
+        consecutiveErrorCount: number;
+        circuitBreakerOpen: boolean;
+      },
+      input: { latency: number; endpoint: string; httpStatusCode: number },
+    ): Promise<void> {
+      const recovers = account.circuitBreakerOpen;
+      await db.execute(sql`
+        UPDATE social_accounts SET
+          consecutive_error_count = 0,
+          last_error_at = NULL,
+          last_error_message = NULL,
+          last_error_code = NULL,
+          ${
+            recovers
+              ? sql`circuit_breaker_open = false, circuit_breaker_opened_at = NULL, status = 'active',`
+              : sql``
+          }
+          version = version + 1,
+          updated_at = now()
+        WHERE id = ${account.id} AND version = ${account.version}
+      `);
+
+      await this.writeHealthLog(db, account, {
+        status: "healthy",
+        apiSuccess: true,
+        apiLatency: input.latency,
+        httpStatusCode: input.httpStatusCode,
+        endpoint: input.endpoint,
+      });
+
+      if (recovers) {
+        await writeAuditLog({
+          db,
+          module: "social_accounts",
+          organizationId: account.organizationId,
+          actorId: undefined,
+          actorType: "system",
+          action: "socialaccount.breaker_recovered",
+          resourceId: account.id,
+          afterState: { platform: account.platform, latencyMs: input.latency },
+        });
+      }
+    },
+
+    /**
+     * The health sweep (NWB-P2-003): breaker-open accounts probe **every run** (half-open
+     * recovery — FR-SOC-056's "until health-checked"), everything else on the FR-SOC-039
+     * six-hour cadence with the latest health-log row as the "last checked" source. Chronic
+     * escalation (FR-SOC-059) runs in the same tick: an account whose breaker has been open
+     * for over a day earns one critical audit + an `escalated` marker row (the marker makes it
+     * once-per-outage, not per-tick).
+     */
+    async runHealthChecks(
+      db: NodePgDatabase<Record<string, any>>,
+      options: { limit?: number; now?: Date } = {},
+    ): Promise<{
+      checked: number;
+      healthy: number;
+      failed: number;
+      rateLimited: number;
+      needsReauth: number;
+      breakerOpened: number;
+      breakerRecovered: number;
+      escalated: number;
+    }> {
+      const limit = Math.min(options.limit ?? HEALTH_CHECK_BATCH_LIMIT, HEALTH_CHECK_BATCH_LIMIT);
+      const routineBefore = new Date(
+        (options.now ?? now()).getTime() - HEALTH_CHECK_INTERVAL_SECONDS * 1_000,
+      );
+
+      const dueRows = (await db.execute(sql`
+        SELECT sa.id, sa.organization_id, sa.platform, sa.status, sa.version,
+               sa.consecutive_error_count, sa.circuit_breaker_open, sa.token_expires_at
+        FROM social_accounts sa
+        LEFT JOIN LATERAL (
+          SELECT checked_at, status FROM social_account_health_log h
+          WHERE h.social_account_id = sa.id
+          ORDER BY h.checked_at DESC LIMIT 1
+        ) latest ON true
+        WHERE sa.status IN ('active', 'error')
+          AND (
+            sa.circuit_breaker_open = true
+            OR COALESCE(latest.status, '') <> 'healthy'
+            OR COALESCE(latest.checked_at, to_timestamp(0)) <= ${routineBefore}
+          )
+        ORDER BY sa.circuit_breaker_open DESC, COALESCE(latest.checked_at, to_timestamp(0)) ASC
+        LIMIT ${limit}
+      `)) as any;
+
+      let checked = 0;
+      let healthy = 0;
+      let failed = 0;
+      let rateLimited = 0;
+      let needsReauth = 0;
+      let breakerOpened = 0;
+      let breakerRecovered = 0;
+
+      for (const raw of (dueRows.rows ?? []) as {
+        id: string;
+        organization_id: string;
+        platform: string;
+        status: string;
+        version: number;
+        consecutive_error_count: number;
+        circuit_breaker_open: boolean;
+        token_expires_at: Date | null;
+      }[]) {
+        const account = {
+          id: raw.id,
+          organizationId: raw.organization_id,
+          platform: raw.platform as SocialPlatform,
+          status: raw.status,
+          version: raw.version,
+          consecutiveErrorCount: raw.consecutive_error_count,
+          circuitBreakerOpen: raw.circuit_breaker_open,
+          tokenExpiresAt: raw.token_expires_at,
+        };
+        const outcome = await this.probeAccount(db, account);
+        checked += 1;
+        if (outcome === "healthy") {
+          healthy += 1;
+          if (account.circuitBreakerOpen) breakerRecovered += 1;
+        } else if (outcome === "rate_limited") {
+          rateLimited += 1;
+        } else if (outcome === "needs_reauth") {
+          needsReauth += 1;
+        } else {
+          failed += 1;
+          if (
+            !account.circuitBreakerOpen &&
+            account.consecutiveErrorCount + 1 >= CIRCUIT_BREAKER_THRESHOLD
+          ) {
+            breakerOpened += 1;
+          }
+        }
+      }
+
+      const escalated = await this.escalateChronicFailures(db);
+      return {
+        checked,
+        healthy,
+        failed,
+        rateLimited,
+        needsReauth,
+        breakerOpened,
+        breakerRecovered,
+        escalated,
+      };
+    },
+
+    /**
+     * FR-SOC-059: a breaker open for over 24 hours is a silent extended outage — one critical
+     * audit per outage (the `escalated` health row newer than `opened_at` is the guard) and a
+     * marker row for the timeline. Notification dispatch is P6's channel; the record exists now.
+     */
+    async escalateChronicFailures(
+      db: NodePgDatabase<Record<string, any>>,
+      options: { now?: Date } = {},
+    ): Promise<number> {
+      const cutoff = new Date(
+        (options.now ?? now()).getTime() - CHRONIC_FAILURE_AFTER_SECONDS * 1_000,
+      );
+      const rows = (await db.execute(sql`
+        SELECT sa.id, sa.organization_id, sa.platform, sa.status, sa.circuit_breaker_opened_at
+        FROM social_accounts sa
+        WHERE sa.circuit_breaker_open = true
+          AND sa.circuit_breaker_opened_at <= ${cutoff}
+          AND NOT EXISTS (
+            SELECT 1 FROM social_account_health_log h
+            WHERE h.social_account_id = sa.id
+              AND h.status = 'escalated'
+              AND h.checked_at > sa.circuit_breaker_opened_at
+          )
+        LIMIT ${HEALTH_CHECK_BATCH_LIMIT}
+      `)) as any;
+
+      let escalated = 0;
+      for (const raw of (rows.rows ?? []) as {
+        id: string;
+        organization_id: string;
+        platform: string;
+        status: string;
+        circuit_breaker_opened_at: Date;
+      }[]) {
+        await writeAuditLog({
+          db,
+          module: "social_accounts",
+          organizationId: raw.organization_id,
+          actorId: undefined,
+          actorType: "system",
+          action: "socialaccount.chronic_failure",
+          resourceId: raw.id,
+          afterState: {
+            platform: raw.platform,
+            openSince: raw.circuit_breaker_opened_at,
+            escalatedAt: (options.now ?? now()).toISOString(),
+          },
+        });
+        await this.writeHealthLog(
+          db,
+          { id: raw.id, status: raw.status },
+          {
+            status: "escalated",
+            errorMessage: "circuit breaker open for over 24 hours — escalated (FR-SOC-059)",
+            errorCode: "chronic_failure",
+          },
+        );
+        escalated += 1;
+      }
+      return escalated;
+    },
+
+    /**
+     * The dispatch gate — the reason the breaker exists (roadmap §13: "breaker must block
+     * dispatch"). P3 publishing and P7 engagement call this before every send; a missing or
+     * disconnected account is a NotFoundError (nothing to dispatch to), an open breaker or a
+     * `needs_reauth` account is a 503 the caller treats as "skip, retry later".
+     */
+    async assertDispatchAllowed(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string },
+    ): Promise<void> {
+      const rows = (await db.execute(sql`
+        SELECT status, circuit_breaker_open FROM social_accounts
+        WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+        LIMIT 1
+      `)) as any;
+      const row = rows.rows?.[0] as { status: string; circuit_breaker_open: boolean } | undefined;
+      if (!row || row.status === "disconnected") {
+        throw new NotFoundError("Social account not found");
+      }
+      if (row.circuit_breaker_open || row.status === "needs_reauth") {
+        throw new CircuitBreakerOpenError(
+          `social account ${input.accountId} is not dispatchable (${
+            row.circuit_breaker_open ? "circuit breaker open" : "needs re-authentication"
+          })`,
+        );
+      }
     },
 
     /**

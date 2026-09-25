@@ -361,6 +361,32 @@ export const AUDIT_ACTIONS = {
     category: "data_ops",
     resourceType: "social_account",
   },
+  "socialaccount.breaker_opened": {
+    description:
+      "A social account hit the consecutive-failure threshold and its circuit breaker opened — all dispatch stops until a health check recovers it (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "warning",
+  },
+  "socialaccount.breaker_recovered": {
+    description:
+      "A health-check probe succeeded against a breaker-open account; the breaker closed and dispatch resumes (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
+  "socialaccount.chronic_failure": {
+    description:
+      "An account's breaker has been open for over 24 hours — escalated to critical for support attention (FR-SOC-059); notification dispatch is a P6 channel (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+    severity: "critical",
+  },
+  "socialaccounts.health-checked": {
+    description:
+      "The scheduled health-check sweep ran; per-probe evidence is in social_account_health_log, counts here (NWB-P2-003).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
   "socialaccount.connected": {
     description:
       "A social platform account was connected (or reconnected) to the organization; profile metadata only — token material never enters the audit trail (NWB-P2-001).",

@@ -133,6 +133,16 @@ export class ConflictError extends AppError {
 }
 
 /**
+ * The account's circuit breaker is open (FR-SOC-056): all dispatch to that account is stopped
+ * until a health check recovers it. 503, not 409 — the resource is not in conflict, the *path to
+ * the provider* is down; callers (P3 publishing, P7 engagement) treat it as "skip, retry later".
+ */
+export class CircuitBreakerOpenError extends AppError {
+  readonly statusCode = 503;
+  readonly code = "CIRCUIT_BREAKER_OPEN";
+}
+
+/**
  * The platform account is already live on this organization (FR-SOC-004). Its own code rather
  * than `CONFLICT` because the module spec names the error and the UI branches on it (the
  * "manage the existing connection" path, not a generic retry).

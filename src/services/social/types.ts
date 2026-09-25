@@ -49,6 +49,8 @@ export interface PlatformOAuthProfile {
   readonly extraAuthorizeParams: Readonly<Record<string, string>>;
   /** Fallback lifetime (seconds) when the token response omits `expires_in`. */
   readonly defaultExpiresInSeconds: number;
+  /** The cheap authenticated GET a health probe calls (~1 quota unit; FR-SOC-039). */
+  readonly probeUrl: string;
 }
 
 export const PLATFORM_OAUTH_PROFILES: Record<SocialPlatform, PlatformOAuthProfile> = {
@@ -66,6 +68,8 @@ export const PLATFORM_OAUTH_PROFILES: Record<SocialPlatform, PlatformOAuthProfil
     extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
     // Google access tokens live one hour.
     defaultExpiresInSeconds: 3_600,
+    // channels.list with part=id and mine=true: 1 quota unit of the 10,000/day budget.
+    probeUrl: "https://www.googleapis.com/youtube/v3/channels?part=id&mine=true",
   },
   twitter_x: {
     label: "X (Twitter)",
@@ -78,6 +82,7 @@ export const PLATFORM_OAUTH_PROFILES: Record<SocialPlatform, PlatformOAuthProfil
     extraAuthorizeParams: {},
     // X OAuth2 user tokens live two hours; offline.access provides the refresh token.
     defaultExpiresInSeconds: 7_200,
+    probeUrl: "https://api.twitter.com/2/users/me",
   },
   instagram: {
     label: "Instagram",
@@ -90,6 +95,7 @@ export const PLATFORM_OAUTH_PROFILES: Record<SocialPlatform, PlatformOAuthProfil
     extraAuthorizeParams: {},
     // Meta short-lived tokens: one hour server-side; the long-lived exchange is P2-002's job.
     defaultExpiresInSeconds: 3_600,
+    probeUrl: "https://graph.instagram.com/v21.0/me?fields=user_id",
   },
   facebook: {
     label: "Facebook",
@@ -101,6 +107,7 @@ export const PLATFORM_OAUTH_PROFILES: Record<SocialPlatform, PlatformOAuthProfil
     tokenAuth: "post",
     extraAuthorizeParams: {},
     defaultExpiresInSeconds: 3_600,
+    probeUrl: "https://graph.facebook.com/v21.0/me?fields=id",
   },
   reddit: {
     label: "Reddit",
@@ -113,6 +120,7 @@ export const PLATFORM_OAUTH_PROFILES: Record<SocialPlatform, PlatformOAuthProfil
     extraAuthorizeParams: { duration: "permanent" },
     // Reddit access tokens live one hour; duration=permanent provides the refresh token.
     defaultExpiresInSeconds: 3_600,
+    probeUrl: "https://oauth.reddit.com/api/v1/me",
   },
 };
 
@@ -142,6 +150,40 @@ export function resolvePlatformCredentials(
   const clientSecret = read(names.secret)?.trim();
   if (!clientId || !clientSecret) return undefined;
   return { clientId, clientSecret };
+}
+
+/**
+ * Error classification (FR-SOC-053) — the one place that maps an HTTP status from a platform
+ * onto the handling class. The health probe consumes it today; the P2-005 adapters reuse it so
+ * "what a 401 means" never forks. `network` is a failed fetch (no response at all).
+ */
+export type PlatformErrorClass =
+  | "auth"
+  | "rate_limited"
+  | "transient"
+  | "client"
+  | "not_found"
+  | "network";
+
+export function classifyPlatformHttpError(httpStatusCode: number | null): PlatformErrorClass {
+  if (httpStatusCode === null) return "network";
+  if (httpStatusCode === 401) return "auth";
+  if (httpStatusCode === 429) return "rate_limited";
+  if (httpStatusCode === 404) return "not_found";
+  if (httpStatusCode >= 500) return "transient";
+  return "client";
+}
+
+/**
+ * Exponential backoff for transient failures (FR-SOC-054): 1s, 2s, 4s — capped at 3 attempts —
+ * with up to ±25% jitter so a batch of failures does not re-strike in lockstep. Pure: the
+ * caller supplies the randomness, which keeps the sequence testable.
+ */
+export function platformBackoffDelayMs(attempt: number, jitter: number): number {
+  const clamped = Math.min(Math.max(attempt, 1), 3);
+  const base = 1_000 * 2 ** (clamped - 1);
+  const amplitude = base / 4;
+  return Math.round(base + (jitter * 2 - 1) * amplitude);
 }
 
 /** The raw OAuth2 token endpoint response fields the exchange relies on. */

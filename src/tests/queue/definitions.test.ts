@@ -116,6 +116,20 @@ describe("queue job set", () => {
     });
   });
 
+  test("the social health check shares the five-minute cadence, right after the refresh (NWB-P2-003)", () => {
+    expect(QUEUE_SCHEDULE_DEFAULTS[QUEUE_JOBS.socialHealthCheck]).toBe("*/5 * * * *");
+    const order = MAINTENANCE_JOBS.map((job) => job.name);
+    expect(order.indexOf(QUEUE_JOBS.socialHealthCheck)).toBe(
+      order.indexOf(QUEUE_JOBS.socialTokenRefresh) + 1,
+    );
+    const job = MAINTENANCE_JOBS.find((entry) => entry.name === QUEUE_JOBS.socialHealthCheck);
+    expect(job?.audit).toEqual({
+      action: "socialaccounts.health-checked",
+      category: "data_ops",
+      resourceType: "social_account",
+    });
+  });
+
   test("invitations purge between the purges — member rows cascade on both ends (NWB-P1-016)", () => {
     const order = MAINTENANCE_JOBS.map((job) => job.name);
     // After the org purge (invites of just-purged workspaces are already gone), before the

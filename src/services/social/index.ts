@@ -20,14 +20,17 @@ export {
 } from "./service";
 export {
   type ConnectedProfile,
+  classifyPlatformHttpError,
   credentialEnvNames,
   isSocialPlatform,
   type OAuthExchangeResult,
   type OAuthRefreshResult,
   PLATFORM_OAUTH_PROFILES,
   type PlatformCredentials,
+  type PlatformErrorClass,
   type PlatformOAuthClient,
   type PlatformOAuthProfile,
+  platformBackoffDelayMs,
   resolvePlatformCredentials,
   SOCIAL_PLATFORMS,
   type SocialPlatform,

@@ -3,7 +3,7 @@
 **Feature slug:** `p2-social-accounts`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/08-phase-3-4-modules.md` (§13) · execution plan §5 P2 · PRD Module 3
-**Status:** in-progress — **2 of 6 tickets done** (P2-005 splits into five per-platform tickets
+**Status:** in-progress — **3 of 6 tickets done** (P2-005 splits into five per-platform tickets
 per the roadmap note, so the *ticket* count is 6 and the *platform-adapter* work inside P2-005 is
 five). **NWB-P2-001** (OAuth flow) **done 2026-09-24** (evidence in issues/01): schema adoption
 (0011), AES-256-GCM sealing, platform registry + exchange client, single-use state machine with
@@ -11,7 +11,11 @@ the required replay test, `/api/social` initiate + public callback, `socialaccou
 seeded manager+. **NWB-P2-002** (token lifecycle) **done 2026-09-24** (evidence in issues/02):
 the refresh sweep (`socialaccounts.token-refresh`, */5, ninth job) refreshing tokens one hour
 before expiry, rotation recorded, exactly one retry before `needs_reauth` surfaces with a health
-transition + audit event, every attempt in `token_refresh_log`. 897/897 tests.
+transition + audit event, every attempt in `token_refresh_log`. **NWB-P2-003** (health + breaker)
+**done 2026-09-24** (evidence in issues/03): the */5 health-check job (tenth queue) probing open
+breakers every tick (half-open recovery) and the rest six-hourly, the 10-failure breaker
+(FR-SOC-056) with `assertDispatchAllowed` as the P3/P7 dispatch gate, 401→refresh-once→re-probe,
+429 advancing nothing, chronic >24h escalation to a critical audit. 909/909 tests.
 
 **Goal:** org-scoped OAuth connections to the DEC-009 five (YouTube, X, Instagram, Facebook,
 Reddit), with tokens encrypted at rest, a health/breaker layer that protects downstream
@@ -69,9 +73,10 @@ breaker clauses await P2-002/P2-003.
 
 ### Exit-gate progress
 
-"Refresh unattended" is now demonstrated: the sweep runs on the shipped `*/5` cron, refreshes
-within the BR-SOC-013 window, rotates, and degrades to `needs_reauth` on dead tokens (the
-gate's "report health" arrives with P2-003's checks and P2-006's health surface).
+"Refresh unattended" ✅ (P2-002's sweep on its shipped cron). "Report health" ✅ (P2-003: probes,
+health log, breaker with demonstrated trip + recovery). Remaining: the five platforms connecting
+for real = P2-005's adapters + credentials (ops), and the breaker "trips and recovers
+demonstrably" is pinned by `src/tests/social/health.test.ts` against the real app + DB.
 
 ### Environment note (2026-09-24)
 
