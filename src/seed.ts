@@ -369,6 +369,26 @@ async function seed() {
       action: "connect",
       name: "Connect Social Accounts",
     },
+    // NWB-P2-006 management routes: Module 3 §6.2 — read for everyone, usage (the quota
+    // roll-up) for manager+, disconnect for admin only (it destroys credentials).
+    {
+      string: "socialaccounts.read",
+      resource: "socialaccounts",
+      action: "read",
+      name: "View Social Accounts",
+    },
+    {
+      string: "socialaccounts.usage",
+      resource: "socialaccounts",
+      action: "usage",
+      name: "View Social API Quota Usage",
+    },
+    {
+      string: "socialaccounts.disconnect",
+      resource: "socialaccounts",
+      action: "disconnect",
+      name: "Disconnect Social Accounts",
+    },
     // API Keys (FR-AUTH-010)
     {
       string: "apikeys.create",
@@ -447,6 +467,9 @@ async function seed() {
     "alerts.read",
     "flags.read",
     "media.read",
+
+    // NWB-P2-006: Module 3 §6.2 — the connected-account list and detail views read for everyone.
+    "socialaccounts.read",
   ];
   const teamManagement = [
     "members.read",
@@ -478,6 +501,7 @@ async function seed() {
     "alerts.delete",
     "media.delete",
     "socialaccounts.connect",
+    "socialaccounts.usage",
   ];
   const analyticsExport = ["analytics.export"];
   const orgAdministration = [
@@ -500,6 +524,7 @@ async function seed() {
     "flags.create",
     "flags.update",
     "flags.delete",
+    "socialaccounts.disconnect",
   ];
   // Owner-only, and therefore absent from admin above: billing.read,
   // billing.update, org.delete. owner/super_admin take the full catalog.

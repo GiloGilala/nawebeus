@@ -57,4 +57,16 @@ export const youtubeAdapter: PlatformAdapter = {
   },
 
   // No refreshTokens override — Google speaks RFC 6749.
+
+  revokeRequest({ token }: { token: string }) {
+    // Google's revoke: form-encoded POST, no auth header (the token is the credential).
+    return {
+      url: "https://oauth2.googleapis.com/revoke",
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      },
+    };
+  },
 };

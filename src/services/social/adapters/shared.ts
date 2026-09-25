@@ -116,6 +116,15 @@ export interface PlatformAdapter {
     credentials: PlatformCredentials;
     fetchImpl: typeof fetch;
   }): Promise<OAuthRefreshResult>;
+  /**
+   * The provider's token-revocation request (FR-SOC-013, the disconnect flow) when one exists.
+   * `undefined` — the Meta pair has no user-token revoke endpoint — and the disconnect records
+   * that honestly: the local wipe is the security property, the provider call is hygiene.
+   */
+  revokeRequest?(args: { token: string; credentials: PlatformCredentials }): {
+    url: string;
+    init: { method: string; headers: Record<string, string>; body?: string };
+  };
 }
 
 /** The default probe dialect: Bearer on the profile's `probeUrl`. */

@@ -27,6 +27,7 @@ import {
   NotFoundError,
   ValidationError,
 } from "../../lib/errors";
+import { buildPage, type Page, type PaginationParams } from "../../lib/pagination";
 import { writeAuditLog } from "../audit";
 import { PLATFORM_ADAPTERS } from "./adapters";
 import { HttpPlatformOAuthClient, OAuthExchangeError } from "./oauth-client";
@@ -63,6 +64,8 @@ export const TOKEN_REFRESH_BATCH_LIMIT = 50;
  * (half-open recovery), and 24 h open escalates to critical (FR-SOC-059).
  */
 export const CIRCUIT_BREAKER_THRESHOLD = 10;
+/** FR-SOC-014: disconnected accounts stay readable for 90 days, then the retention worker reclaims them. */
+export const DISCONNECT_RETENTION_DAYS = 90;
 export const HEALTH_CHECK_BATCH_LIMIT = 50;
 export const HEALTH_CHECK_INTERVAL_SECONDS = 6 * 3_600;
 export const CHRONIC_FAILURE_AFTER_SECONDS = 24 * 3_600;
@@ -138,6 +141,16 @@ type SocialAccountRowRaw = {
   version: number;
 };
 
+/**
+ * Raw `db.execute` rows carry timestamps as strings (drizzle's pg type parser passes them
+ * through), so every management read normalizes before handing a Date to the routes.
+ */
+function toDate(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") return new Date(value);
+  return null;
+}
+
 function mapRow(raw: SocialAccountRowRaw): SocialAccountRecord {
   return {
     id: raw.id,
@@ -150,9 +163,9 @@ function mapRow(raw: SocialAccountRowRaw): SocialAccountRecord {
     followerCount: raw.follower_count,
     status: raw.status,
     scopes: raw.scopes ?? [],
-    tokenExpiresAt: raw.token_expires_at,
+    tokenExpiresAt: toDate(raw.token_expires_at),
     connectedBy: raw.connected_by,
-    connectedAt: raw.connected_at,
+    connectedAt: toDate(raw.connected_at)!,
     version: raw.version,
   };
 }
@@ -1534,6 +1547,410 @@ export function createSocialService(options: SocialServiceOptions) {
         if (((updated.rows as unknown[]) ?? []).length > 0) reset += 1;
       }
       return { reset };
+    },
+
+    /**
+     * The connected-account list (NWB-P2-006): newest-connected first, keyset-paginated with
+     * the media library's microsecond cursor (same-transaction connects share `connected_at`),
+     * filtered by platform/status, projected without any token column (FR-SOC-023 by type).
+     */
+    async listAccounts(
+      db: NodePgDatabase<Record<string, any>>,
+      organizationId: string,
+      page: PaginationParams,
+      filters: { platform?: SocialPlatform | undefined; status?: string | undefined } = {},
+    ): Promise<
+      Page<{
+        id: string;
+        platform: SocialPlatform;
+        platformUsername: string;
+        displayName: string | null;
+        profileImageUrl: string | null;
+        followerCount: number;
+        status: string;
+        quotaStatus: string;
+        circuitBreakerOpen: boolean;
+        tokenExpiresAt: Date | null;
+        connectedAt: Date;
+      }>
+    > {
+      const platformClause = filters.platform ? sql`AND platform = ${filters.platform}` : sql``;
+      // Disconnected rows are hidden unless the filter names them explicitly — the list is a
+      // management surface, and a disconnected account is no longer manageable (FR-SOC-014).
+      const statusClause = filters.status
+        ? sql`AND status = ${filters.status}`
+        : sql`AND status <> 'disconnected'`;
+      const cursorClause = page.cursor
+        ? sql`AND (connected_at, id) < (${page.cursor.v}::timestamptz, ${page.cursor.id}::text)`
+        : sql``;
+      const rows = (await db.execute(sql`
+        SELECT id, platform, platform_username, display_name, profile_image_url, follower_count,
+               status, quota_status, circuit_breaker_open, token_expires_at, connected_at,
+               to_char(connected_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS cursor_v
+        FROM social_accounts
+        WHERE organization_id = ${organizationId}
+          ${platformClause}
+          ${statusClause}
+          ${cursorClause}
+        ORDER BY connected_at DESC, id DESC
+        LIMIT ${page.limit + 1}
+      `)) as any;
+      const entries = (
+        (rows.rows ?? []) as {
+          id: string;
+          platform: string;
+          platform_username: string;
+          display_name: string | null;
+          profile_image_url: string | null;
+          follower_count: number;
+          status: string;
+          quota_status: string;
+          circuit_breaker_open: boolean;
+          token_expires_at: Date | null;
+          connected_at: Date;
+          cursor_v: string;
+        }[]
+      ).map((raw) => ({
+        id: raw.id,
+        platform: raw.platform as SocialPlatform,
+        platformUsername: raw.platform_username,
+        displayName: raw.display_name,
+        profileImageUrl: raw.profile_image_url,
+        followerCount: raw.follower_count,
+        status: raw.status,
+        quotaStatus: raw.quota_status,
+        circuitBreakerOpen: raw.circuit_breaker_open,
+        tokenExpiresAt: toDate(raw.token_expires_at),
+        connectedAt: toDate(raw.connected_at)!,
+        _cursorV: raw.cursor_v,
+      }));
+      const result = buildPage(entries, page.limit, (entry) => entry._cursorV);
+      return { ...result, items: result.items.map(({ _cursorV: _, ...rest }) => rest) };
+    },
+
+    /**
+     * One account's full management view (NWB-P2-006): profile, status + breaker + last error,
+     * quota snapshot, and the latest health-log entry. Disconnected rows 404 — the list and
+     * this view agree that a disconnected account is not a management target (FR-SOC-014's
+     * read-only archive is a retention-worker concern, not a route).
+     */
+    async getAccountDetail(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string },
+    ): Promise<{
+      account: SocialAccountRecord & {
+        circuitBreakerOpen: boolean;
+        circuitBreakerOpenedAt: Date | null;
+        lastErrorAt: Date | null;
+        lastErrorMessage: string | null;
+        lastErrorCode: string | null;
+        quotaStatus: string;
+        dataRetentionUntil: Date | null;
+      };
+      quota: {
+        status: QuotaStatus;
+        buckets: Record<
+          string,
+          { used: number; limit: number; percent: number; resetsAt: string | null }
+        >;
+      };
+      latestHealth:
+        | {
+            status: string;
+            errorMessage: string | null;
+            errorCode: string | null;
+            apiLatency: number | null;
+            httpStatusCode: number | null;
+            checkedAt: Date;
+          }
+        | undefined;
+    }> {
+      const rows = (await db.execute(sql`
+        SELECT ${ACCOUNT_COLUMNS},
+               circuit_breaker_open, circuit_breaker_opened_at,
+               last_error_at, last_error_message, last_error_code,
+               quota_status, data_retention_until
+        FROM social_accounts
+        WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+          AND status <> 'disconnected'
+        LIMIT 1
+      `)) as any;
+      const raw = rows.rows?.[0] as
+        | (Record<string, unknown> & { platform: string; id: string })
+        | undefined;
+      if (!raw) throw new NotFoundError("Social account not found");
+      const account = {
+        ...(mapRow(raw as unknown as SocialAccountRowRaw) as SocialAccountRecord & {
+          circuitBreakerOpen: boolean;
+          circuitBreakerOpenedAt: Date | null;
+          lastErrorAt: Date | null;
+          lastErrorMessage: string | null;
+          lastErrorCode: string | null;
+          quotaStatus: string;
+          dataRetentionUntil: Date | null;
+        }),
+        circuitBreakerOpen: raw.circuit_breaker_open as boolean,
+        circuitBreakerOpenedAt: toDate(raw.circuit_breaker_opened_at),
+        lastErrorAt: toDate(raw.last_error_at),
+        lastErrorMessage: (raw.last_error_message as string | null) ?? null,
+        lastErrorCode: (raw.last_error_code as string | null) ?? null,
+        quotaStatus: raw.quota_status as string,
+        dataRetentionUntil: toDate(raw.data_retention_until),
+      };
+      const quota = await this.getQuotaSnapshot(db, {
+        organizationId: input.organizationId,
+        accountId: input.accountId,
+      });
+      const healthRows = (await db.execute(sql`
+        SELECT status, error_message, error_code, api_latency, http_status_code, checked_at
+        FROM social_account_health_log WHERE social_account_id = ${input.accountId}
+        ORDER BY checked_at DESC LIMIT 1
+      `)) as any;
+      const latestHealthRaw = healthRows.rows?.[0] as
+        | {
+            status: string;
+            error_message: string | null;
+            error_code: string | null;
+            api_latency: number | null;
+            http_status_code: number | null;
+            checked_at: Date;
+          }
+        | undefined;
+      return {
+        account,
+        quota,
+        latestHealth: latestHealthRaw
+          ? {
+              status: latestHealthRaw.status,
+              errorMessage: latestHealthRaw.error_message,
+              errorCode: latestHealthRaw.error_code,
+              apiLatency: latestHealthRaw.api_latency,
+              httpStatusCode: latestHealthRaw.http_status_code,
+              checkedAt: toDate(latestHealthRaw.checked_at)!,
+            }
+          : undefined,
+      };
+    },
+
+    /** The recent health-log timeline for one account (the diagnostics read, FR-SOC-042's data). */
+    async getAccountHealthLog(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string; limit?: number },
+    ): Promise<
+      {
+        id: string;
+        status: string;
+        previousStatus: string | null;
+        errorMessage: string | null;
+        errorCode: string | null;
+        apiLatency: number | null;
+        httpStatusCode: number | null;
+        checkedAt: Date;
+      }[]
+    > {
+      const owner = (await db.execute(sql`
+        SELECT 1 FROM social_accounts
+        WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+        LIMIT 1
+      `)) as any;
+      if (!owner.rows?.[0]) throw new NotFoundError("Social account not found");
+      const rows = (await db.execute(sql`
+        SELECT id, status, previous_status, error_message, error_code, api_latency,
+               http_status_code, checked_at
+        FROM social_account_health_log WHERE social_account_id = ${input.accountId}
+        ORDER BY checked_at DESC LIMIT ${Math.min(input.limit ?? 20, 100)}
+      `)) as any;
+      return (
+        (rows.rows ?? []) as {
+          id: string;
+          status: string;
+          previous_status: string | null;
+          error_message: string | null;
+          error_code: string | null;
+          api_latency: number | null;
+          http_status_code: number | null;
+          checked_at: Date;
+        }[]
+      ).map((raw) => ({
+        id: raw.id,
+        status: raw.status,
+        previousStatus: raw.previous_status,
+        errorMessage: raw.error_message,
+        errorCode: raw.error_code,
+        apiLatency: raw.api_latency,
+        httpStatusCode: raw.http_status_code,
+        checkedAt: toDate(raw.checked_at)!,
+      }));
+    },
+
+    /** The org's quota roll-up (FR-SOC-031's dashboard read): every account's buckets + status. */
+    async getOrgQuotaUsage(
+      db: NodePgDatabase<Record<string, any>>,
+      organizationId: string,
+    ): Promise<
+      {
+        accountId: string;
+        platform: SocialPlatform;
+        platformUsername: string;
+        quotaStatus: QuotaStatus;
+        buckets: Record<
+          string,
+          { used: number; limit: number; percent: number; resetsAt: string | null }
+        >;
+      }[]
+    > {
+      const rows = (await db.execute(sql`
+        SELECT id, platform, platform_username, quota_tracking, quota_status
+        FROM social_accounts
+        WHERE organization_id = ${organizationId} AND status <> 'disconnected'
+        ORDER BY connected_at DESC
+      `)) as any;
+      return (
+        (rows.rows ?? []) as {
+          id: string;
+          platform: string;
+          platform_username: string;
+          quota_tracking: Record<string, QuotaBucketJson> | null;
+          quota_status: string;
+        }[]
+      ).map((raw) => {
+        const tracking = raw.quota_tracking ?? {};
+        const buckets: Record<
+          string,
+          { used: number; limit: number; percent: number; resetsAt: string | null }
+        > = {};
+        for (const [kind, bucket] of Object.entries(tracking)) {
+          buckets[kind] = {
+            used: bucket.used,
+            limit: bucket.limit,
+            percent:
+              bucket.limit > 0
+                ? Math.min(100, Math.round((bucket.used / bucket.limit) * 100))
+                : 100,
+            resetsAt: bucket.resetsAt ?? null,
+          };
+        }
+        return {
+          accountId: raw.id,
+          platform: raw.platform as SocialPlatform,
+          platformUsername: raw.platform_username,
+          quotaStatus: raw.quota_status as QuotaStatus,
+          buckets,
+        };
+      });
+    },
+
+    /**
+     * The disconnect (NWB-P2-006, FR-SOC-012/013/014): typed-username confirmation, best-effort
+     * platform revocation through the adapter's `revokeRequest` (outcome audited, never a
+     * blocker — the local wipe is the security property), both token columns wiped, status +
+     * timestamps + the 90-day read-only retention window set, one audit row.
+     */
+    async disconnectAccount(
+      db: NodePgDatabase<Record<string, any>>,
+      input: {
+        organizationId: string;
+        accountId: string;
+        actorId: string;
+        confirmationUsername: string;
+        reason?: string | undefined;
+      },
+    ): Promise<{
+      platform: SocialPlatform;
+      platformUsername: string;
+      revocation: "revoked" | "provider_refused" | "not_supported" | "unreachable";
+      dataRetentionUntil: Date;
+    }> {
+      const rows = (await db.execute(sql`
+        SELECT ${ACCOUNT_COLUMNS}, refresh_token_encrypted
+        FROM social_accounts
+        WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+          AND status <> 'disconnected'
+        LIMIT 1
+      `)) as any;
+      const raw = rows.rows?.[0] as
+        | (SocialAccountRowRaw & { refresh_token_encrypted: string | null })
+        | undefined;
+      if (!raw) throw new NotFoundError("Social account not found");
+      const account = mapRow(raw);
+
+      // FR-SOC-012: the operator types the username; a mismatch is a refused disconnect, not a
+      // fuzzy match — the confirmation exists to make accident expensive.
+      if (input.confirmationUsername !== account.platformUsername) {
+        throw new ValidationError("Confirmation does not match the account username", [
+          {
+            field: "confirmUsername",
+            message: `Type the account's platform username (${account.platformUsername}) to confirm`,
+          },
+        ]);
+      }
+
+      // FR-SOC-013: revoke at the provider when the platform has an endpoint. Best-effort by
+      // design: a refusal or a network error is recorded, but the local wipe happens either way.
+      let revocation: "revoked" | "provider_refused" | "not_supported" | "unreachable" =
+        "not_supported";
+      const adapter = PLATFORM_ADAPTERS[account.platform];
+      const credentials = resolvePlatformCredentials(readEnv, account.platform);
+      const sealedAccess = (
+        (await db.execute(
+          sql`SELECT access_token_encrypted FROM social_accounts WHERE id = ${account.id}`,
+        )) as any
+      ).rows?.[0]?.access_token_encrypted as string | null;
+      if (adapter.revokeRequest && credentials && sealedAccess) {
+        try {
+          const request = adapter.revokeRequest({
+            token: await decryptSecret(sealedAccess, keyMaterial),
+            credentials,
+          });
+          const res = await probeFetch(request.url, request.init);
+          revocation = res.ok ? "revoked" : "provider_refused";
+        } catch {
+          revocation = "unreachable";
+        }
+      }
+
+      const retentionUntil = new Date(
+        now().getTime() + DISCONNECT_RETENTION_DAYS * 24 * 3_600 * 1_000,
+      );
+      await db.execute(sql`
+        UPDATE social_accounts SET
+          access_token_encrypted = NULL,
+          refresh_token_encrypted = NULL,
+          token_expires_at = NULL,
+          status = 'disconnected',
+          is_active = false,
+          disconnected_at = now(),
+          disconnected_by = ${input.actorId},
+          disconnection_reason = ${input.reason ?? null},
+          data_retention_until = ${retentionUntil},
+          version = version + 1,
+          updated_at = now()
+        WHERE id = ${account.id} AND version = ${account.version}
+      `);
+
+      await writeAuditLog({
+        db,
+        module: "social_accounts",
+        organizationId: input.organizationId,
+        actorId: input.actorId,
+        actorType: "user",
+        action: "socialaccount.disconnected",
+        resourceId: account.id,
+        afterState: {
+          platform: account.platform,
+          username: account.platformUsername,
+          reason: input.reason ?? null,
+          revocation,
+          dataRetentionUntil: retentionUntil.toISOString(),
+        },
+      });
+
+      return {
+        platform: account.platform,
+        platformUsername: account.platformUsername,
+        revocation,
+        dataRetentionUntil: retentionUntil,
+      };
     },
 
     /**

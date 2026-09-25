@@ -3,7 +3,7 @@
 **Feature slug:** `p2-social-accounts`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/08-phase-3-4-modules.md` (§13) · execution plan §5 P2 · PRD Module 3
-**Status:** in-progress — **5 of 6 tickets done** (P2-005 splits into five per-platform tickets
+**Status:** **complete — 6 of 6 tickets done** (P2-005 splits into five per-platform tickets
 per the roadmap note, so the *ticket* count is 6 and the *platform-adapter* work inside P2-005 is
 five). **NWB-P2-001** (OAuth flow) **done 2026-09-24** (evidence in issues/01): schema adoption
 (0011), AES-256-GCM sealing, platform registry + exchange client, single-use state machine with
@@ -25,7 +25,19 @@ riding `rate-limit-reclaim` for automatic resume. **NWB-P2-005** (platform adapt
 registry over all five platforms, the profile-fetch dialects moved out of the OAuth client (zero
 per-platform branches left), probe request shaping per platform (Reddit's required User-Agent),
 and the Meta pair's native refresh grants (`fb_exchange_token` POST-form / `ig_refresh_token`,
-both `rotated: false` keeping the stored token). 929/929 tests; coverage gate 93.5% / 96.8%.
+both `rotated: false` keeping the stored token). **NWB-P2-006** (management routes + RBAC)
+**done 2026-09-25** (evidence in issues/06): the list (keyset on `(connected_at, id)`, token-free
+projection, disconnected rows hidden unless the filter names them), the per-account detail
+(profile + breaker + last error + quota snapshot + latest health row), the newest-first health
+timeline, the org quota roll-up, and the disconnect — typed-username confirmation in the body
+(query strings outlive requests in logs), best-effort provider revocation through the adapters'
+optional `revokeRequest` hook (outcome recorded, never thrown; the local token wipe is the
+security property), both token columns NULLed, `data_retention_until = now() + 90 days`
+(FR-SOC-014), and one `socialaccount.disconnected` audit row. RBAC extended per Module 3 §6.2:
+`socialaccounts.read` → everyone, `socialaccounts.usage` → manager+, `socialaccounts.disconnect`
+→ admin (connecting stays manager+). **Phase exit:** 946/946 tests; coverage gate 93.6% services
+/ 96.8% lib (social route 97.3%, social service 94.2%); typecheck, biome (0 errors), and build
+all green.
 
 **Goal:** org-scoped OAuth connections to the DEC-009 five (YouTube, X, Instagram, Facebook,
 Reddit), with tokens encrypted at rest, a health/breaker layer that protects downstream
@@ -36,12 +48,15 @@ dispatch (P3 publishing, P7 engage), and quota tracking for P13 plan limits.
 (Resend sandbox send, R2 live smoke) and are not engineering work; this phase starts on the
 strength of that record.
 
-**Exit gate (plan §13):** all five platforms connect, refresh unattended, report health; breaker
-trips and recovers demonstrably. P2-004 adds the quota half: per-platform quota *numbers*
+**Exit gate (plan §13): met 2026-09-25.** All five platforms connect (P2-001 + P2-005), refresh
+unattended (P2-002), report health with the breaker tripping and recovering demonstrably
+(P2-003's scripted tests); the management surface (P2-006) exposes list/detail/health/usage/
+disconnect under the full role matrix. The quota half is P2-004: per-platform quota *numbers*
 (default 10 000/day via `SOCIAL_QUOTA_DEFAULT_LIMIT` until real platform limits are configured)
 are P13 plan-limit config, not schema work — P13 reads the same ledger this phase writes.
 **Security note (plan §13):** the OAuth callback is a public endpoint — CSRF via single-use state
-(replay-tested); token secrets never in responses or logs (FR-SOC-023 / BR-SOC-016).
+(replay-tested); token secrets never in responses or logs (FR-SOC-023 / BR-SOC-016); the
+disconnect wipes both token columns locally regardless of the provider's revocation outcome.
 
 ## Audit table (verified 2026-09-24, from `04-gap-matrix.md` §13 + recon)
 

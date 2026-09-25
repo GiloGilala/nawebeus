@@ -382,6 +382,12 @@ export const AUDIT_ACTIONS = {
     resourceType: "social_account",
     severity: "critical",
   },
+  "socialaccount.disconnected": {
+    description:
+      "A social account was disconnected with a typed-username confirmation; tokens wiped, revocation outcome recorded, 90-day read-only retention set (NWB-P2-006).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
   "socialaccount.breaker_opened": {
     description:
       "A social account hit the consecutive-failure threshold and its circuit breaker opened — all dispatch stops until a health check recovers it (NWB-P2-003).",

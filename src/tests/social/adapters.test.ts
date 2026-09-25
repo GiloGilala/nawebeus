@@ -84,6 +84,35 @@ describe("platform adapters — probe request dialects", () => {
   });
 });
 
+describe("platform adapters — revocation dialects (NWB-P2-006)", () => {
+  test("youtube revokes at Google's endpoint: form-encoded POST, no auth header", () => {
+    const req = youtubeAdapter.revokeRequest!({ token: "tok to revoke", credentials });
+    expect(req.url).toBe("https://oauth2.googleapis.com/revoke");
+    expect(req.init.method).toBe("POST");
+    expect((req.init.headers as Record<string, string>)["Content-Type"]).toBe(
+      "application/x-www-form-urlencoded",
+    );
+    expect((req.init.headers as Record<string, string>)["Authorization"]).toBeUndefined();
+    expect(req.init.body).toBe(`token=${encodeURIComponent("tok to revoke")}`);
+  });
+
+  test("reddit revokes with Basic auth over its app credentials and its User-Agent", () => {
+    const req = redditAdapter.revokeRequest!({ token: "rtok", credentials });
+    expect(req.url).toBe("https://www.reddit.com/api/v1/revoke_token");
+    expect(req.init.method).toBe("POST");
+    const headers = req.init.headers as Record<string, string>;
+    const basic = Buffer.from("cid:sec").toString("base64");
+    expect(headers.Authorization).toBe(`Basic ${basic}`);
+    expect(headers["User-Agent"]).toBe(REDDIT_USER_AGENT);
+    expect(req.init.body).toBe("token=rtok");
+  });
+
+  test("the Meta pair has no revoke hook — revocation is not_supported there, and the caller decides", () => {
+    expect(instagramAdapter.revokeRequest).toBeUndefined();
+    expect(facebookAdapter.revokeRequest).toBeUndefined();
+  });
+});
+
 describe("platform adapters — profile fetch dialects (FR-SOC-006)", () => {
   test("youtube maps channels.list: customUrl, title, avatar, subscriber count as number", async () => {
     const { impl, calls } = scriptedFetch([
