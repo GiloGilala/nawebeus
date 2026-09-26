@@ -152,6 +152,17 @@ export class AccountAlreadyConnectedError extends ConflictError {
 }
 
 /**
+ * The connection is in a state this transition refuses — pausing an account that needs
+ * re-authentication, resuming one that is not paused, probing a disconnected one
+ * (NWB-P2-007). 409 like the other state conflicts; the message names both the state found and
+ * the one required, because the operator's next action depends on which it is (re-authenticate,
+ * reconnect, or nothing at all).
+ */
+export class SocialAccountStateError extends ConflictError {
+  override readonly code = "SOCIAL_ACCOUNT_STATE_CONFLICT" as string;
+}
+
+/**
  * An admin tried to impersonate themselves (NWB-P1-011, BR-ADMIN-008's sibling
  * rule). The database has its own CHECK (`chk_imp_no_self_impersonation`), but
  * the request deserves the module spec's named 403, not a 500 with a

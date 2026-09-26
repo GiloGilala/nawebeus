@@ -107,9 +107,39 @@ describe("platform adapters — revocation dialects (NWB-P2-006)", () => {
     expect(req.init.body).toBe("token=rtok");
   });
 
+  test("X revokes per RFC 7009: Basic auth, form body, and the hint that says which token it is", () => {
+    const basic = Buffer.from("cid:sec").toString("base64");
+    const access = twitterXAdapter.revokeRequest!({
+      token: "x-access",
+      credentials,
+      tokenType: "access_token",
+    });
+    expect(access.url).toBe("https://api.twitter.com/2/oauth2/revoke");
+    expect(access.init.method).toBe("POST");
+    const headers = access.init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe(`Basic ${basic}`);
+    expect(headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
+    expect(access.init.body).toBe("token=x-access&token_type_hint=access_token");
+    // The disconnect calls the hook once per stored token, so the hint has to follow the token —
+    // X's endpoint revokes exactly what it is handed (NWB-P2-007).
+    const refresh = twitterXAdapter.revokeRequest!({
+      token: "x-refresh",
+      credentials,
+      tokenType: "refresh_token",
+    });
+    expect(refresh.init.body).toBe("token=x-refresh&token_type_hint=refresh_token");
+  });
+
   test("the Meta pair has no revoke hook — revocation is not_supported there, and the caller decides", () => {
     expect(instagramAdapter.revokeRequest).toBeUndefined();
     expect(facebookAdapter.revokeRequest).toBeUndefined();
+  });
+
+  test("three of five platforms publish a revocation dialect; the Meta pair do not", () => {
+    const withRevoke = ALL_PLATFORMS.filter(
+      (platform) => PLATFORM_ADAPTERS[platform].revokeRequest,
+    );
+    expect([...withRevoke].sort()).toEqual(["reddit", "twitter_x", "youtube"]);
   });
 });
 

@@ -421,6 +421,7 @@ describe.skipIf(!hasDb())("social management routes — DB", () => {
       platform: string;
       platformUsername: string;
       revocation: string;
+      revocationDetail: { access: string; refresh: string };
       dataRetentionUntil: string;
     }>;
     expect(body.data.platform).toBe("youtube");
@@ -430,11 +431,19 @@ describe.skipIf(!hasDb())("social management routes — DB", () => {
     expect(retention).toBeGreaterThan(before + 89 * 24 * 3_600 * 1_000);
     expect(retention).toBeLessThan(Date.now() + 91 * 24 * 3_600 * 1_000);
 
-    // The adapter dialect hit the provider's revoke endpoint, form-encoded, no auth header.
-    expect(revocationCalls).toHaveLength(1);
+    // The adapter dialect hit the provider's revoke endpoint, form-encoded, no auth header —
+    // **once per stored token** (NWB-P2-007): revoking only the access token would leave the
+    // provider holding a refresh token that can mint a replacement, which is not FR-SOC-013's
+    // "immediately revoke OAuth tokens".
+    expect(body.data.revocationDetail).toEqual({ access: "revoked", refresh: "revoked" });
+    expect(revocationCalls).toHaveLength(2);
     expect(revocationCalls[0]!.url).toBe("https://oauth2.googleapis.com/revoke");
     expect(revocationCalls[0]!.body).toContain("token=mgmt-access-1");
-    expect(revocationCalls[0]!.body).not.toMatch(/authorization/i);
+    expect(revocationCalls[1]!.url).toBe("https://oauth2.googleapis.com/revoke");
+    expect(revocationCalls[1]!.body).toContain("token=mgmt-refresh-1");
+    for (const call of revocationCalls) {
+      expect(call.body).not.toMatch(/authorization/i);
+    }
 
     const row = await db!.execute(sql`
       SELECT status, disconnected_at, disconnected_by, disconnection_reason,
