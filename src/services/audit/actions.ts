@@ -388,6 +388,18 @@ export const AUDIT_ACTIONS = {
     category: "data_ops",
     resourceType: "social_account",
   },
+  "socialaccount.paused": {
+    description:
+      "An operator paused a social account's data collection; the connection and its sealed tokens are preserved, so resume needs no re-authentication (FR-SOC-016, NWB-P2-007).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
+  "socialaccount.resumed": {
+    description:
+      "An operator resumed a paused social account; collection and dispatch are live again without a new OAuth grant (FR-SOC-016, NWB-P2-007).",
+    category: "data_ops",
+    resourceType: "social_account",
+  },
   "socialaccount.breaker_opened": {
     description:
       "A social account hit the consecutive-failure threshold and its circuit breaker opened — all dispatch stops until a health check recovers it (NWB-P2-003).",
