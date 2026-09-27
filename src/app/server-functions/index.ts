@@ -37,11 +37,13 @@ export {
 } from "./api-keys";
 // Auth — public
 export {
+  acceptInvitationServerFn,
   changePasswordServerFn,
   confirmMfaSetupServerFn,
   disableMfaServerFn,
   forgotPasswordServerFn,
   // Auth — protected
+  getInvitationPreviewServerFn,
   getMfaStatusServerFn,
   getSessionDetailServerFn,
   initiateMfaSetupServerFn,
@@ -101,8 +103,10 @@ export {
   getMemberServerFn,
   getOrgServerFn,
   inviteMemberServerFn,
+  listAssignableRolesServerFn,
   listMembersServerFn,
   listOrgsServerFn,
+  listPendingInvitationsServerFn,
   reactivateOrgServerFn,
   removeMemberServerFn,
   updateMemberServerFn,

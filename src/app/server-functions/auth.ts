@@ -5,12 +5,15 @@
  * Session-cookie auth only. IP and tenant id are never taken from the payload.
  */
 
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { NotFoundError, RateLimitError, ValidationError } from "@/lib/errors";
 import { validatePassword } from "@/lib/password";
+import { checkRateLimit } from "@/lib/rate-limit";
 import {
+  acceptInvitationSchema,
   changePasswordSchema,
   confirmMfaSchema,
   forgotPasswordSchema,
+  invitationTokenSchema,
   refreshSchema,
   resendVerificationSchema,
   resetPasswordSchema,
@@ -39,6 +42,7 @@ import {
 } from "@/services/auth/session";
 import { signup } from "@/services/auth/signup";
 import { sendVerificationEmail, verifyEmail } from "@/services/auth/verification";
+import { acceptInvitation, getInvitationByToken } from "@/services/orgs/invitation.service";
 import { createServerFn } from "../lib/createServerFn";
 import {
   clearServerAuthCookies,
@@ -49,6 +53,19 @@ import {
   setServerAuthCookies,
   withServerOrgContext,
 } from "./helpers";
+
+/**
+ * The invitation endpoints' probing budget, copied from `src/server/api/auth/invitation.route.ts`.
+ *
+ * Duplicated rather than imported because the route file owns no exports beyond its router, and the
+ * numbers are the contract: the *keys* are shared through the `rate_limits` table, so web and API
+ * spend from one budget. If one side's numbers drift, the stricter one wins in practice and the
+ * looser one becomes the bypass — which is why `src/tests/orgs/server-functions.test.ts` pins both
+ * surfaces against the same key and count.
+ */
+const INVITATION_VALIDATE_MAX = 20;
+const INVITATION_ACCEPT_MAX = 10;
+const INVITATION_WINDOW_MS = 30 * 60 * 1000;
 
 export const signupServerFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
@@ -225,6 +242,94 @@ export const verifyEmailServerFn = createServerFn({ method: "GET" })
     const db = getServerDb();
     const result = await verifyEmail(db, parsed.token);
     return { userId: result.userId, email: result.email, message: "Email verified successfully." };
+  });
+
+/**
+ * The invitation landing page's read (NWB-P14.2) — `GET /api/auth/invitations/:token`'s twin.
+ *
+ * **Public by design.** The bearer of the token is mid-onboarding and has no session; the 64-hex
+ * emailed token *is* the credential, so there is no `getServerAuth()` here — exactly as in the Hono
+ * route. What replaces it is the route's rate limit, reproduced key-for-key:
+ * `invite:validate:<ip>`, 20 per 30 minutes. Same key means web and API **share one budget**, so
+ * moving the probing to the other surface does not double it.
+ *
+ * Returns the preview only (org name, invited address, expiry, whether the form must also collect
+ * registration details). A token that is unknown, revoked or expired answers `NotFoundError` from
+ * the service — one indistinguishable "no longer valid", so the screen renders that state instead
+ * of leaking which of the three it was.
+ */
+export const getInvitationPreviewServerFn = createServerFn({ method: "GET" })
+  .validator(invitationTokenSchema)
+  .handler(async ({ data }) => {
+    const parsed = data as { token: string };
+    const db = getServerDb();
+    const ip = getServerClientIp();
+    if (
+      await checkRateLimit(
+        db,
+        `invite:validate:${ip}`,
+        INVITATION_VALIDATE_MAX,
+        INVITATION_WINDOW_MS,
+      )
+    ) {
+      throw new RateLimitError(
+        "Too many invitation lookups. Try again later.",
+        INVITATION_WINDOW_MS / 1000,
+      );
+    }
+    const invitation = await getInvitationByToken(db, parsed.token);
+    return { invitation };
+  });
+
+/**
+ * Accept an invitation (NWB-P14.2) — `POST /api/auth/invitations/:token/accept`'s twin.
+ *
+ * Public, and rate-limited on the route's stricter per-token key
+ * (`invite:accept:<ip>:<first 16 chars of the token>`, 10 per 30 minutes) so a single leaked link
+ * cannot be brute-forced into a membership and one noisy neighbour cannot exhaust the org's invites.
+ *
+ * **Deliberately does not set session cookies.** `acceptInvitation` activates the membership and,
+ * for a new address, registers the account through the same `createUserRecord` signup uses — but it
+ * creates no session, and neither does the HTTP route. Auto-sign-in is not available here on
+ * principle rather than by omission: an invitee who already had an account never typed a password
+ * into this form, so there is nothing to authenticate with. The screen therefore lands on sign-in
+ * with a "your account is ready" notice, which is one extra step and zero new auth paths.
+ *
+ * The single-use claim stays the service's (`UPDATE … WHERE accepted_at IS NULL`), so a concurrent
+ * second accept is a 409 on both surfaces rather than two memberships.
+ */
+export const acceptInvitationServerFn = createServerFn({ method: "POST" })
+  .validator(acceptInvitationSchema)
+  .handler(async ({ data }) => {
+    const parsed = data as ReturnType<typeof acceptInvitationSchema.parse>;
+    const db = getServerDb();
+    const ip = getServerClientIp();
+    const bucket = `invite:accept:${ip}:${parsed.token.slice(0, 16)}`;
+    if (await checkRateLimit(db, bucket, INVITATION_ACCEPT_MAX, INVITATION_WINDOW_MS)) {
+      throw new RateLimitError(
+        "Too many acceptance attempts. Try again later.",
+        INVITATION_WINDOW_MS / 1000,
+      );
+    }
+    const result = await acceptInvitation(db, {
+      token: parsed.token,
+      ...(parsed.password !== undefined ? { password: parsed.password } : {}),
+      ...(parsed.fullName !== undefined ? { fullName: parsed.fullName } : {}),
+      ...(parsed.termsAccepted !== undefined ? { termsAccepted: parsed.termsAccepted } : {}),
+      ...(parsed.privacyAccepted !== undefined ? { privacyAccepted: parsed.privacyAccepted } : {}),
+      ...(parsed.marketingOptIn !== undefined ? { marketingOptIn: parsed.marketingOptIn } : {}),
+    });
+    return {
+      membership: {
+        id: result.memberId,
+        organizationId: result.organizationId,
+        organizationName: result.organizationName,
+        email: result.email,
+        roleId: result.roleId,
+        status: "active" as const,
+        newUser: result.newUser,
+      },
+    };
   });
 
 export const getMfaStatusServerFn = createServerFn({ method: "GET" }).handler(async () => {

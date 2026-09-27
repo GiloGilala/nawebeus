@@ -678,6 +678,92 @@ async function collectInviteeContext(tx: DbOrTx, memberId: string): Promise<Invi
   };
 }
 
+/** One row of the pending-invitations panel. */
+export interface PendingInvitation {
+  memberId: string;
+  /** The address the invitation was sent to — the addressee of record, account or not. */
+  email: string;
+  roleId: string | null;
+  roleCode: string | null;
+  roleName: string | null;
+  displayName: string | null;
+  jobTitle: string | null;
+  department: string | null;
+  invitationNote: string | null;
+  invitedByUserId: string | null;
+  invitedAt: Date | null;
+  sentAt: Date | null;
+  expiresAt: Date | null;
+  /**
+   * `expires_at` has passed. The row is still listed — an operator who watches it vanish cannot
+   * tell "nobody accepted" from "I never sent it", and the fix for both is the same resend button.
+   * `expireInvitations` erases it for good only after the grace window.
+   */
+  expired: boolean;
+  /** The invitee already has an account, so accepting links it instead of registering a new one. */
+  hasAccount: boolean;
+}
+
+/**
+ * The organization's outstanding invitations, newest first (NWB-P14.2).
+ *
+ * `listMembers` already returns invited rows — it has to, they *are* `organization_members` — but
+ * it projects a member shape: no `expires_at`, no `invited_by`, no note. A team screen rendering
+ * "expires in 3 days" and "resend" from that projection would be inventing data, so the panel gets
+ * its own read.
+ *
+ * Two deliberate omissions. **No token column, plaintext or hashed.** `inviteMember` stores the raw
+ * token next to its hash (a finding recorded in `.scratch/p14-web/issues/02`) and lookup matches on
+ * the hash, so a list carrying either would hand every caller of `members.read` a working accept
+ * link for every pending invitation. The token leaves this service exactly once — in the email —
+ * and resending mints a new one rather than re-reading the old. **Rows with no address are
+ * dropped:** a pre-`invited_email` row with a NULL address is unaddressable (the accept flow
+ * already 404s it), and a panel entry with nothing to resend to is noise.
+ */
+export async function listPendingInvitations(
+  db: NodePgDatabase<Record<string, any>>,
+  orgId: string,
+): Promise<PendingInvitation[]> {
+  const rows = await db.execute(
+    sql`
+      SELECT om.id AS member_id, om.invited_email, om.role_id,
+             r.code AS role_code, r.name AS role_name,
+             om.display_name, om.job_title, om.department, om.invitation_note,
+             om.invited_by, om.invited_at, om.invitation_sent_at, om.expires_at,
+             (om.expires_at IS NOT NULL AND om.expires_at <= now()) AS expired,
+             EXISTS (
+               SELECT 1 FROM users u
+               WHERE u.email = om.invited_email AND u.deleted_at IS NULL
+             ) AS has_account
+      FROM organization_members om
+      LEFT JOIN roles r ON r.id = om.role_id AND r.deleted_at IS NULL
+      WHERE om.organization_id = ${orgId}
+        AND om.status = 'invited'
+        AND om.accepted_at IS NULL
+        AND om.deleted_at IS NULL
+        AND om.invited_email IS NOT NULL
+      ORDER BY om.created_at DESC, om.id DESC
+    `,
+  );
+  return ((rows as any).rows ?? []).map((row: any) => ({
+    memberId: row.member_id as string,
+    email: row.invited_email as string,
+    roleId: (row.role_id as string) ?? null,
+    roleCode: (row.role_code as string) ?? null,
+    roleName: (row.role_name as string) ?? null,
+    displayName: (row.display_name as string) ?? null,
+    jobTitle: (row.job_title as string) ?? null,
+    department: (row.department as string) ?? null,
+    invitationNote: (row.invitation_note as string) ?? null,
+    invitedByUserId: (row.invited_by as string) ?? null,
+    invitedAt: (row.invited_at as Date) ?? null,
+    sentAt: (row.invitation_sent_at as Date) ?? null,
+    expiresAt: (row.expires_at as Date) ?? null,
+    expired: Boolean(row.expired),
+    hasAccount: Boolean(row.has_account),
+  }));
+}
+
 /**
  * Permanently deletes invitations that lapsed past the grace window, one row at a time.
  * Returns `{ deleted, failed, errors, auditAnonymized, held }` — rows actually erased, rows

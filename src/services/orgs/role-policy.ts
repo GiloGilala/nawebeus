@@ -244,6 +244,73 @@ export async function resolveAssignableRole(
   };
 }
 
+/** One entry of the grantable-role catalog, as a picker renders it. */
+export interface AssignableRoleOption extends AssignableRole {
+  description: string | null;
+  /** True for a role this organization defined; false for the shared system catalog. */
+  isCustom: boolean;
+}
+
+export interface AssignableRoleCatalog {
+  /** Grantable roles, highest rank first — the order a picker should show them in. */
+  roles: AssignableRoleOption[];
+  /**
+   * The actor's own rank. Returned so a UI can explain a short list ("you can assign roles below
+   * Manager") instead of silently offering nothing, and so a test can pin the ladder.
+   */
+  actor: { code: string | null; level: number };
+}
+
+/**
+ * The roles `actingUserId` may grant inside `orgId` — rule 4 evaluated as a query instead of as a
+ * refusal (NWB-P14.2).
+ *
+ * This exists because an invitation form and a role picker both need a role *id*, and until now the
+ * only way to get one was to already have it: `resolveAssignableRole` answers "is this id
+ * assignable?", never "which ids are?". A UI with no catalog either hard-codes seeded role ids —
+ * exactly the F-02 lesson the roadmap repeats ("never re-spell subjects in UI") — or offers every
+ * role and lets the service refuse most of them, which reads as a bug to the person clicking.
+ *
+ * The predicate is `assertRoleGrantAllowed`'s, so the list is correct by construction: strictly
+ * below the actor's own level, never `owner` (BR-AUTH-031 — ownership is transferred, not granted),
+ * and never a platform role (`super_admin` outranks every org seat, so the level filter excludes it
+ * for everyone). Custom org-scoped roles appear through the same ladder via their own `level`,
+ * which is why nothing here names the six seeded codes.
+ *
+ * Cross-tenant safety is the same shape as `resolveAssignableRole`'s: the shared catalog
+ * (`organization_id IS NULL`) plus *this* organization's own roles, never another org's.
+ */
+export async function listAssignableRoles(
+  db: Db,
+  orgId: string,
+  actingUserId: string,
+): Promise<AssignableRoleCatalog> {
+  const actor = await requireActorRole(db, orgId, actingUserId);
+  const rows = await db.execute(
+    sql`
+      SELECT id, code, name, level, description,
+             (organization_id IS NOT NULL) AS is_custom
+      FROM roles
+      WHERE (organization_id IS NULL OR organization_id = ${orgId})
+        AND status = 'active'
+        AND deleted_at IS NULL
+        AND archived_at IS NULL
+        AND code <> 'owner'
+        AND level < ${actor.level}
+      ORDER BY level DESC, name ASC
+    `,
+  );
+  const roles = ((rows as any).rows ?? []).map((row: any) => ({
+    id: row.id as string,
+    code: row.code as string,
+    name: row.name as string,
+    level: Number(row.level),
+    description: (row.description as string | null) ?? null,
+    isCustom: Boolean(row.is_custom),
+  }));
+  return { roles, actor: { code: actor.code, level: actor.level } };
+}
+
 /**
  * BR-AUTH-030: refuse to demote/remove `target` if no *other* active
  * Owner-or-Admin would remain in the organization.
