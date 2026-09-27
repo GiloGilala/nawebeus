@@ -15,6 +15,14 @@
 **Accessibility:** WCAG 2.1 AA, axe-core in CI (QA §8) — gate at 0 violations.
 **Exit gate (plan):** every in-scope workflow usable in the browser with complete UI states; no dead ends; E2E green for all P0 workflows.
 
+**Status (2026-09-27):** started, out of plan order. Cluster 3 (social connect) is **done - NWB-P14.3**, ticket `.scratch/p14-web/issues/01-social-connect.md`, phase spec `.scratch/p14-web/spec.md`. Clusters 1-2 are partly present in the tree already (`src/app/routes/auth/*`, `dashboard`); clusters 4-15 remain blocked on their backend phases (P3-P13).
+
+Three deviations from this section's plan, recorded rather than left implicit:
+
+1. **Location.** The web layer lives in `src/app/` (ADR-002's layout, as `docs/technical/File Structure.md` has it) - **not** a new top-level `web/`. One Bun process serves both surfaces (ADR-007), so a separate package would have meant a second build and a second deployable for no isolation gain.
+2. **No client bundle yet, so no browser-rendered states and no Playwright.** `src/app/lib/createServerFn.ts` is a local isomorphic shim and `routeTree.gen.ts` is a CI stub; `@tanstack/react-start`/Query/Form are deliberately **not** installed (AGENTS.md) so `bun.lock` stays frozen for CI's `--frozen-lockfile`. Consequently the per-screen state matrix (loading, skeleton, empty, error, permission-denied, ...), TanStack Query cache invalidation and the E2E suite **cannot** be satisfied by P14.3 and are not claimed: the screen renders empty/error/success and mutation-pending states from React state, and what is actually proven is the Server Function layer (24 in-process tests against a real DB, all five seats x all eleven functions). Wiring the real toolchain is its own ticket and changes every screen at once.
+3. **Permission-gated UI does not yet mirror server enforcement from a generated list.** F-02's lesson stands, but there is no permissions payload in the web session to gate on, so the screen renders every action and lets a 403 arrive as a message via `messageForAppError`. Server enforcement is the authority and is tested; the `PermissionGate` primitive and the single generated permission list arrive with the toolchain ticket (section 23).
+
 ---
 
 ## 23. Frontend & mobile plan

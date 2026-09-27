@@ -287,7 +287,8 @@ describe.skipIf(!hasDb())("Social Server Functions — Integration (with DB)", (
   async function connect(seq: number): Promise<string> {
     as("manager");
     const { authorizeUrl, expiresAt } = await initiateSocialConnectServerFn({
-      data: { platform: "youtube", returnUrl: "/settings/integrations" },
+      // No returnUrl — exactly what the route does, so the Server Function's default is exercised.
+      data: { platform: "youtube" },
     });
     expect(expiresAt).toBeInstanceOf(Date);
     const url = new URL(authorizeUrl);
@@ -298,7 +299,7 @@ describe.skipIf(!hasDb())("Social Server Functions — Integration (with DB)", (
     // The callback is unauthenticated by design (it is the provider arriving), so it runs outside
     // any seat's headers — inside the org context the state row carries, like the route does.
     clearServerHeadersForTest();
-    const { account, reconnected } = await withServerOrgContext(
+    const { account, reconnected, returnUrl } = await withServerOrgContext(
       { orgId, userId: ids.manager } as never,
       () =>
         makeService().handleCallback(db as never, {
@@ -309,6 +310,11 @@ describe.skipIf(!hasDb())("Social Server Functions — Integration (with DB)", (
     );
     expect(reconnected).toBe(false);
     expect(account.status).toBe("active");
+    // The Server Function defaults returnUrl to this screen *with* `?connected=`, because the
+    // public callback appends that query only when the state carried no returnUrl at all. The
+    // route therefore omits it, and pinning the value here is what stops a well-meaning caller
+    // from passing the bare path and silently killing the success banner.
+    expect(returnUrl).toBe("/settings/integrations?connected=youtube");
     return account.id;
   }
 

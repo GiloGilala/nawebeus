@@ -125,13 +125,27 @@ function IntegrationsPage() {
     }
   }
 
+  /**
+   * FR-SOC-044's one-click action. The filter is server-side (`?attention=true`), so flipping the
+   * flag has to re-fetch — setting state alone would leave the table showing exactly what it showed
+   * before while the button claimed otherwise. `attentionCount` is org-wide and filter-independent,
+   * so the badge survives the switch either way.
+   */
+  async function toggleAttention() {
+    const next = !attentionOnly;
+    setAttentionOnly(next);
+    await reload({ attention: next });
+  }
+
   async function connect(platform) {
     setMessage(null);
     setNotice(null);
     try {
-      const { authorizeUrl } = await initiateSocialConnectServerFn({
-        data: { platform, returnUrl: "/settings/integrations" },
-      });
+      // No returnUrl: the Server Function defaults it to
+      // `/settings/integrations?connected=<platform>`, which is what makes the banner below fire.
+      // Naming the path here without the query would have suppressed it — the callback only adds
+      // `?connected=` when the state carried no returnUrl at all.
+      const { authorizeUrl } = await initiateSocialConnectServerFn({ data: { platform } });
       // The provider's consent screen is the next step; the callback brings the browser back here.
       window.location.href = authorizeUrl;
     } catch (err) {
@@ -157,7 +171,7 @@ function IntegrationsPage() {
 
   async function openDisconnect(account) {
     setMessage(null);
-    setDisconnect({ account, impact: null, confirm: "", running: false, receipt: null });
+    setDisconnect({ account, impact: null, confirm: "", running: false });
     try {
       // FR-SOC-011: show what will break *before* asking anyone to type the username.
       const impact = await getSocialDisconnectImpactServerFn({ data: { accountId: account.id } });
@@ -230,7 +244,7 @@ function IntegrationsPage() {
             {attentionCount} account{attentionCount === 1 ? "" : "s"} need
             {attentionCount === 1 ? "s" : ""} attention
           </strong>
-          <button type="button" onClick={() => setAttentionOnly(!attentionOnly)}>
+          <button type="button" onClick={toggleAttention}>
             {attentionOnly ? "Show all" : "Show them"}
           </button>
         </section>
