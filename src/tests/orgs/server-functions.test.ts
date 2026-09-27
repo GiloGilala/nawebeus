@@ -134,39 +134,59 @@ async function invite(seats: Seats, email: string, extra: Record<string, unknown
   return result;
 }
 
-describe("Invitation Server Functions — validation (no DB)", () => {
+/**
+ * Payload rejection. These look like they need no database, and they did until they were run: the
+ * `createServerFn` shim in this repo is an isomorphic stub that does **not** run `.validator()`
+ * before the handler (the real TanStack Start runtime does). So `data: {}` reaches the handler body,
+ * which spends a rate-limit bucket against `getServerDb()` before anything parses the payload — and
+ * without `setServerDbForTest` that is a real pool, so the bucket is **committed** to the shared
+ * test database. One such row is enough to fail an unrelated exact-count assertion in
+ * `src/tests/queue/jobs.test.ts` (the rate-limit reclaim job reports every expired bucket it can
+ * see). Hence `withServerFns` here too, and hence this block now needs `DATABASE_URL`.
+ *
+ * The refusals themselves are still worth pinning: they prove the payload is rejected *somewhere*
+ * fail-closed — by the service's own parse, since the shim will not do it — rather than reaching a
+ * query with `token = undefined`.
+ */
+describe.skipIf(!hasDb())("Invitation Server Functions — payload rejection", () => {
+  beforeAll(() => {
+    loadConfig();
+  });
+
   test("the preview needs a token", async () => {
-    clearServerHeadersForTest();
-    await expectThrows(() => getInvitationPreviewServerFn({ data: {} }), ValidationError);
-    await expectThrows(
-      () => getInvitationPreviewServerFn({ data: { token: "" } }),
-      ValidationError,
-    );
+    await withServerFns(async () => {
+      await expectThrows(() => getInvitationPreviewServerFn({ data: {} }), ValidationError);
+      await expectThrows(
+        () => getInvitationPreviewServerFn({ data: { token: "" } }),
+        ValidationError,
+      );
+    });
   });
 
   test("accepting needs a token — the body alone is not an invitation", async () => {
-    await expectThrows(
-      () =>
-        acceptInvitationServerFn({
-          data: { fullName: "No Token", password: STRONG_PASSWORD },
-        }),
-      ValidationError,
-    );
+    await withServerFns(async () => {
+      await expectThrows(
+        () =>
+          acceptInvitationServerFn({
+            data: { fullName: "No Token", password: STRONG_PASSWORD },
+          }),
+        ValidationError,
+      );
+    });
   });
 
   test("the org-scoped reads are 401 without a session", async () => {
-    clearServerHeadersForTest();
-    await expectThrows(() => listPendingInvitationsServerFn({}), UnauthorizedError);
-    await expectThrows(() => listAssignableRolesServerFn({}), UnauthorizedError);
+    await withServerFns(async () => {
+      await expectThrows(() => listPendingInvitationsServerFn({}), UnauthorizedError);
+      await expectThrows(() => listAssignableRolesServerFn({}), UnauthorizedError);
+    });
   });
 
   test("a Bearer token is refused — the web surface is session cookies only", async () => {
-    setServerHeadersForTest({ authorization: "Bearer an-api-key-shaped-string" });
-    try {
+    await withServerFns(async () => {
+      setServerHeadersForTest({ authorization: "Bearer an-api-key-shaped-string" });
       await expectThrows(() => listPendingInvitationsServerFn({}), UnauthorizedError);
-    } finally {
-      clearServerHeadersForTest();
-    }
+    });
   });
 });
 

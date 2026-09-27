@@ -125,6 +125,18 @@ test with an assertion that they stay allowlisted only while they stay unbuilt).
   which combined with F-P14.2 means an authenticated member with `members.invite` can mint an accept
   link for an address they chose and hand it to someone else. The route dropping the field is a
   convention, not a control.
+- **F-P14.2-3 — every caller whose IP cannot be resolved shares one rate-limit bucket.**
+  `getClientIp` (`src/lib/ip.ts:241`) returns `null` when neither `x-forwarded-for` nor `x-real-ip`
+  yields a usable hop, and both surfaces interpolate that into the key:
+  `invite:validate:${ip}` → `invite:validate:null`. Twenty anonymous lookups from *anywhere* without
+  proxy headers therefore exhaust the budget for every other such caller — a self-inflicted denial of
+  service on the accept flow, which is the one flow an invitee cannot retry around. **Inherited, not
+  introduced**: `src/server/api/auth/invitation.route.ts:28` has shipped this since P1 and the Server
+  Function copies it deliberately, because copying the key is what makes the budget shared rather
+  than doubled. Fixing it means choosing a policy for "IP unknown" — refuse (fail closed, breaks
+  deployments without a proxy that sets the header), or key on something else (session, token prefix,
+  a shorter `unknown` budget) — which is a security-model decision for its own ticket, and should be
+  made once for every IP-keyed limit in the product rather than per route.
 
 ## Exit criteria / acceptance — all met 2026-09-27
 
@@ -147,8 +159,20 @@ is the standing gap for the whole P14 cluster, not a shortcut taken here.
 
 ## Comments
 
-- Split as four commits: services + Server Functions (`e03148e`), routes + the dangling-link scan
-  (`6c4df69`), tests (`b443c0e`), docs (this file).
+- Split as five commits: services + Server Functions (`e03148e`), routes + the dangling-link scan
+  (`6c4df69`), tests (`b443c0e`), docs (this file), then the isolation fix below.
+- **A leak this ticket introduced and then removed, recorded because it is easy to reintroduce.** The
+  payload-rejection tests started life in a `describe("… (no DB)")` block that called the Server
+  Functions with no wrapper at all. They passed — and committed a `rate_limits` row per call
+  (`invite:validate:null`, because `getServerClientIp()` returns `null` with no headers set, see
+  F-P14.2-3), because the shim does not run `.validator()` so the handler body executed against a
+  real pool. That broke `src/tests/queue/jobs.test.ts`'s "a manual run can widen the window" test,
+  which asserts the reclaim job deleted exactly one bucket and could suddenly see two — a failure in
+  a file this ticket never touched, appearing only once the stale row existed. Both tests now run
+  inside `withServerFns`, the block is `skipIf(!hasDb())`, and the header comment says why a
+  validation test needs a database. After the fix the shared database holds zero `rate_limits` rows
+  once the suite finishes. **The general rule is in the phase spec**: `setServerDbForTest` is
+  load-bearing for *isolation*, not only for row visibility.
 - Follow-up ticket wanted: **org-profile screen + onboarding checklist** (closes out the execution
   plan's P14.2 line), and **F-P14.2** (drop the plaintext invitation token) — the second is
   independent and should not wait for the first.

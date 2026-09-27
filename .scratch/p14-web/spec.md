@@ -81,6 +81,18 @@ becoming permanent.
   maps the shared `AppError` contract to a sentence. Components render every action and let a 403
   arrive as a message: the web has no permissions payload to hide buttons with, and a button that
   lies about being clickable is worse than one that explains itself when clicked.
+- **Testing a Server Function** means `setServerDbForTest(db)` inside `withTestDb` (see the
+  `withServerFns` helper in `src/tests/orgs/server-functions.test.ts` and
+  `src/tests/social/server-functions.test.ts`): the functions read their database from
+  `getServerDb()`, which builds a real pool when the seam is unset. Two consequences worth knowing
+  before writing one. The seam is *load-bearing for isolation*, not only for visibility — a call
+  outside the test transaction **commits** to the shared database, and a single stray `rate_limits`
+  row is enough to fail an unrelated exact-count assertion in `src/tests/queue/jobs.test.ts`. And the
+  shim does **not** run `.validator()` before the handler (the real TanStack Start runtime does), so
+  there is no such thing as a database-free Server Function test for a handler that rate-limits or
+  reads before it parses: even a "missing field is refused" test executes the body. Refusals are
+  still fail-closed — the service parses the payload itself — but the test must be wrapped like any
+  other.
 
 ## Exit gate (per execution plan §P14)
 
