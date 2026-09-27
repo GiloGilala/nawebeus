@@ -105,18 +105,6 @@ export const disconnectSocialAccountSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
-/**
- * FR-SOC-011's impact preview. `dryRun` defaults to **true**: the modal calls this first, and a
- * client that forgets to say what it means gets the read, not the destructive write.
- */
-export const disconnectImpactSchema = z.object({
-  accountId: z
-    .string()
-    .trim()
-    .regex(SOCIAL_ACCOUNT_ID_PATTERN, "Invalid social account ID; must match soc_<uuid>"),
-  dryRun: booleanish.default(true),
-});
-
 /** Pause/resume: the reason is optional courtesy metadata for the audit row and the timeline. */
 export const socialCollectionActionSchema = z.object({
   accountId: z

@@ -143,7 +143,6 @@ export {
   zodIssues,
 } from "./parse";
 export {
-  disconnectImpactSchema,
   disconnectSocialAccountSchema,
   initiateSocialConnectSchema,
   listSocialAccountsQuerySchema,
