@@ -21,15 +21,25 @@ import { createHash, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { decryptSecret, derivedKeyMaterial, encryptSecret } from "../../lib/crypto";
+import type { Db } from "../../lib/db";
 import {
   AccountAlreadyConnectedError,
   CircuitBreakerOpenError,
+  ConflictError,
+  describeError,
   NotFoundError,
+  SocialAccountStateError,
   ValidationError,
 } from "../../lib/errors";
+import { logger } from "../../lib/logger";
 import { buildPage, type Page, type PaginationParams } from "../../lib/pagination";
-import { writeAuditLog } from "../audit";
+import { type AuditActionName, writeAuditLog } from "../audit";
 import { PLATFORM_ADAPTERS } from "./adapters";
+import {
+  getSocialNotifier,
+  type SocialNotificationEvent,
+  type SocialNotificationResult,
+} from "./notifier";
 import { HttpPlatformOAuthClient, OAuthExchangeError } from "./oauth-client";
 import {
   classifyPlatformHttpError,
@@ -202,6 +212,69 @@ interface QuotaBucketJson {
   resetsAt?: string | undefined;
 }
 
+/**
+ * What a provider revocation attempt amounted to (FR-SOC-013). `not_supported` means no HTTP
+ * call was made at all — either the platform publishes no revocation endpoint (Instagram,
+ * Facebook) or there was no such token stored.
+ */
+export type RevocationOutcome = "revoked" | "provider_refused" | "not_supported" | "unreachable";
+
+/** One downstream domain a disconnection could affect (FR-SOC-011's impact analysis). */
+export interface DisconnectImpactDomain {
+  readonly domain: "campaigns" | "monitoring" | "publishing" | "engagement";
+  readonly label: string;
+  /** `null` = not computable yet. Never `0` for an unadopted table — see `getDisconnectImpact`. */
+  readonly count: number | null;
+  /** The ticket that turns `null` into a number. */
+  readonly landsWith: string;
+}
+
+const IMPACT_DOMAINS: readonly Omit<DisconnectImpactDomain, "count">[] = [
+  {
+    domain: "campaigns",
+    label: "Campaigns using this account",
+    landsWith: "NWB-P11 (Grow — db/campaigns adoption)",
+  },
+  {
+    domain: "monitoring",
+    label: "Listening queries and monitors fed by this account",
+    landsWith: "NWB-P4/P5 (Monitor + Listen — db/monitoring adoption)",
+  },
+  {
+    domain: "publishing",
+    label: "Scheduled posts queued to this account",
+    landsWith: "NWB-P3 (Publishing — db/publishing adoption)",
+  },
+  {
+    domain: "engagement",
+    label: "Engagement queues and saved replies on this account",
+    landsWith: "NWB-P7 (Engage — db/engagement adoption)",
+  },
+];
+
+/**
+ * The aggregate of the two per-token outcomes (NWB-P2-007), so a partial revocation is never
+ * reported as a clean one. `not_supported` is *absence of an attempt* rather than a failure —
+ * a platform with no revocation endpoint, or a token that was never stored — so it only decides
+ * the aggregate when nothing was attempted at all. Otherwise a provider that has no refresh
+ * token to revoke would downgrade an honest `revoked` (Google's endpoint retires the whole grant
+ * from the access token; Meta's long-lived tokens come with no refresh token).
+ */
+const REVOCATION_SEVERITY: readonly RevocationOutcome[] = [
+  "revoked",
+  "provider_refused",
+  "unreachable",
+];
+
+function worstRevocation(...outcomes: RevocationOutcome[]): RevocationOutcome {
+  let worst: RevocationOutcome = "not_supported";
+  for (const outcome of outcomes) {
+    if (outcome === "not_supported") continue;
+    if (REVOCATION_SEVERITY.indexOf(outcome) > REVOCATION_SEVERITY.indexOf(worst)) worst = outcome;
+  }
+  return worst;
+}
+
 /** Worst-bucket-wins: `warning` < `critical` < `exhausted` (an account is as usable as its tightest bucket). */
 const CROSSING_ORDER: QuotaStatus[] = ["healthy", "warning", "critical", "exhausted"];
 
@@ -231,6 +304,46 @@ export function createSocialService(options: SocialServiceOptions) {
 
   function redirectUriFor(platform: SocialPlatform): string {
     return `${appBaseUrl.replace(/\/$/, "")}${callbackPathFor(platform)}`;
+  }
+
+  /**
+   * The notification guard (FR-SOC-008 / FR-SOC-022's delivery half, NWB-P2-007).
+   *
+   * Awaited rather than fire-and-forget: `handleCallback` runs inside a **public** route whose
+   * 302 must not race an unhandled rejection, and `markNeedsReauth` runs inside the refresh
+   * sweep's transaction, where a floating promise would resolve after the transaction ended.
+   * Awaiting is safe because the notifier cannot block — `emailService.send` files an outbox job
+   * when the queue is up and sends directly when it is not.
+   *
+   * The try/catch is the contract: whatever notifier is installed (the production one, a test
+   * double, P6's replacement) **cannot** fail the operation that triggered it. A dead SMTP
+   * provider must not make it impossible to connect an account, and a stuck account must not
+   * take its refresh batch down with it.
+   */
+  async function notify(
+    db: NodePgDatabase<Record<string, any>>,
+    event: SocialNotificationEvent,
+  ): Promise<SocialNotificationResult> {
+    try {
+      const result = await getSocialNotifier()(db as Db, event);
+      if (result.error) {
+        logger.warn("social.notification_reported_error", {
+          event: event.event,
+          accountId: event.accountId,
+          notified: result.notified,
+          error: result.error,
+        });
+      }
+      return result;
+    } catch (error) {
+      logger.error("social.notification_failed", {
+        event: event.event,
+        accountId: event.accountId,
+        platform: event.platform,
+        error: describeError(error),
+      });
+      return { notified: 0, error: describeError(error) };
+    }
   }
 
   function requireCredentials(platform: SocialPlatform) {
@@ -398,6 +511,13 @@ export function createSocialService(options: SocialServiceOptions) {
         );
       } else if (prior) {
         // Reconnect: revive the disconnected row (the unique constraint allows no second row).
+        // The revive must clear **every** remnant of the outage that led here, not just the
+        // disconnection columns: a breaker left open makes the freshly re-authenticated account
+        // undispatchable (`assertDispatchAllowed` → 503) until a probe happens to close it, an
+        // `is_active = false` left behind does the same *and* hides the row from both `*/5`
+        // sweeps, and a retention stamp left set keeps it on the reclaim list. Re-authenticating
+        // is exactly what an operator does to fix a broken connection, so it has to actually fix
+        // it (NWB-P2-007 B2).
         const updated = (await db.execute<SocialAccountRowRaw>(sql`
           UPDATE social_accounts SET
             platform_username = ${exchange.platformUsername},
@@ -409,12 +529,16 @@ export function createSocialService(options: SocialServiceOptions) {
             token_expires_at = ${tokenExpiresAt},
             scopes = ${scopes.length > 0 ? pgTextArray(scopes) : null}::text[],
             status = 'active',
+            is_active = true,
             connected_by = ${stateRow.user_id},
             connected_at = now(),
             disconnected_at = NULL,
             disconnected_by = NULL,
             disconnection_reason = NULL,
+            data_retention_until = NULL,
             consecutive_error_count = 0,
+            circuit_breaker_open = false,
+            circuit_breaker_opened_at = NULL,
             last_error_at = NULL,
             last_error_message = NULL,
             last_error_code = NULL,
@@ -459,6 +583,16 @@ export function createSocialService(options: SocialServiceOptions) {
           reconnected,
           scopes,
         },
+      });
+
+      // FR-SOC-008 (NWB-P2-007): the org's admins are told a connection appeared. The notifier
+      // cannot throw (see `notify`), so this never changes the 302 the callback owes the browser.
+      await notify(db, {
+        event: reconnected ? "reconnected" : "connected",
+        organizationId: stateRow.organization_id,
+        accountId: account.id,
+        platform: account.platform,
+        platformUsername: account.platformUsername,
       });
 
       return { account, reconnected, returnUrl: stateRow.return_url };
@@ -564,7 +698,18 @@ export function createSocialService(options: SocialServiceOptions) {
     /**
      * Surface a dead refresh: `needs_reauth` (optimistic), a health-log transition row (the
      * schema requires an error message on that status), and the audit event — that trio *is*
-     * FR-SOC-022's surfacing; the message dispatch to manager/admins lands with P2-006.
+     * FR-SOC-022's surfacing; the message dispatch to manager/admins is `notifyNeedsReauth`
+     * (NWB-P2-007).
+     *
+     * The row update is unconditional (an account already in `needs_reauth` still deserves the
+     * newest failure reason stamped on it — that is what the diagnostics panel shows), but the
+     * **transition** artefacts are not: `chk_sahl_transition_differs` rejects a health-log row
+     * whose `previous_status` equals its `status`, so re-surfacing an account that is already
+     * `needs_reauth` raised 23514 and aborted the surrounding transaction. That is reachable the
+     * moment an operator probes such an account (`checkAccountHealth` → `probeAccount` →
+     * refresh-once → here), and it would equally poison any batch that re-tried a stuck row. The
+     * audit event and the notification ride the same gate: a transition is reported once, not
+     * once per probe (NWB-P2-007 B1).
      */
     async markNeedsReauth(
       db: NodePgDatabase<Record<string, any>>,
@@ -575,7 +720,14 @@ export function createSocialService(options: SocialServiceOptions) {
         status: string;
         version: number;
       },
-      input: { reason: string; code: string | null; trigger: string; retryCount: number },
+      input: {
+        reason: string;
+        code: string | null;
+        trigger: string;
+        retryCount: number;
+        /** The account's platform username, for the FR-SOC-022 message (never token material). */
+        username?: string | undefined;
+      },
     ): Promise<boolean> {
       const updated = (await db.execute(sql`
         UPDATE social_accounts SET
@@ -591,6 +743,11 @@ export function createSocialService(options: SocialServiceOptions) {
           AND status NOT IN ('disconnected')
       `)) as any;
       if ((updated.rowCount ?? 0) === 0) return false;
+
+      // Already `needs_reauth`? The row was refreshed, but nothing *transitioned* — so no
+      // health-log row (the schema's own CHECK forbids it), no second audit event, no re-notify.
+      const transitioned = account.status !== "needs_reauth";
+      if (!transitioned) return true;
 
       await db.execute(sql`
         INSERT INTO social_account_health_log (
@@ -616,6 +773,26 @@ export function createSocialService(options: SocialServiceOptions) {
           trigger: input.trigger,
           attempts: input.retryCount + 1,
         },
+      });
+
+      // FR-SOC-022's delivery half (NWB-P2-007): Primary Manager + the org's admins, once per
+      // transition — the gate above is what keeps a stuck account from emailing them every five
+      // minutes. The Primary Manager is read here rather than threaded through the callers
+      // because they hold probe/refresh shapes, and this path is the only one that needs it.
+      const notifyRows = (await db.execute(
+        sql`SELECT primary_manager_id, platform_username FROM social_accounts WHERE id = ${account.id}`,
+      )) as any;
+      const notifyRow = notifyRows.rows?.[0] as
+        | { primary_manager_id: string | null; platform_username: string }
+        | undefined;
+      await notify(db, {
+        event: "needs_reauth",
+        organizationId: account.organizationId,
+        accountId: account.id,
+        platform: account.platform,
+        platformUsername: input.username ?? notifyRow?.platform_username ?? account.id,
+        primaryManagerId: notifyRow?.primary_manager_id ?? null,
+        reason: input.reason,
       });
       return true;
     },
@@ -1553,12 +1730,22 @@ export function createSocialService(options: SocialServiceOptions) {
      * The connected-account list (NWB-P2-006): newest-connected first, keyset-paginated with
      * the media library's microsecond cursor (same-transaction connects share `connected_at`),
      * filtered by platform/status, projected without any token column (FR-SOC-023 by type).
+     *
+     * `attention` (NWB-P2-007) is the FR-SOC-044 widget's data half: an account needs attention
+     * when its status is `error` or `needs_reauth`, its breaker is open, or its quota ladder has
+     * reached `critical`/`exhausted`. `attentionCount` is the org-wide total **ignoring every
+     * filter** — the widget says "X accounts need attention" whether or not the operator is
+     * currently looking at one platform, and computing it here keeps that to one round trip.
      */
     async listAccounts(
       db: NodePgDatabase<Record<string, any>>,
       organizationId: string,
       page: PaginationParams,
-      filters: { platform?: SocialPlatform | undefined; status?: string | undefined } = {},
+      filters: {
+        platform?: SocialPlatform | undefined;
+        status?: string | undefined;
+        attention?: boolean | undefined;
+      } = {},
     ): Promise<
       Page<{
         id: string;
@@ -1572,7 +1759,7 @@ export function createSocialService(options: SocialServiceOptions) {
         circuitBreakerOpen: boolean;
         tokenExpiresAt: Date | null;
         connectedAt: Date;
-      }>
+      }> & { attentionCount: number }
     > {
       const platformClause = filters.platform ? sql`AND platform = ${filters.platform}` : sql``;
       // Disconnected rows are hidden unless the filter names them explicitly — the list is a
@@ -1580,6 +1767,12 @@ export function createSocialService(options: SocialServiceOptions) {
       const statusClause = filters.status
         ? sql`AND status = ${filters.status}`
         : sql`AND status <> 'disconnected'`;
+      // The status and quota literals are inlined, not bound: the driver cannot infer a type for
+      // a Postgres enum parameter, and these strings are ours (FR-SOC-044's definition), not input.
+      const attentionPredicate = sql`(status IN ('error', 'needs_reauth')
+          OR circuit_breaker_open = TRUE
+          OR quota_status IN ('critical', 'exhausted'))`;
+      const attentionClause = filters.attention ? sql`AND ${attentionPredicate}` : sql``;
       const cursorClause = page.cursor
         ? sql`AND (connected_at, id) < (${page.cursor.v}::timestamptz, ${page.cursor.id}::text)`
         : sql``;
@@ -1591,10 +1784,21 @@ export function createSocialService(options: SocialServiceOptions) {
         WHERE organization_id = ${organizationId}
           ${platformClause}
           ${statusClause}
+          ${attentionClause}
           ${cursorClause}
         ORDER BY connected_at DESC, id DESC
         LIMIT ${page.limit + 1}
       `)) as any;
+      const attentionCountRows = (await db.execute(sql`
+        SELECT count(*)::int AS attention_count
+        FROM social_accounts
+        WHERE organization_id = ${organizationId}
+          AND status <> 'disconnected'
+          AND ${attentionPredicate}
+      `)) as any;
+      const attentionCount =
+        (attentionCountRows.rows?.[0] as { attention_count: number } | undefined)
+          ?.attention_count ?? 0;
       const entries = (
         (rows.rows ?? []) as {
           id: string;
@@ -1625,7 +1829,11 @@ export function createSocialService(options: SocialServiceOptions) {
         _cursorV: raw.cursor_v,
       }));
       const result = buildPage(entries, page.limit, (entry) => entry._cursorV);
-      return { ...result, items: result.items.map(({ _cursorV: _, ...rest }) => rest) };
+      return {
+        ...result,
+        items: result.items.map(({ _cursorV: _, ...rest }) => rest),
+        attentionCount,
+      };
     },
 
     /**
@@ -1858,7 +2066,9 @@ export function createSocialService(options: SocialServiceOptions) {
     ): Promise<{
       platform: SocialPlatform;
       platformUsername: string;
-      revocation: "revoked" | "provider_refused" | "not_supported" | "unreachable";
+      revocation: RevocationOutcome;
+      /** Per-token outcomes — the aggregate hides which of the two the provider refused. */
+      revocationDetail: { access: RevocationOutcome; refresh: RevocationOutcome };
       dataRetentionUntil: Date;
     }> {
       const rows = (await db.execute(sql`
@@ -1887,27 +2097,47 @@ export function createSocialService(options: SocialServiceOptions) {
 
       // FR-SOC-013: revoke at the provider when the platform has an endpoint. Best-effort by
       // design: a refusal or a network error is recorded, but the local wipe happens either way.
-      let revocation: "revoked" | "provider_refused" | "not_supported" | "unreachable" =
-        "not_supported";
+      //
+      // **Both** tokens are revoked when both are stored (NWB-P2-007): an access-token-only
+      // revoke leaves the provider holding a refresh token that can mint a replacement, which is
+      // not "immediately revoke OAuth tokens" in any reading. The aggregate `revocation` is the
+      // worst of the two outcomes, so one refusal is never reported as a clean revoke.
       const adapter = PLATFORM_ADAPTERS[account.platform];
       const credentials = resolvePlatformCredentials(readEnv, account.platform);
-      const sealedAccess = (
+      const sealed = (
         (await db.execute(
-          sql`SELECT access_token_encrypted FROM social_accounts WHERE id = ${account.id}`,
+          sql`SELECT access_token_encrypted, refresh_token_encrypted
+            FROM social_accounts WHERE id = ${account.id}`,
         )) as any
-      ).rows?.[0]?.access_token_encrypted as string | null;
-      if (adapter.revokeRequest && credentials && sealedAccess) {
+      ).rows?.[0] as
+        | { access_token_encrypted: string | null; refresh_token_encrypted: string | null }
+        | undefined;
+      const revocationOf = async (
+        sealedToken: string | null,
+        tokenType: "access_token" | "refresh_token",
+      ): Promise<RevocationOutcome> => {
+        if (!adapter.revokeRequest || !credentials || !sealedToken) return "not_supported";
         try {
           const request = adapter.revokeRequest({
-            token: await decryptSecret(sealedAccess, keyMaterial),
+            token: await decryptSecret(sealedToken, keyMaterial),
             credentials,
+            tokenType,
           });
           const res = await probeFetch(request.url, request.init);
-          revocation = res.ok ? "revoked" : "provider_refused";
+          return res.ok ? "revoked" : "provider_refused";
         } catch {
-          revocation = "unreachable";
+          return "unreachable";
         }
-      }
+      };
+      const accessRevocation = await revocationOf(
+        sealed?.access_token_encrypted ?? null,
+        "access_token",
+      );
+      const refreshRevocation = await revocationOf(
+        sealed?.refresh_token_encrypted ?? null,
+        "refresh_token",
+      );
+      const revocation = worstRevocation(accessRevocation, refreshRevocation);
 
       const retentionUntil = new Date(
         now().getTime() + DISCONNECT_RETENTION_DAYS * 24 * 3_600 * 1_000,
@@ -1941,6 +2171,7 @@ export function createSocialService(options: SocialServiceOptions) {
           username: account.platformUsername,
           reason: input.reason ?? null,
           revocation,
+          revocationDetail: { access: accessRevocation, refresh: refreshRevocation },
           dataRetentionUntil: retentionUntil.toISOString(),
         },
       });
@@ -1949,7 +2180,297 @@ export function createSocialService(options: SocialServiceOptions) {
         platform: account.platform,
         platformUsername: account.platformUsername,
         revocation,
+        revocationDetail: { access: accessRevocation, refresh: refreshRevocation },
         dataRetentionUntil: retentionUntil,
+      };
+    },
+
+    /**
+     * One account's management handle, or `undefined` when there is nothing to manage: not this
+     * org's row (a cross-tenant id must not be distinguishable from a missing one), or a
+     * disconnected one — FR-SOC-014's read-only archive is a retention-worker concern, and both
+     * `getAccountDetail` and `disconnectAccount` already 404 on it.
+     */
+    async getManageableAccount(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string },
+    ): Promise<
+      | {
+          id: string;
+          platform: SocialPlatform;
+          platformUsername: string;
+          displayName: string | null;
+          status: string;
+          isActive: boolean;
+          primaryManagerId: string | null;
+          version: number;
+        }
+      | undefined
+    > {
+      const rows = (await db.execute(sql`
+        SELECT id, platform, platform_username, display_name, status, is_active,
+               primary_manager_id, version
+        FROM social_accounts
+        WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
+          AND status <> 'disconnected'
+        LIMIT 1
+      `)) as any;
+      const raw = rows.rows?.[0] as
+        | {
+            id: string;
+            platform: string;
+            platform_username: string;
+            display_name: string | null;
+            status: string;
+            is_active: boolean;
+            primary_manager_id: string | null;
+            version: number;
+          }
+        | undefined;
+      if (!raw) return undefined;
+      return {
+        id: raw.id,
+        platform: raw.platform as SocialPlatform,
+        platformUsername: raw.platform_username,
+        displayName: raw.display_name,
+        status: raw.status,
+        isActive: raw.is_active,
+        primaryManagerId: raw.primary_manager_id,
+        version: raw.version,
+      };
+    },
+
+    /**
+     * Pause / resume data collection (FR-SOC-016, NWB-P2-007).
+     *
+     * Pausing flips `status` to `paused` and `is_active` to false — which is what actually stops
+     * the machinery, since the refresh sweep selects `status = 'active' AND is_active = true` and
+     * `assertDispatchAllowed` refuses an inactive row. The sealed tokens and the whole history
+     * stay put: FR-SOC-016's promise is that resume needs **no re-authentication**, and a pause
+     * that destroyed credentials would not be a pause.
+     *
+     * The state machine is deliberately narrow. Pause is refused on `paused` (already done), on
+     * `needs_reauth` (it would overwrite the one state an operator must see — the tokens are
+     * dead, and hiding that behind "paused" strands the account) and on `pending_verification`
+     * (the grant is not complete). Resume is refused on anything but `paused`: FR-SOC-016's
+     * "without re-authentication" is about pausing, not about healing a dead token, so a
+     * `needs_reauth` account must go back through OAuth rather than be "resumed" into a lie.
+     *
+     * Both transitions write a `social_account_health_log` row (the account's status timeline is
+     * what FR-SOC-042's diagnostics panel reads — an operator-initiated change absent from it
+     * would make the timeline lie) and one audit row naming the actor.
+     */
+    async setAccountCollection(
+      db: NodePgDatabase<Record<string, any>>,
+      input: {
+        organizationId: string;
+        accountId: string;
+        actorId: string;
+        action: "pause" | "resume";
+        reason?: string | undefined;
+      },
+    ): Promise<{
+      id: string;
+      platform: SocialPlatform;
+      platformUsername: string;
+      status: string;
+      isActive: boolean;
+      previousStatus: string;
+      version: number;
+    }> {
+      const account = await this.getManageableAccount(db, input);
+      if (!account) throw new NotFoundError("Social account not found");
+
+      const previousStatus = account.status;
+      if (input.action === "pause") {
+        if (account.status === "paused") {
+          throw new SocialAccountStateError("This account's collection is already paused");
+        }
+        if (account.status !== "active" && account.status !== "error") {
+          throw new SocialAccountStateError(
+            `Cannot pause an account whose status is '${account.status}' — it must be 'active' or 'error'`,
+          );
+        }
+      } else if (account.status !== "paused") {
+        throw new SocialAccountStateError(
+          `Cannot resume an account whose status is '${account.status}' — only a paused account resumes without re-authentication`,
+        );
+      }
+
+      const nextStatus = input.action === "pause" ? "paused" : "active";
+      const nextActive = input.action === "resume";
+      const updated = (await db.execute(sql`
+        UPDATE social_accounts SET
+          status = ${nextStatus},
+          is_active = ${nextActive},
+          version = version + 1,
+          updated_at = now()
+        WHERE id = ${account.id} AND version = ${account.version}
+        RETURNING version
+      `)) as any;
+      if ((updated.rowCount ?? 0) === 0) {
+        // Optimistic lock: a sweep or a probe moved the row under us. The operator's next click
+        // re-reads and succeeds; inventing a retry here would hide a concurrent state change.
+        throw new ConflictError("The account changed while this request was in flight — retry");
+      }
+      const version =
+        (updated.rows?.[0] as { version: number } | undefined)?.version ?? account.version + 1;
+
+      await this.writeHealthLog(
+        db,
+        { id: account.id, status: previousStatus },
+        {
+          status: nextStatus,
+          diagnosticData: {
+            trigger: "operator",
+            actorId: input.actorId,
+            ...(input.reason ? { reason: input.reason } : {}),
+          },
+        },
+      );
+
+      const action: AuditActionName =
+        input.action === "pause" ? "socialaccount.paused" : "socialaccount.resumed";
+      await writeAuditLog({
+        db,
+        module: "social_accounts",
+        organizationId: input.organizationId,
+        actorId: input.actorId,
+        actorType: "user",
+        action,
+        resourceId: account.id,
+        afterState: {
+          platform: account.platform,
+          username: account.platformUsername,
+          previousStatus,
+          status: nextStatus,
+          ...(input.reason ? { reason: input.reason } : {}),
+        },
+      });
+
+      return {
+        id: account.id,
+        platform: account.platform,
+        platformUsername: account.platformUsername,
+        status: nextStatus,
+        isActive: nextActive,
+        previousStatus,
+        version,
+      };
+    },
+
+    /**
+     * The on-demand health probe (NWB-P2-007) — the operator-facing half of P2-003's recovery
+     * path. The sweep already re-probes breaker-open accounts every tick, but "is it fixed
+     * *now*?" is a question a human asks while looking at a red row, and until this route existed
+     * the only answer was to wait up to five minutes and reload.
+     *
+     * All the bookkeeping is `probeAccount`'s, unchanged: failure increments and opens the
+     * breaker at the threshold, success clears the counters and closes an open breaker (with the
+     * `socialaccount.breaker_recovered` audit row), a 429 advances nothing, a 401 gets one
+     * on-demand refresh and one re-probe before `needs_reauth`. This method adds the guard (a
+     * paused or disconnected account is not probeable — there is either no live token or no
+     * collection to protect), the actor's id in the audit trail, and the fresh state in the
+     * response so the UI does not need a second round trip.
+     */
+    async checkAccountHealth(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string; actorId: string },
+    ): Promise<{
+      id: string;
+      platform: SocialPlatform;
+      probe: "healthy" | "error" | "rate_limited" | "needs_reauth";
+      status: string;
+      isActive: boolean;
+      circuitBreakerOpen: boolean;
+      consecutiveErrorCount: number;
+      lastErrorMessage: string | null;
+      lastErrorCode: string | null;
+      lastErrorAt: Date | null;
+    }> {
+      const account = await this.getManageableAccount(db, input);
+      if (!account) throw new NotFoundError("Social account not found");
+      if (account.status === "paused") {
+        throw new SocialAccountStateError(
+          "A paused account is not health-checked — resume it first",
+        );
+      }
+      const probeAccount = await this.getProbeAccount(db, account.id);
+      if (!probeAccount) throw new NotFoundError("Social account not found");
+
+      const probe = await this.probeAccount(db, probeAccount);
+
+      const rows = (await db.execute(sql`
+        SELECT status, is_active, circuit_breaker_open, consecutive_error_count,
+               last_error_message, last_error_code, last_error_at
+        FROM social_accounts WHERE id = ${account.id}
+      `)) as any;
+      const raw = rows.rows?.[0] as
+        | {
+            status: string;
+            is_active: boolean;
+            circuit_breaker_open: boolean;
+            consecutive_error_count: number;
+            last_error_message: string | null;
+            last_error_code: string | null;
+            last_error_at: Date | string | null;
+          }
+        | undefined;
+      return {
+        id: account.id,
+        platform: account.platform,
+        probe,
+        status: raw?.status ?? account.status,
+        isActive: raw?.is_active ?? account.isActive,
+        circuitBreakerOpen: raw?.circuit_breaker_open ?? false,
+        consecutiveErrorCount: raw?.consecutive_error_count ?? 0,
+        lastErrorMessage: raw?.last_error_message ?? null,
+        lastErrorCode: raw?.last_error_code ?? null,
+        lastErrorAt: toDate(raw?.last_error_at ?? null),
+      };
+    },
+
+    /**
+     * FR-SOC-011's impact analysis — what a disconnection would take down with it, returned by
+     * `DELETE …?dryRun=true` **before** the confirmation modal asks anyone to type a username.
+     *
+     * The counts are `null`, not `0`, and each domain says which ticket makes it real. The
+     * campaign, monitoring, publishing and engagement tables are aspirational `db/` modules that
+     * `db/schema.ts` does not include and tsconfig excludes, so nothing can count their rows yet
+     * — and a `0` in a modal that says "nothing is affected" is a false all-clear an Admin will
+     * act on. `null` reads as "unknown, and here is why". When P3/P4/P7/P11 adopt their tables,
+     * the query replaces `landsWith` and the contract in the response type stays.
+     */
+    async getDisconnectImpact(
+      db: NodePgDatabase<Record<string, any>>,
+      input: { organizationId: string; accountId: string },
+    ): Promise<{
+      account: {
+        id: string;
+        platform: SocialPlatform;
+        platformUsername: string;
+        displayName: string | null;
+        status: string;
+      };
+      domains: DisconnectImpactDomain[];
+      /** FR-SOC-014's window, so the modal can say what "disconnect" preserves and for how long. */
+      retentionDays: number;
+      /** The confirmation string the real DELETE requires (FR-SOC-012) — echoed, never inferred. */
+      confirmationUsername: string;
+    }> {
+      const account = await this.getManageableAccount(db, input);
+      if (!account) throw new NotFoundError("Social account not found");
+      return {
+        account: {
+          id: account.id,
+          platform: account.platform,
+          platformUsername: account.platformUsername,
+          displayName: account.displayName,
+          status: account.status,
+        },
+        domains: IMPACT_DOMAINS.map((domain) => ({ ...domain, count: null })),
+        retentionDays: DISCONNECT_RETENTION_DAYS,
+        confirmationUsername: account.platformUsername,
       };
     },
 
@@ -1964,13 +2485,23 @@ export function createSocialService(options: SocialServiceOptions) {
       input: { organizationId: string; accountId: string },
     ): Promise<void> {
       const rows = (await db.execute(sql`
-        SELECT status, circuit_breaker_open FROM social_accounts
+        SELECT status, circuit_breaker_open, is_active FROM social_accounts
         WHERE id = ${input.accountId} AND organization_id = ${input.organizationId}
         LIMIT 1
       `)) as any;
-      const row = rows.rows?.[0] as { status: string; circuit_breaker_open: boolean } | undefined;
+      const row = rows.rows?.[0] as
+        | { status: string; circuit_breaker_open: boolean; is_active: boolean }
+        | undefined;
       if (!row || row.status === "disconnected") {
         throw new NotFoundError("Social account not found");
+      }
+      if (row.status === "paused" || !row.is_active) {
+        // A paused account is an operator's deliberate "stop using this connection" (FR-SOC-016),
+        // so it blocks dispatch too — and it is a 409, not the breaker's 503: nothing will fix
+        // itself on a retry, a human has to resume it (NWB-P2-007).
+        throw new SocialAccountStateError(
+          `social account ${input.accountId} is paused — resume collection before dispatching to it`,
+        );
       }
       if (row.circuit_breaker_open || row.status === "needs_reauth") {
         throw new CircuitBreakerOpenError(

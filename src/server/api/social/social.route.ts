@@ -10,12 +10,19 @@
  * (manager+), and the disconnect at `disconnect` (admin only — it destroys credentials) with the
  * typed-username confirmation in the **body** (query params leak into proxy logs).
  *
+ * NWB-P2-007 adds the lifecycle half P2-006 scoped out, on the same four verbs (no new CASL
+ * verbs — every candidate lands on a tier that already exists): pause / resume / on-demand
+ * health-check at `connect` (manager+, the tier Module 3 §6.2 gives connection management), the
+ * per-account quota read at `usage`, `?attention=true` on the list for FR-SOC-044's widget, and
+ * `?dryRun=true` on the DELETE for FR-SOC-011's impact analysis — which writes nothing, so it
+ * asks for no typed confirmation.
+ *
  * Failure discipline: every bad-state shape answers the same generic error (no oracle for
  * whether a state exists), and success redirects to the state's `return_url` — a relative path
  * by construction, since `initiate` rejected anything else.
  */
 import { Hono } from "hono";
-import { ValidationError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import { paginationMeta, parsePagination } from "@/lib/pagination";
 import { success } from "@/lib/response";
 import { patternParam } from "@/server/api/route-params";
@@ -46,6 +53,33 @@ function platformParam(c: Parameters<typeof patternParam>[0]): SocialPlatform {
 
 function accountIdParam(c: Parameters<typeof patternParam>[0]): string {
   return patternParam(c, "accountId", SOCIAL_ACCOUNT_ID_PATTERN, "accountId");
+}
+
+/**
+ * The optional `reason` an operator can attach to a pause/resume (it lands in the audit row and
+ * the health-log timeline, which is what makes "who stopped collection and why" answerable).
+ * Absent body, empty body and a non-JSON body all mean "no reason" — the reason is a courtesy
+ * field, and a 422 here would make the one-click pause button a form. A present-but-wrong type
+ * is still a 422, because that is a client bug rather than an operator omitting an optional field.
+ */
+async function optionalReasonFromBody(c: {
+  req: { json: () => Promise<unknown> };
+}): Promise<string | undefined> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return undefined;
+  }
+  if (body === null || typeof body !== "object") return undefined;
+  const reason = (body as { reason?: unknown }).reason;
+  if (reason === undefined) return undefined;
+  if (typeof reason !== "string") {
+    throw new ValidationError("Reason must be a string", [
+      { field: "reason", message: "Must be a string" },
+    ]);
+  }
+  return reason.length > 0 ? reason : undefined;
 }
 
 /** The lifecycle statuses a list filter may name (the social_account_status enum). */
@@ -135,6 +169,17 @@ socialRouter.get(
       }
       platform = platformRaw;
     }
+    const attentionRaw = url.searchParams.get("attention");
+    let attention: boolean | undefined;
+    if (attentionRaw !== null) {
+      if (attentionRaw === "true" || attentionRaw === "1") attention = true;
+      else if (attentionRaw === "false" || attentionRaw === "0") attention = false;
+      else {
+        throw new ValidationError("Unknown attention filter", [
+          { field: "attention", message: "Must be true or false" },
+        ]);
+      }
+    }
     const statusRaw = url.searchParams.get("status") ?? undefined;
     if (statusRaw && !LIST_STATUSES.has(statusRaw)) {
       throw new ValidationError("Unknown status filter", [
@@ -146,10 +191,16 @@ socialRouter.get(
       ]);
     }
 
-    const { items, pageInfo } = await getSocialService().listAccounts(c.var.db, orgId, page, {
-      ...(platform !== undefined ? { platform } : {}),
-      ...(statusRaw !== undefined ? { status: statusRaw } : {}),
-    });
+    const { items, pageInfo, attentionCount } = await getSocialService().listAccounts(
+      c.var.db,
+      orgId,
+      page,
+      {
+        ...(platform !== undefined ? { platform } : {}),
+        ...(statusRaw !== undefined ? { status: statusRaw } : {}),
+        ...(attention !== undefined ? { attention } : {}),
+      },
+    );
     return c.json(
       success(
         {
@@ -159,7 +210,9 @@ socialRouter.get(
             connectedAt: account.connectedAt.toISOString(),
           })),
         },
-        paginationMeta(pageInfo),
+        // `attentionCount` is the org-wide total, filter-independent: FR-SOC-044's widget says
+        // "X accounts need attention" even while the operator is looking at one platform.
+        { ...paginationMeta(pageInfo), attentionCount },
       ),
     );
   },
@@ -230,6 +283,101 @@ socialRouter.get(
   },
 );
 
+// GET /api/social/accounts/:accountId/usage — the per-account quota snapshot (`usage` tier).
+// The detail route already embeds this; the separate read is the cheap poll a quota panel wants
+// without re-fetching the profile, the breaker state and the health timeline (NWB-P2-007).
+socialRouter.get(
+  "/social/accounts/:accountId/usage",
+  authMiddleware,
+  requireAbility("usage", "socialaccounts"),
+  async (c) => {
+    const { orgId } = c.var.user;
+    const accountId = accountIdParam(c);
+    const service = getSocialService();
+    const account = await service.getManageableAccount(c.var.db, {
+      organizationId: orgId,
+      accountId,
+    });
+    if (!account) throw new NotFoundError("Social account not found");
+    const quota = await service.getQuotaSnapshot(c.var.db, {
+      organizationId: orgId,
+      accountId,
+    });
+    return c.json(
+      success({
+        accountId,
+        platform: account.platform,
+        platformUsername: account.platformUsername,
+        usage: quota,
+      }),
+    );
+  },
+);
+
+// POST /api/social/accounts/:accountId/health-check — probe now (`connect` tier: manager+).
+// P2-003's sweep already re-probes breaker-open accounts every tick; this is the operator asking
+// "is it fixed *now*" while looking at a red row, and a success closes the breaker through the
+// very same `applyProbeSuccess` path (NWB-P2-007 — the recovery route P2-003 parked here).
+socialRouter.post(
+  "/social/accounts/:accountId/health-check",
+  authMiddleware,
+  requireAbility("connect", "socialaccounts"),
+  async (c) => {
+    const { orgId, userId } = c.var.user;
+    const accountId = accountIdParam(c);
+    const result = await getSocialService().checkAccountHealth(c.var.db, {
+      organizationId: orgId,
+      accountId,
+      actorId: userId,
+    });
+    return c.json(success({ ...result, lastErrorAt: result.lastErrorAt?.toISOString() ?? null }));
+  },
+);
+
+// POST /api/social/accounts/:accountId/pause — stop collection, keep the connection (FR-SOC-016).
+// `connect` tier, not `disconnect`: pausing is reversible, keeps the sealed tokens, and is exactly
+// the "connection management" Module 3 §6.2 hands to Admin + Manager. A separate `update` verb
+// would land in the contentCreation tier and hand a Creator the ability to stop an org's data
+// collection (NWB-P2-007, decision 1).
+socialRouter.post(
+  "/social/accounts/:accountId/pause",
+  authMiddleware,
+  requireAbility("connect", "socialaccounts"),
+  async (c) => {
+    const { orgId, userId } = c.var.user;
+    const accountId = accountIdParam(c);
+    const reason = await optionalReasonFromBody(c);
+    const result = await getSocialService().setAccountCollection(c.var.db, {
+      organizationId: orgId,
+      accountId,
+      actorId: userId,
+      action: "pause",
+      ...(reason !== undefined ? { reason } : {}),
+    });
+    return c.json(success(result));
+  },
+);
+
+// POST /api/social/accounts/:accountId/resume — collection restarts with no new OAuth grant.
+socialRouter.post(
+  "/social/accounts/:accountId/resume",
+  authMiddleware,
+  requireAbility("connect", "socialaccounts"),
+  async (c) => {
+    const { orgId, userId } = c.var.user;
+    const accountId = accountIdParam(c);
+    const reason = await optionalReasonFromBody(c);
+    const result = await getSocialService().setAccountCollection(c.var.db, {
+      organizationId: orgId,
+      accountId,
+      actorId: userId,
+      action: "resume",
+      ...(reason !== undefined ? { reason } : {}),
+    });
+    return c.json(success(result));
+  },
+);
+
 // GET /api/social/usage — the org's quota roll-up (manager+: `usage` tier).
 socialRouter.get(
   "/social/usage",
@@ -245,6 +393,10 @@ socialRouter.get(
 // DELETE /api/social/accounts/:accountId — the disconnect (admin only). The typed username
 // rides in the body on purpose: URLs and query strings outlive requests in proxy logs, and
 // this string is the operator's deliberate "yes, this account".
+//
+// `?dryRun=true` is FR-SOC-011's impact analysis: the confirmation modal has to show what a
+// disconnection takes down *before* it asks anyone to type a username, so the dry run writes
+// nothing and asks for nothing (NWB-P2-007).
 socialRouter.delete(
   "/social/accounts/:accountId",
   authMiddleware,
@@ -252,6 +404,20 @@ socialRouter.delete(
   async (c) => {
     const { orgId, userId } = c.var.user;
     const accountId = accountIdParam(c);
+
+    const dryRunRaw = c.req.query("dryRun");
+    if (dryRunRaw !== undefined && dryRunRaw !== "false" && dryRunRaw !== "0") {
+      if (dryRunRaw !== "true" && dryRunRaw !== "1") {
+        throw new ValidationError("Unknown dryRun value", [
+          { field: "dryRun", message: "Must be true or false" },
+        ]);
+      }
+      const impact = await getSocialService().getDisconnectImpact(c.var.db, {
+        organizationId: orgId,
+        accountId,
+      });
+      return c.json(success({ dryRun: true, ...impact }));
+    }
 
     let body: { confirmUsername?: unknown; reason?: unknown } = {};
     try {

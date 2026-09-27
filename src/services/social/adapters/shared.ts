@@ -120,8 +120,17 @@ export interface PlatformAdapter {
    * The provider's token-revocation request (FR-SOC-013, the disconnect flow) when one exists.
    * `undefined` — the Meta pair has no user-token revoke endpoint — and the disconnect records
    * that honestly: the local wipe is the security property, the provider call is hygiene.
+   *
+   * `tokenType` says which of the two stored tokens is being revoked. Most dialects ignore it
+   * (Google retires the whole grant from either token, Reddit takes an optional hint), but RFC
+   * 7009 servers are allowed to require it, and X's is — hence it is part of the hook rather
+   * than something the caller assembles afterwards (NWB-P2-007).
    */
-  revokeRequest?(args: { token: string; credentials: PlatformCredentials }): {
+  revokeRequest?(args: {
+    token: string;
+    credentials: PlatformCredentials;
+    tokenType?: "access_token" | "refresh_token" | undefined;
+  }): {
     url: string;
     init: { method: string; headers: Record<string, string>; body?: string };
   };

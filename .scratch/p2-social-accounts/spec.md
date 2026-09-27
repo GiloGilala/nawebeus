@@ -3,7 +3,9 @@
 **Feature slug:** `p2-social-accounts`
 **Spec owner:** Engineering Lead
 **Roadmap:** `docs/plan/master-roadmap/08-phase-3-4-modules.md` (§13) · execution plan §5 P2 · PRD Module 3
-**Status:** **complete — 6 of 6 tickets done** (P2-005 splits into five per-platform tickets
+**Status:** **complete — 6 of 6 tickets done**, plus one follow-up (NWB-P2-007) that closes the
+gaps P2-006 scoped out and two bugs found while comparing it against a parallel implementation
+(P2-005 splits into five per-platform tickets
 per the roadmap note, so the *ticket* count is 6 and the *platform-adapter* work inside P2-005 is
 five). **NWB-P2-001** (OAuth flow) **done 2026-09-24** (evidence in issues/01): schema adoption
 (0011), AES-256-GCM sealing, platform registry + exchange client, single-use state machine with
@@ -54,6 +56,20 @@ unattended (P2-002), report health with the breaker tripping and recovering demo
 disconnect under the full role matrix. The quota half is P2-004: per-platform quota *numbers*
 (default 10 000/day via `SOCIAL_QUOTA_DEFAULT_LIMIT` until real platform limits are configured)
 are P13 plan-limit config, not schema work — P13 reads the same ledger this phase writes.
+**Follow-up (NWB-P2-007, `issues/07-lifecycle-gaps-and-bug-fixes.md`).** A second, independent
+implementation of P2-006 was built in parallel from a sandbox cloned at the pre-#23 base; it was
+not merged, and `main`'s version stands (including its permission model, which is closer to
+Module 3 §6.2). Reading the two side by side produced this follow-up: the lifecycle half P2-006
+explicitly scoped out — pause/resume (FR-SOC-016), the on-demand health-check probe (P2-003's
+recovery path made operator-reachable), the per-account quota read, `?attention=true` +
+`meta.attentionCount` (FR-SOC-044's data half), `?dryRun=true` impact preview (FR-SOC-011) — plus
+FR-SOC-008/022's notification hops over the P1 email channel, X's RFC 7009 revocation dialect,
+revoking the refresh token as well as the access token, and **two bugs**: `markNeedsReauth`
+aborting its caller's transaction on `chk_sahl_transition_differs` when an account was already
+`needs_reauth`, and the reconnect revive leaving `circuit_breaker_open`, `is_active = false` and
+the retention stamp behind — a freshly re-authenticated account was born undispatchable. The
+phase's exit gate above is unaffected; this is scope the phase owed and had parked.
+
 **Security note (plan §13):** the OAuth callback is a public endpoint — CSRF via single-use state
 (replay-tested); token secrets never in responses or logs (FR-SOC-023 / BR-SOC-016); the
 disconnect wipes both token columns locally regardless of the provider's revocation outcome.

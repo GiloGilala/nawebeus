@@ -14,11 +14,16 @@ import {
   updateMemberByIdSchema,
   updateOrgSchema,
 } from "@/lib/validation";
-import { bulkInviteMembers, inviteMember } from "@/services/orgs/invitation.service";
+import {
+  bulkInviteMembers,
+  inviteMember,
+  listPendingInvitations,
+} from "@/services/orgs/invitation.service";
 import { getMember, listMembers, removeMember, updateMember } from "@/services/orgs/member.service";
 import { getOrg, listUserOrgs, updateOrg } from "@/services/orgs/org.service";
 import { deleteOrganization, reactivateOrganization } from "@/services/orgs/org-deletion.service";
 import { assignRole } from "@/services/orgs/role-assignment.service";
+import { listAssignableRoles } from "@/services/orgs/role-policy";
 import { createServerFn } from "../lib/createServerFn";
 import { assertServerAbility, getServerAuth, getServerDb, withServerOrgContext } from "./helpers";
 
@@ -181,3 +186,50 @@ export const bulkInviteServerFn = createServerFn({ method: "POST" })
     );
     return { successes: result.successes.length, failures: result.failures };
   });
+
+/**
+ * The outstanding invitations for this organization (NWB-P14.2) — the team screen's "awaiting
+ * acceptance" panel: who was invited, to which role, when it expires, and whether it has already
+ * lapsed (`expired`, still listed because the fix is the same resend button).
+ *
+ * Gated on `members.read` (manager+ in the seeded matrix), which is **stricter than
+ * `listMembersServerFn` above** — that one asserts no ability at all, mirroring a Hono route that
+ * also asserts none. The asymmetry is deliberate and recorded rather than accidental: an invitation
+ * carries an emailed address and a live token lifetime, its only consumer is the invite panel, and
+ * nobody who cannot invite needs it. Tightening the members list to match is a security-model
+ * decision that belongs in its own ticket, not in a web cluster (finding F-P14.2-1).
+ *
+ * Never carries a token, plaintext or hashed — see `listPendingInvitations`.
+ */
+export const listPendingInvitationsServerFn = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const auth = await getServerAuth();
+    assertServerAbility(auth, "read", "members");
+    const db = getServerDb();
+    const invitations = await withServerOrgContext(auth, () =>
+      listPendingInvitations(db, auth.orgId),
+    );
+    return { invitations };
+  },
+);
+
+/**
+ * The roles this seat may grant (NWB-P14.2) — DEC-039's ladder evaluated as a query.
+ *
+ * The invite form and the role picker both need a role *id*, and until now nothing answered "which
+ * ids are assignable?": `resolveAssignableRole` only says whether one you already have is. Without
+ * a catalog a UI either hard-codes the seeded ids (the F-02 lesson — never re-spell authorization
+ * data in the client) or offers all six and lets the service refuse most of them, which reads as a
+ * bug to whoever clicked. So the list comes back already filtered to strictly-below-the-actor,
+ * `owner` excluded (BR-AUTH-031: ownership is transferred, not granted), and `actor` rides along so
+ * the screen can explain a short list instead of rendering an empty one.
+ *
+ * `roles.read` is manager+ in the seeded matrix — the same seats that hold `members.create`, so
+ * whoever can open the invite form can populate its picker, and nobody else needs to.
+ */
+export const listAssignableRolesServerFn = createServerFn({ method: "GET" }).handler(async () => {
+  const auth = await getServerAuth();
+  assertServerAbility(auth, "read", "roles");
+  const db = getServerDb();
+  return withServerOrgContext(auth, () => listAssignableRoles(db, auth.orgId, auth.userId));
+});

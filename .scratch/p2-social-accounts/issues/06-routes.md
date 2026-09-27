@@ -85,6 +85,19 @@ permissions in the seeded matrix.
 
 - 2026-09-25: claimed by the Arena agent (session `arena/01a0d531-nawebeus`) — the phase's last
   ticket; opened against a fresh PR because #22 (P2-001…005) merged 2026-09-25 14:35 UTC.
+- 2026-09-26: **this ticket's version is the one that stands.** A second, independent
+  implementation of NWB-P2-006 was built in parallel (session `arena/01a0d8fe-nawebeus`, from a
+  sandbox cloned at the pre-#23 base `e9bc730`, so its context predated this merge) and was never
+  merged; it is preserved in `.scratch/p2-social-accounts/agent-worktree-backup/` for reference.
+  Comparing the two produced **`issues/07-lifecycle-gaps-and-bug-fixes.md`**, which lands what
+  this ticket scoped out (pause/resume, the on-demand probe, per-account usage, the attention
+  filter, the dry-run impact preview, FR-SOC-008/022 notifications, X's revocation dialect) and
+  fixes two bugs in the code above: `markNeedsReauth` aborting its caller's transaction when the
+  account was already `needs_reauth` (`chk_sahl_transition_differs` → 23514), and the reconnect
+  revive leaving `circuit_breaker_open`, `is_active = false` and `data_retention_until` behind —
+  a freshly re-authenticated account was born undispatchable. This ticket's own decisions (the
+  permission model, the typed confirmation in the body, the token-free projections) are unchanged
+  and were adopted by the follow-up.
 - 2026-09-25: three traps the implementation hit, all recorded here for the next social ticket:
   1. **The whole test file shares one transaction** (`createTestDb` is one `BEGIN`), so
      `connected_at`'s `now()` is frozen — every row ties and any "newest first" helper keyed on

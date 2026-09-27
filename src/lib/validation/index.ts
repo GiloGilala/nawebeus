@@ -143,6 +143,20 @@ export {
   zodIssues,
 } from "./parse";
 export {
+  disconnectSocialAccountSchema,
+  initiateSocialConnectSchema,
+  listSocialAccountsQuerySchema,
+  SOCIAL_ACCOUNT_ID_PATTERN,
+  SOCIAL_ACCOUNT_STATUSES,
+  SOCIAL_PLATFORMS,
+  SOCIAL_RETURN_URL_PATTERN,
+  type SocialAccountStatus,
+  type SocialPlatformInput,
+  socialAccountHealthQuerySchema,
+  socialAccountIdSchema,
+  socialCollectionActionSchema,
+} from "./social.schemas";
+export {
   approveTemplateSchema,
   createTemplateSchema,
   listTemplatesQuerySchema,

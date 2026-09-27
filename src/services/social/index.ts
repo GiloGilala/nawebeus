@@ -10,13 +10,20 @@ export {
   REDDIT_USER_AGENT,
 } from "./adapters";
 export {
-  HttpPlatformOAuthClient,
-  OAuthExchangeError,
-} from "./oauth-client";
+  defaultSocialNotifier,
+  getSocialNotifier,
+  type SocialNotificationEvent,
+  type SocialNotificationResult,
+  type SocialNotifier,
+  setSocialNotifierForTest,
+} from "./notifier";
+export { HttpPlatformOAuthClient, OAuthExchangeError } from "./oauth-client";
 export {
   callbackPathFor,
   configuredPlatforms,
   createSocialService,
+  DISCONNECT_RETENTION_DAYS,
+  type DisconnectImpactDomain,
   getSocialService,
   OAUTH_STATE_RETENTION_SECONDS,
   OAUTH_STATE_TTL_SECONDS,
@@ -24,6 +31,7 @@ export {
   QUOTA_WARNING_PERCENT,
   type QuotaBucketKind,
   type QuotaStatus,
+  type RevocationOutcome,
   SOCIAL_ACCOUNT_ID_PATTERN,
   type SocialAccountRecord,
   type SocialService,
