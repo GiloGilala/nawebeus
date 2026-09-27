@@ -25,6 +25,18 @@ import {
   resolveAssignableRole,
 } from "./role-policy";
 
+/**
+ * Raw `db.execute` rows carry timestamps as strings (drizzle's pg type parser passes them through),
+ * so a read that hands a `Date` to its caller normalizes first — the same helper `src/services/social`
+ * keeps locally for the same reason. Without it a `PendingInvitation.expiresAt` typed `Date | null`
+ * arrives at the web as `"2026-10-04 15:50:34.025+00"`, which renders fine and lies about its type.
+ */
+function toDate(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") return new Date(value);
+  return null;
+}
+
 export interface InviteOneInput {
   email: string;
   roleId?: string | undefined;
@@ -756,9 +768,9 @@ export async function listPendingInvitations(
     department: (row.department as string) ?? null,
     invitationNote: (row.invitation_note as string) ?? null,
     invitedByUserId: (row.invited_by as string) ?? null,
-    invitedAt: (row.invited_at as Date) ?? null,
-    sentAt: (row.invitation_sent_at as Date) ?? null,
-    expiresAt: (row.expires_at as Date) ?? null,
+    invitedAt: toDate(row.invited_at),
+    sentAt: toDate(row.invitation_sent_at),
+    expiresAt: toDate(row.expires_at),
     expired: Boolean(row.expired),
     hasAccount: Boolean(row.has_account),
   }));
