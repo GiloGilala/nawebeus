@@ -5,8 +5,8 @@
 **Roadmap:** `docs/plan/master-roadmap/` (Phase 7 settings/web clusters) · execution plan §P14 · ADR-002 (TanStack Start), ADR-007 (single Bun process)
 **Status:** **in progress, out of plan order.** The auth screens already exist in the tree
 (`src/app/routes/auth/*`, `dashboard`, the `createServerFn`/`routeTree.gen` stubs); P14.3 (social
-account connect) is **done 2026-09-27**. The rest of the cluster is deliberately not started — see
-"Order" below.
+account connect) and P14.2 (invitation landing + team screen, partially — see "Order") are **done
+2026-09-27**. The rest of the cluster is deliberately not started.
 
 > Provenance caveat: this working clone carries only the `main` refspec, so the commits that
 > originally added `src/app` are not reachable — `git log --diff-filter=A -- src/app` attributes the
@@ -39,13 +39,23 @@ so they are the two that can be built without inventing a service:
 | Sub-phase | Screen | Backend | State |
 |---|---|---|---|
 | P14.1 | Auth: sign in, register, verify, reset | P0 | **already in the tree** (`src/app/routes/auth/*`, `dashboard`) — ticket unverifiable from this clone, see caveat above |
-| P14.2 | Org setup: create org, invite members, onboarding checklist | P1 (orgs, users, invitations) | not started — buildable now |
+| P14.2 | Org setup: create org, invite members, onboarding checklist | P1 (orgs, users, invitations) | **invitations + team screen done 2026-09-27 — `issues/02-invite-and-team.md`**; org-profile screen and onboarding checklist still open |
 | **P14.3** | **Social account connect (OAuth) + connection management** | **P2 (NWB-P2-001…007)** | **done 2026-09-27 — `issues/01-social-connect.md`** |
 | P14.4+ | Publishing, monitoring, listening, engagement, PR, influencer, commerce, campaigns, analytics, admin, billing, notifications | P3–P13 | blocked on their backend phases |
 
 P14.3 was taken before P14.2 by explicit choice (it is the screen the OAuth callback has been
 302-ing to since NWB-P2-001, so a redirect in shipped code pointed at a route that did not exist).
-NWB-P0-019, for the record, was P0's *documentation* close-out — not the web layer.
+P14.2 then took the invitation half first for the same reason — `invitation.service.ts` has built
+`${APP_BASE_URL}/invite?token=…` since P1, into a route that did not exist — and split the
+org-profile screen and onboarding checklist into a follow-up. NWB-P0-019, for the record, was P0's
+*documentation* close-out — not the web layer.
+
+P14.2 also produced a gate the cluster did not have: `src/tests/route-links.test.ts` scans services
+for absolute links and routes for navigation targets and fails when no route answers. Both dangling
+links above were invisible to every existing check, because `.tsx` routes are `@ts-nocheck` and
+nothing renders them. Two more are known and allowlisted (`/reset-password`,
+`/change-email/confirm` — P14.1's), with an assertion that keeps the allowlist from quietly
+becoming permanent.
 
 ## Conventions this cluster follows (recorded once, apply to every screen)
 
@@ -77,5 +87,14 @@ NWB-P0-019, for the record, was P0's *documentation* close-out — not the web l
 All P14 sub-phases shipped with the per-screen requirements satisfied (loading · skeleton · empty ·
 error · permission-denied · not-found · mutation-pending · success confirmation · cache
 invalidation · responsive · keyboard-accessible). Tracked per screen in `issues/`; the state today
-is "P14.1 and P14.3 done, remainder blocked on their backend phases", so the phase gate is **not**
-met and P15 does not start here.
+is "P14.1 done, P14.3 done, P14.2 partially done, remainder blocked on their backend phases", so
+the phase gate is **not** met and P15 does not start here.
+
+Two standing caveats on how far "done" reaches for a screen in this cluster:
+
+- The per-screen UI states are **reviewed by hand, not automated** — nothing renders `.tsx` in CI.
+  What is automated is the Server Functions behind them (in-process, real DB) and the route files as
+  structural documents, plus the link scan above.
+- P14.2 recorded one security finding worth scheduling ahead of further org work:
+  `organization_members.invitation_token` keeps the raw emailed token in plaintext beside its own
+  hash, and nothing reads it (F-P14.2 in `issues/02-invite-and-team.md`).
