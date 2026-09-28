@@ -7,7 +7,6 @@ import {
   index,
   integer,
   jsonb,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -15,15 +14,23 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { users } from "../auth/users";
+
+import { users } from "../core/users";
+
+import { organizations } from "../organization/organizations";
 import {
   billingTransactionCategoryPgEnum,
   billingTransactionStatusPgEnum,
   currencyPgEnum,
+  disputeStatusEnum,
+  paymentProcessorEnum,
+  processorStatusEnum,
   productTypePgEnum,
-} from "../enums";
-import { organizations } from "../organization/organizations";
-import { tablePrefix } from "../schema-utils";
+  settlementStatusEnum,
+  transactionOriginEnum,
+  transactionTypeEnum,
+} from "../shared/enums";
+import { tablePrefix } from "../shared/schema-utils";
 import { invoices } from "./invoices";
 import { payments } from "./payments";
 import { subscriptions } from "./subscriptions";
@@ -32,76 +39,10 @@ import { subscriptions } from "./subscriptions";
 // ENUMS
 // ============================================
 
-export const transactionTypeEnum = pgEnum("transaction_type", [
-  "charge",
-  "payment",
-  "refund",
-  "credit",
-  "debit",
-  "adjustment",
-  "fee",
-  "discount",
-  "tax",
-  "transfer",
-  "chargeback",
-  "payout",
-  "deposit",
-]);
+// `payment_processor` uses the shared canonical enum (NWB-P13-001 adoption):
+// the union of this file's and `payments.ts`' divergent local copies.
 
-export const paymentProcessorEnum = pgEnum("payment_processor", [
-  "paystack",
-  "stripe",
-  "flutterwave",
-  "paypal",
-  "manual",
-  "wallet",
-  "bank_transfer",
-  "cash",
-  "square",
-  "adyen",
-  "razorpay",
-  "other",
-]);
-
-export const processorStatusEnum = pgEnum("processor_status", [
-  "authorized",
-  "captured",
-  "failed",
-  "settled",
-  "pending",
-  "voided",
-  "refunded",
-]);
-
-export const originEnum = pgEnum("transaction_origin", [
-  "subscription",
-  "invoice",
-  "manual",
-  "refund",
-  "api",
-  "migration",
-  "system",
-  "admin",
-  "cron",
-  "webhook",
-  "checkout",
-]);
-
-export const disputeStatusEnum = pgEnum("dispute_status", [
-  "pending",
-  "under_review",
-  "won",
-  "lost",
-  "closed",
-]);
-
-export const settlementStatusEnum = pgEnum("settlement_status", [
-  "pending",
-  "in_transit",
-  "settled",
-  "failed",
-  "reversed",
-]);
+// `settlement_status` uses the shared canonical enum (NWB-P13-001 adoption).
 
 // ============================================
 // TRANSACTIONS TABLE
@@ -130,8 +71,9 @@ export const transactions = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "restrict" }),
 
-    // NEW: Product type
-    productType: productTypePgEnum("product_type").notNull().default("simple"),
+    // NEW: Product type ("simple" is a monorepo-era value; the adoption
+    // defaults to the social product line — NWB-P13-001)
+    productType: productTypePgEnum("product_type").notNull().default("social"),
 
     subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
       onDelete: "set null",
@@ -166,7 +108,7 @@ export const transactions = pgTable(
     category: billingTransactionCategoryPgEnum("category").notNull().default("other"),
 
     // NEW: Origin
-    origin: originEnum("origin"),
+    origin: transactionOriginEnum("origin"),
 
     // ============================================
     // AMOUNT & CURRENCY (Using bigint for minor units)
@@ -561,7 +503,7 @@ export const transactions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull()
-      .$onUpdate(() => sql`now()`),
+      .$onUpdate(() => new Date()),
   },
   (table) => [
     // ============================================

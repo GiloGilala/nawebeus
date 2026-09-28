@@ -8,7 +8,6 @@ import {
   inet,
   integer,
   jsonb,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -16,10 +15,23 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { users } from "../auth/users";
-import { paymentMethodPgEnum, paymentStatusPgEnum } from "../enums";
+
+import { users } from "../core/users";
+
 import { organizations } from "../organization/organizations";
-import { tablePrefix } from "../schema-utils";
+import {
+  actionTypeEnum,
+  createdViaEnum,
+  paymentInitiatorEnum,
+  paymentMethodTypeEnum,
+  paymentProcessorEnum,
+  paymentStatusPgEnum,
+  paymentTypeEnum,
+  refundReasonEnum,
+  riskLevelEnum,
+  settlementStatusEnum,
+} from "../shared/enums";
+import { tablePrefix } from "../shared/schema-utils";
 import { invoices } from "./invoices";
 import { paymentMethods } from "./payment-methods";
 import { subscriptions } from "./subscriptions";
@@ -28,75 +40,10 @@ import { subscriptions } from "./subscriptions";
 // ENUMS
 // ============================================
 
-export const paymentTypeEnum = pgEnum("payment_type", [
-  "subscription",
-  "one_time",
-  "addon",
-  "usage",
-  "setup_fee",
-  "late_fee",
-  "credit_adjustment",
-  "refund",
-]);
-
-export const refundReasonEnum = pgEnum("refund_reason", [
-  "requested_by_customer",
-  "duplicate",
-  "fraudulent",
-  "service_issue",
-  "cancellation",
-  "billing_error",
-  "other",
-]);
-
-export const paymentProcessorEnum = pgEnum("payment_processor", [
-  "stripe",
-  "paypal",
-  "braintree",
-  "square",
-  "authorize_net",
-  "manual",
-  "other",
-]);
-
-export const settlementStatusEnum = pgEnum("settlement_status", [
-  "pending",
-  "processing",
-  "settled",
-  "failed",
-  "reversed",
-]);
-
-export const riskLevelEnum = pgEnum("risk_level", ["low", "medium", "high", "critical"]);
-
-export const actionTypeEnum = pgEnum("action_type", [
-  "3d_secure",
-  "redirect",
-  "verify_with_microdeposits",
-  "verify_with_instant",
-]);
-
-export const paymentInitiatorEnum = pgEnum("payment_initiator", [
-  "customer",
-  "admin",
-  "system",
-  "cron",
-  "subscription",
-  "api",
-  "migration",
-  "checkout",
-  "invoice",
-]);
-
-export const createdViaEnum = pgEnum("payment_created_via", [
-  "dashboard",
-  "api",
-  "subscription",
-  "invoice",
-  "checkout",
-  "migration",
-  "admin",
-]);
+// `payment_processor`, `settlement_status` and `risk_level` use the shared
+// canonical enums (NWB-P13-001 adoption) — this file and `transactions.ts`
+// each carried a divergent local copy of the first two; the shared version
+// is the union of their value sets (paystack first, per decision D7).
 
 // ============================================
 // PAYMENTS TABLE
@@ -177,7 +124,7 @@ export const payments = pgTable(
     // ============================================
     // PAYMENT METHOD (Snapshot + Link)
     // ============================================
-    paymentMethod: paymentMethodPgEnum("payment_method").notNull().default("card"),
+    paymentMethod: paymentMethodTypeEnum("payment_method").notNull().default("card"),
     paymentProcessor: paymentProcessorEnum("payment_processor").notNull().default("stripe"),
 
     // Snapshot of payment method details at time of payment
@@ -565,7 +512,7 @@ export const payments = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull()
-      .$onUpdate(() => sql`now()`),
+      .$onUpdate(() => new Date()),
   },
   (table) => [
     // ============================================
@@ -654,10 +601,10 @@ export const payments = pgTable(
       .on(table.organizationId, table.subscriptionId)
       .where(sql`subscription_id IS NOT NULL`),
 
-    // Organization + Processor
-    index("payments_org_processor_idx")
-      .on(table.organizationId, table.paymentProcessor)
-      .where(sql`deleted_at IS NULL`),
+    // Organization + Processor. (The monorepo copy filtered on
+    // `deleted_at IS NULL`, but the payments table has no `deleted_at` column —
+    // the predicate was dropped, NWB-P13-001.)
+    index("payments_org_processor_idx").on(table.organizationId, table.paymentProcessor),
 
     // Organization + Currency
     index("payments_org_currency_idx").on(table.organizationId, table.currency),

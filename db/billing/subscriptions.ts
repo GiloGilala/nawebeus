@@ -12,7 +12,6 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { ProductType } from "@/server/billing/types/plan-types";
 import type {
   BillingHistoryEvent,
   ChangeHistory,
@@ -27,15 +26,17 @@ import type {
   SubscriptionMetadata,
   SubscriptionUsage,
 } from "@/server/billing/types/subscription-types";
+
 import { users } from "../core/users";
+
 import { organizations } from "../organization/organizations";
 import {
   billingCyclePgEnum,
-  paymentMethodPgEnum,
+  paymentMethodTypeEnum,
   productTypePgEnum,
   subscriptionCancelReasonPgEnum,
-  subscriptionPlanPgEnum,
-  subscriptionStatusPgEnum,
+  subscriptionStatusEnum,
+  subscriptionTypeEnum,
 } from "../shared/enums";
 import { tablePrefix } from "../shared/schema-utils";
 import { plans } from "./plans";
@@ -43,6 +44,15 @@ import { plans } from "./plans";
 // ============================================
 // USAGE TRACKING TYPES
 // ============================================
+
+// Deterministic "never metered" sentinel for the jsonb column defaults.
+// The monorepo copy used `new Date()` here, which drizzle embeds into the DDL
+// at schema-load time — a new timestamp on every load, so every
+// `db:generate` re-diffed the defaults and wanted to ALTER them again
+// (NWB-P13-001). A fixed epoch is stable for the diff and still reads as
+// "unset"; the service overwrites every one of these fields with the real
+// period start when it creates a subscription.
+const METERING_EPOCH = new Date(0);
 
 const UsageDefault: SubscriptionUsage = {
   productType: "social",
@@ -67,8 +77,8 @@ const UsageDefault: SubscriptionUsage = {
   teamMembersActive: undefined,
 
   // Metadata
-  lastReset: new Date(),
-  lastUpdated: new Date(),
+  lastReset: METERING_EPOCH,
+  lastUpdated: METERING_EPOCH,
 };
 
 // ============================================
@@ -107,10 +117,10 @@ const OverageStatusDefault: OverageStatus = {
   hasOverage: false,
   totalOverage: 0,
   overageCharges: [],
-  lastOverageCheck: new Date(),
-  nextOverageCheck: new Date(),
+  lastOverageCheck: METERING_EPOCH,
+  nextOverageCheck: METERING_EPOCH,
   totalPendingOverage: 0,
-  lastChecked: new Date(),
+  lastChecked: METERING_EPOCH,
 };
 
 const AddonDefault: SubscriptionAddon[] = [];
@@ -132,6 +142,13 @@ const BillingHistoryDefault: BillingHistoryEvent[] = [];
 const ChangeHistoryDefault: ChangeHistory[] = [];
 
 // ============================================
+// ENUMS
+// ============================================
+// Subscription scope. The monorepo copy typed this column with the plan-tier
+// enum (free/starter/...); the values it actually stores are scopes, so the
+// adoption gives it its own type (NWB-P13-001).
+
+// ============================================
 // SUBSCRIPTIONS TABLE
 // ============================================
 
@@ -146,7 +163,7 @@ export const subscriptions = pgTable(
     // ============================================
     // OWNERSHIP
     // ============================================
-    type: subscriptionPlanPgEnum("type").notNull().default("organization"),
+    type: subscriptionTypeEnum("type").notNull().default("organization"),
 
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     organizationId: uuid("organization_id").references(() => organizations.id, {
@@ -189,7 +206,7 @@ export const subscriptions = pgTable(
     // ============================================
     // STATUS & LIFECYCLE
     // ============================================
-    status: subscriptionStatusPgEnum("status").notNull().default("active"),
+    status: subscriptionStatusEnum("status").notNull().default("active"),
     isActive: boolean("is_active").notNull().default(true),
 
     // Trial
@@ -283,7 +300,7 @@ export const subscriptions = pgTable(
     // ============================================
     // PAYMENT METHOD
     // ============================================
-    paymentMethodType: paymentMethodPgEnum("payment_method_type"),
+    paymentMethodType: paymentMethodTypeEnum("payment_method_type"),
     paymentMethodDetails: jsonb("payment_method_details").$type<PaymentMethodDetails>().default({}),
 
     // ============================================
@@ -376,7 +393,7 @@ export const subscriptions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull()
-      .$onUpdate(() => sql`now()`),
+      .$onUpdate(() => new Date()),
 
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: uuid("deleted_by").references(() => users.id, {
@@ -436,7 +453,9 @@ export const subscriptions = pgTable(
 
     index("subscriptions_failing_payments_idx")
       .on(table.paymentFailureCount, table.status, table.nextPaymentAt)
-      .where(sql`payment_failure_count > 0 AND status != 'canceled' AND deleted_at IS NULL`),
+      // (The monorepo copy wrote 'canceled'; the subscription_status enum
+      // established by migration 0000 spells it 'cancelled'.)
+      .where(sql`payment_failure_count > 0 AND status != 'cancelled' AND deleted_at IS NULL`),
 
     // ============================================
     // JSONB GIN INDEXES
@@ -447,9 +466,15 @@ export const subscriptions = pgTable(
 
     index("subscriptions_tags_gin_idx").using("gin", table.tags).where(sql`tags IS NOT NULL`),
 
-    index("subscriptions_usage_gin_idx").using("gin", table.usage).where(sql`usage IS NOT NULL`),
+    // (The monorepo copy anchored these predicates on the TS property names,
+    // which are not the DB column names — corrected, NWB-P13-001.)
+    index("subscriptions_usage_gin_idx")
+      .using("gin", table.usage)
+      .where(sql`subscription_usage IS NOT NULL`),
 
-    index("subscriptions_limits_gin_idx").using("gin", table.limits).where(sql`limits IS NOT NULL`),
+    index("subscriptions_limits_gin_idx")
+      .using("gin", table.limits)
+      .where(sql`subscription_limits IS NOT NULL`),
 
     index("subscriptions_addons_gin_idx").using("gin", table.addons).where(sql`addons IS NOT NULL`),
   ],

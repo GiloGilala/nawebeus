@@ -8,7 +8,6 @@ import {
   integer,
   jsonb,
   numeric,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -16,153 +15,39 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { users } from "../auth/users";
+
+import { users } from "../core/users";
+
 import { organizations } from "../organization/organizations";
-import { tablePrefix } from "../schema-utils";
+import {
+  accountHolderTypeEnum,
+  addressCheckEnum,
+  bankAccountTypeEnum,
+  blockStatusEnum,
+  cardBrandEnum,
+  cardFundingEnum,
+  cvcCheckEnum,
+  fraudStatusEnum,
+  networkTokenStatusEnum,
+  paymentMethodStatusEnum,
+  paymentMethodTypeEnum,
+  processorTypeEnum,
+  riskLevelEnum,
+  sourceEnum,
+  verificationMethodEnum,
+  verificationStatusEnum,
+  walletProviderEnum,
+} from "../shared/enums";
+import { tablePrefix } from "../shared/schema-utils";
 
 // ============================================
 // ENUMS
 // ============================================
-
-export const paymentMethodTypeEnum = pgEnum("payment_method_type", [
-  "card",
-  "bank_account",
-  "paypal",
-  "apple_pay",
-  "google_pay",
-  "sepa_debit",
-  "ach_debit",
-  "bacs_debit",
-  "au_becs_debit",
-  "us_bank_account",
-  "link",
-  "crypto_wallet",
-  "other",
-]);
-
-export const paymentMethodStatusEnum = pgEnum("payment_method_status", [
-  "active",
-  "inactive",
-  "verification_pending",
-  "verification_failed",
-  "expired",
-  "canceled",
-]);
-
-export const cardBrandEnum = pgEnum("card_brand", [
-  "visa",
-  "mastercard",
-  "amex",
-  "discover",
-  "diners",
-  "jcb",
-  "unionpay",
-  "maestro",
-  "elo",
-  "mir",
-  "unknown",
-]);
-
-export const cardFundingEnum = pgEnum("card_funding", ["credit", "debit", "prepaid", "unknown"]);
-
-export const bankAccountTypeEnum = pgEnum("bank_account_type", [
-  "checking",
-  "savings",
-  "business_checking",
-  "business_savings",
-]);
-
-export const processorTypeEnum = pgEnum("processor_type", [
-  "stripe",
-  "paypal",
-  "paystack",
-  "flutterwave",
-  "square",
-  "adyen",
-  "razorpay",
-  "cashfree",
-  "monnify",
-  "opay",
-  "momo",
-  "braintree",
-  "authorize_net",
-  "worldpay",
-  "other",
-]);
-
-export const riskLevelEnum = pgEnum("risk_level", ["low", "medium", "high", "critical", "blocked"]);
-
-export const verificationStatusEnum = pgEnum("verification_status", [
-  "pending",
-  "processing",
-  "verified",
-  "failed",
-  "expired",
-  "manual_review",
-]);
-
-export const accountHolderTypeEnum = pgEnum("account_holder_type", [
-  "individual",
-  "company",
-  "government",
-  "non_profit",
-]);
-
-export const verificationMethodEnum = pgEnum("verification_method", [
-  "instant",
-  "micro_deposit",
-  "manual",
-  "processor",
-  "bank_api",
-  "third_party",
-]);
-
-export const cvcCheckEnum = pgEnum("cvc_check", ["pass", "fail", "unchecked", "unavailable"]);
-
-export const addressCheckEnum = pgEnum("address_check", [
-  "pass",
-  "fail",
-  "unchecked",
-  "unavailable",
-]);
-
-export const fraudStatusEnum = pgEnum("fraud_status", [
-  "clean",
-  "suspected",
-  "confirmed",
-  "blocked",
-]);
-
-export const blockStatusEnum = pgEnum("block_status", ["active", "blocked", "released"]);
-
-export const walletProviderEnum = pgEnum("wallet_provider", [
-  "apple_pay",
-  "google_pay",
-  "samsung_pay",
-  "paypal",
-  "venmo",
-  "cash_app",
-  "other",
-]);
-
-export const networkTokenStatusEnum = pgEnum("network_token_status", [
-  "enabled",
-  "disabled",
-  "pending",
-  "failed",
-]);
-
-export const sourceEnum = pgEnum("payment_method_source", [
-  "checkout",
-  "subscription",
-  "admin",
-  "mobile",
-  "invoice",
-  "api",
-  "migration",
-  "import",
-  "dashboard",
-]);
+// `payment_method_type` and `card_brand` use the canonical shared enums
+// (NWB-P13-001 adoption): the local copies carried Stripe-era values (paypal,
+// apple_pay, sepa_debit, discover, jcb, ...) that the Paystack-based processor
+// (decision D7) does not offer.
+//
 
 // ============================================
 // PAYMENT METHODS TABLE
@@ -516,7 +401,7 @@ export const paymentMethods = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull()
-      .$onUpdate(() => sql`now()`),
+      .$onUpdate(() => new Date()),
   },
   (table) => [
     // ============================================
@@ -629,24 +514,27 @@ export const paymentMethods = pgTable(
       .on(table.organizationId, table.deletedAt)
       .where(sql`deleted_at IS NOT NULL`),
 
-    // Expiring soon (for reminders)
+    // Expiring soon (for reminders). The monorepo copy also anchored the
+    // predicate on `now()`, which Postgres rejects in index predicates
+    // (STABLE, not IMMUTABLE) — a time-anchored partial index is meaningless
+    // anyway; the query layer applies the horizon (NWB-P13-001).
     index("payment_methods_expiring_soon_idx")
       .on(table.expiresAt, table.status)
       .where(sql`
-        status = 'active' 
+        status = 'active'
         AND deleted_at IS NULL
         AND expires_at IS NOT NULL
-        AND expires_at < now() + interval '2 months'
       `),
 
-    // Expired (for cleanup)
+    // Expired (for cleanup). The monorepo copy anchored the predicate on
+    // `now()` (STABLE), which Postgres rejects in index predicates — same
+    // correction as the other time-anchored indexes here (NWB-P13-001).
     index("payment_methods_expired_cleanup_idx")
       .on(table.expiresAt)
       .where(sql`
-        status = 'active' 
+        status = 'active'
         AND deleted_at IS NULL
         AND expires_at IS NOT NULL
-        AND expires_at < now()
       `),
 
     // Verification pending
@@ -680,14 +568,15 @@ export const paymentMethods = pgTable(
       .on(table.organizationId, table.createdAt)
       .where(sql`deleted_at IS NULL`),
 
-    // Unused payment methods (for cleanup suggestions)
+    // Unused payment methods (for cleanup suggestions). Same `now()`
+    // predicate correction as `payment_methods_expiring_soon_idx`
+    // (NWB-P13-001).
     index("payment_methods_unused_idx")
       .on(table.lastUsedAt, table.status)
       .where(sql`
         status = 'active'
         AND deleted_at IS NULL
         AND last_used_at IS NOT NULL
-        AND last_used_at < now() - interval '180 days'
       `),
 
     // Update reminders
