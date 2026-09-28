@@ -27,7 +27,9 @@
     "test": "bun test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "db:dev": "bun src/scripts/dev-db.ts",
+    "db:dev:reset": "bun src/scripts/dev-db.ts --reset"
   },
   "dependencies": {
     "@casl/ability": "^7.0.1",
@@ -42,6 +44,7 @@
     "@types/bun": "^1.3.14",
     "@types/pg": "^8.11.0",
     "drizzle-kit": "^0.28.0",
+    "embedded-postgres": "^18.4.0-beta.17",
     "typescript": "^5.6.0"
   }
 }
