@@ -286,6 +286,10 @@ export const auditSourceModuleEnum = pgEnum("audit_source_module", [
   "social_accounts",
   "analytics",
   "system",
+  // The billing domain writes its own audit module (NWB-P13-001). Not in
+  // CHECKSUM_ONLY_MODULES — like core/engagement it is high-volume and
+  // carries NULL checksums.
+  "billing",
 ]);
 
 /**
@@ -1315,6 +1319,374 @@ export const invoiceStatusEnum = pgEnum("invoice_status", [
   "paid",
   "void",
   "uncollectible",
+  // NWB-P13-001: the billing module's dunning indexes filter on `overdue`
+  // (open invoices past their due date) — added to the canonical type by
+  // migration 0012's `ALTER TYPE`.
+  "overdue",
+]);
+
+// =============================================================================
+// BILLING — db/billing adoption (NWB-P13-001)
+// =============================================================================
+//
+// The `db/billing/*` module arrived as a verbatim copy of a monorepo schema
+// carrying its own enum copies — some duplicated across two billing files
+// (`payment_processor`, `settlement_status`, `risk_level`), some clashing with
+// the canonical `payment_method_type` / `card_brand` / `invoice_status` above.
+// The adoption reconciled every enum onto this list:
+//
+//   - conflicting local copies dropped in favour of the canonicals above;
+//   - intra-module duplicates deduped to the union of their value sets —
+//     `payment_processor` gains `paystack` (decision D7, first by intent) and
+//     `manual` (processor-less v1 records);
+//   - everything below is new to the shared list.
+//
+// `subscription_status`, `subscription_plan` and `plan_tier` already existed
+// here and are reused by the billing tables rather than redefined.
+
+// ── Module-local billing enums, relocated here during adoption ─────────────
+//
+// Defined in the table files in the monorepo copy. They live in this registry
+// (rather than back in the table files) because the db layer's single source
+// of truth for enum values is this file, and drizzle-kit's migration diff
+// reliably emits CREATE TYPE for enums registered here.
+
+export const invoiceTypeEnum = pgEnum("invoice_type", [
+  "subscription",
+  "one_time",
+  "overage",
+  "addon",
+  "credit_note",
+  "refund",
+  "adjustment",
+]);
+
+export const collectionMethodEnum = pgEnum("collection_method", [
+  "charge_automatically",
+  "send_invoice",
+]);
+
+export const originEnum = pgEnum("invoice_origin", [
+  "subscription",
+  "checkout",
+  "manual",
+  "import",
+  "adjustment",
+  "api",
+  "dashboard",
+  "admin",
+  "system",
+  "migration",
+]);
+
+export const createdFromEnum = pgEnum("invoice_created_from", [
+  "api",
+  "dashboard",
+  "webhook",
+  "migration",
+  "admin",
+  "system",
+  "cron",
+]);
+
+export const paymentMethodStatusEnum = pgEnum("payment_method_status", [
+  "active",
+  "inactive",
+  "verification_pending",
+  "verification_failed",
+  "expired",
+  "canceled",
+]);
+
+export const cardFundingEnum = pgEnum("card_funding", ["credit", "debit", "prepaid", "unknown"]);
+
+export const bankAccountTypeEnum = pgEnum("bank_account_type", [
+  "checking",
+  "savings",
+  "business_checking",
+  "business_savings",
+]);
+
+export const processorTypeEnum = pgEnum("processor_type", [
+  "stripe",
+  "paypal",
+  "paystack",
+  "flutterwave",
+  "square",
+  "adyen",
+  "razorpay",
+  "cashfree",
+  "monnify",
+  "opay",
+  "momo",
+  "braintree",
+  "authorize_net",
+  "worldpay",
+  "other",
+]);
+
+export const riskLevelEnum = pgEnum("risk_level", ["low", "medium", "high", "critical", "blocked"]);
+
+export const verificationStatusEnum = pgEnum("verification_status", [
+  "pending",
+  "processing",
+  "verified",
+  "failed",
+  "expired",
+  "manual_review",
+]);
+
+export const accountHolderTypeEnum = pgEnum("account_holder_type", [
+  "individual",
+  "company",
+  "government",
+  "non_profit",
+]);
+
+export const verificationMethodEnum = pgEnum("verification_method", [
+  "instant",
+  "micro_deposit",
+  "manual",
+  "processor",
+  "bank_api",
+  "third_party",
+]);
+
+export const cvcCheckEnum = pgEnum("cvc_check", ["pass", "fail", "unchecked", "unavailable"]);
+
+export const addressCheckEnum = pgEnum("address_check", [
+  "pass",
+  "fail",
+  "unchecked",
+  "unavailable",
+]);
+
+export const fraudStatusEnum = pgEnum("fraud_status", [
+  "clean",
+  "suspected",
+  "confirmed",
+  "blocked",
+]);
+
+export const blockStatusEnum = pgEnum("block_status", ["active", "blocked", "released"]);
+
+export const walletProviderEnum = pgEnum("wallet_provider", [
+  "apple_pay",
+  "google_pay",
+  "samsung_pay",
+  "paypal",
+  "venmo",
+  "cash_app",
+  "other",
+]);
+
+export const networkTokenStatusEnum = pgEnum("network_token_status", [
+  "enabled",
+  "disabled",
+  "pending",
+  "failed",
+]);
+
+export const sourceEnum = pgEnum("payment_method_source", [
+  "checkout",
+  "subscription",
+  "admin",
+  "mobile",
+  "invoice",
+  "api",
+  "migration",
+  "import",
+  "dashboard",
+]);
+
+export const paymentTypeEnum = pgEnum("payment_type", [
+  "subscription",
+  "one_time",
+  "addon",
+  "usage",
+  "setup_fee",
+  "late_fee",
+  "credit_adjustment",
+  "refund",
+]);
+
+export const refundReasonEnum = pgEnum("refund_reason", [
+  "requested_by_customer",
+  "duplicate",
+  "fraudulent",
+  "service_issue",
+  "cancellation",
+  "billing_error",
+  "other",
+]);
+
+export const actionTypeEnum = pgEnum("action_type", [
+  "3d_secure",
+  "redirect",
+  "verify_with_microdeposits",
+  "verify_with_instant",
+]);
+
+export const paymentInitiatorEnum = pgEnum("payment_initiator", [
+  "customer",
+  "admin",
+  "system",
+  "cron",
+  "subscription",
+  "api",
+  "migration",
+  "checkout",
+  "invoice",
+]);
+
+export const createdViaEnum = pgEnum("payment_created_via", [
+  "dashboard",
+  "api",
+  "subscription",
+  "invoice",
+  "checkout",
+  "migration",
+  "admin",
+]);
+
+export const subscriptionTypeEnum = pgEnum("subscription_type", ["personal", "organization"]);
+
+export const transactionTypeEnum = pgEnum("transaction_type", [
+  "charge",
+  "payment",
+  "refund",
+  "credit",
+  "debit",
+  "adjustment",
+  "fee",
+  "discount",
+  "tax",
+  "transfer",
+  "chargeback",
+  "payout",
+  "deposit",
+]);
+
+export const processorStatusEnum = pgEnum("processor_status", [
+  "authorized",
+  "captured",
+  "failed",
+  "settled",
+  "pending",
+  "voided",
+  "refunded",
+]);
+
+export const transactionOriginEnum = pgEnum("transaction_origin", [
+  "subscription",
+  "invoice",
+  "manual",
+  "refund",
+  "api",
+  "migration",
+  "system",
+  "admin",
+  "cron",
+  "webhook",
+  "checkout",
+]);
+
+export const disputeStatusEnum = pgEnum("dispute_status", [
+  "pending",
+  "under_review",
+  "won",
+  "lost",
+  "closed",
+]);
+
+export const currencyPgEnum = pgEnum("currency", ["USD", "EUR", "GBP", "NGN", "KES", "GHS", "ZAR"]);
+
+export const planStatusPgEnum = pgEnum("plan_status", ["active", "inactive", "archived"]);
+
+export const pricingModelPgEnum = pgEnum("pricing_model", ["flat_rate", "usage_based", "tiered"]);
+
+export const billingCyclePgEnum = pgEnum("billing_cycle", [
+  "monthly",
+  "quarterly",
+  "annual",
+  "one_time",
+]);
+
+export const productTypePgEnum = pgEnum("product_type", ["social", "fashion"]);
+
+export const subscriptionCancelReasonPgEnum = pgEnum("subscription_cancel_reason", [
+  "price_too_high",
+  "switching_provider",
+  "missing_features",
+  "no_longer_needed",
+  "other",
+]);
+
+export const paymentStatusPgEnum = pgEnum("payment_status", [
+  "pending",
+  "processing",
+  "succeeded",
+  "failed",
+  "canceled",
+  "refunded",
+  "partially_refunded",
+  "disputed",
+  "expired",
+  // payments.status index predicates reference 'requires_action' (3-D
+  // Secure / redirect flows); the enum never contained it, so the monorepo
+  // copy could never have migrated (NWB-P13-001).
+  "requires_action",
+]);
+
+export const paymentProcessorEnum = pgEnum("payment_processor", [
+  "paystack",
+  "stripe",
+  "flutterwave",
+  "paypal",
+  "braintree",
+  "square",
+  "authorize_net",
+  "adyen",
+  "razorpay",
+  "manual",
+  "wallet",
+  "bank_transfer",
+  "cash",
+  "other",
+]);
+
+export const settlementStatusEnum = pgEnum("settlement_status", [
+  "pending",
+  "processing",
+  "in_transit",
+  "settled",
+  "failed",
+  "reversed",
+]);
+
+export const billingTransactionStatusPgEnum = pgEnum("billing_transaction_status", [
+  "pending",
+  "processing",
+  "completed",
+  // the transactions_org_history_idx predicate filters on 'settled'; the
+  // monorepo copy's enum never contained it (NWB-P13-001).
+  "settled",
+  "failed",
+  "reversed",
+  "refunded",
+  "disputed",
+  "canceled",
+]);
+
+export const billingTransactionCategoryPgEnum = pgEnum("billing_transaction_category", [
+  "payment",
+  "charge",
+  "refund",
+  "fee",
+  "credit",
+  "adjustment",
+  "settlement",
+  "other",
 ]);
 
 export const notificationChannelEnum = pgEnum("notification_channel", [

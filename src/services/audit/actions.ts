@@ -281,6 +281,45 @@ export const AUDIT_ACTIONS = {
     category: "compliance",
     resourceType: "backup",
   },
+  "billing.invoice.paid": {
+    description:
+      "An invoice was paid; the payment, ledger transaction and subscription state were written atomically (NWB-P13-001).",
+    category: "billing",
+    resourceType: "invoice",
+  },
+  "billing.payment_method.added": {
+    description:
+      "A processor-token-backed payment method was attached to the organization (NWB-P13-001).",
+    category: "billing",
+    resourceType: "payment_method",
+  },
+  "billing.payment_method.deleted": {
+    description:
+      "A payment method was soft-deleted (deleted_at, audit row kept — the row outlives the thing it describes).",
+    category: "billing",
+    resourceType: "payment_method",
+  },
+  "billing.payment_method.updated": {
+    description: "A payment method's nickname or default flag changed (NWB-P13-001).",
+    category: "billing",
+    resourceType: "payment_method",
+  },
+  "billing.subscription.canceled": {
+    description: "A subscription was canceled, immediately or at period end (NWB-P13-001).",
+    category: "billing",
+    resourceType: "subscription",
+  },
+  "billing.subscription.created": {
+    description:
+      "A subscription was created on a plan (manual activation; one active per organization) (NWB-P13-001).",
+    category: "billing",
+    resourceType: "subscription",
+  },
+  "billing.subscription.resumed": {
+    description: "A paused subscription was resumed to active (NWB-P13-001).",
+    category: "billing",
+    resourceType: "subscription",
+  },
   "compliance.dsar.requested": {
     description: "Data-export (DSAR) request opened against an account.",
     category: "compliance",

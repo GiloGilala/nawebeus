@@ -15,13 +15,13 @@ import {
 } from "drizzle-orm/pg-core";
 import type { PlanFeatures } from "@/server/billing/types/plan-types";
 import { users } from "../core/users";
-import { tablePrefix } from "../schema-utils";
 import {
   currencyPgEnum,
   planStatusPgEnum,
   pricingModelPgEnum,
   subscriptionPlanPgEnum,
 } from "../shared/enums";
+import { tablePrefix } from "../shared/schema-utils";
 import { subscriptions } from "./subscriptions";
 
 // ============================================
@@ -344,7 +344,7 @@ export const plans = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull()
-      .$onUpdate(() => sql`now()`),
+      .$onUpdate(() => new Date()),
 
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     archivedBy: uuid("archived_by").references((): any => users.id, {

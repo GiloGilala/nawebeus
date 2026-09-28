@@ -341,6 +341,39 @@ export class FeatureFlagDisabledError extends AppError {
   }
 }
 
+/**
+ * The billing resource exists and the caller may act on it, but its *state*
+ * refuses the operation (NWB-P13-001). One class, several codes, so a client
+ * can tell the outcomes apart without parsing messages — the same shape as
+ * `ApprovalStateError`: `ACTIVE_SUBSCRIPTION_EXISTS` (one active subscription
+ * per organization), `SUBSCRIPTION_NOT_CANCELLABLE` /
+ * `SUBSCRIPTION_NOT_RESUMABLE` (terminal or wrong status),
+ * `INVOICE_NOT_PAYABLE` (not open/overdue), `PAYMENT_METHOD_NOT_CHARGEABLE`
+ * (missing processor token, blocked, or deactivated). All 409: the
+ * resource's current state is what conflicts.
+ */
+export type BillingStateCode =
+  | "ACTIVE_SUBSCRIPTION_EXISTS"
+  | "SUBSCRIPTION_NOT_CANCELLABLE"
+  | "SUBSCRIPTION_NOT_RESUMABLE"
+  | "INVOICE_NOT_PAYABLE"
+  | "PAYMENT_METHOD_NOT_CHARGEABLE"
+  | "PLAN_NOT_SUBSCRIBABLE";
+
+export class BillingStateError extends AppError {
+  readonly statusCode = 409;
+  readonly code: BillingStateCode;
+
+  constructor(
+    code: BillingStateCode,
+    message: string,
+    readonly details?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.code = code;
+  }
+}
+
 export class RateLimitError extends AppError {
   readonly statusCode = 429;
   readonly code = "RATE_LIMIT_EXCEEDED";

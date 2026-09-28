@@ -35,7 +35,6 @@
     "node_modules",
     "dist",
     "docs",
-    "db/billing/**",
     "db/campaigns/**",
     "db/commerce/**",
     // db/compliance/** is wired since NWB-P1-010 (legal_holds + backup_records adopted;

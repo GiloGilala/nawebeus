@@ -7,7 +7,6 @@ import {
   index,
   integer,
   jsonb,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -15,52 +14,24 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { users } from "../auth/users";
-import { currencyPgEnum, invoiceStatusPgEnum, paymentStatusPgEnum } from "../enums";
+
+import { users } from "../core/users";
+
 import { organizations } from "../organization/organizations";
+import {
+  collectionMethodEnum,
+  createdFromEnum,
+  currencyPgEnum,
+  invoiceStatusEnum,
+  invoiceTypeEnum,
+  originEnum,
+  paymentStatusPgEnum,
+} from "../shared/enums";
 import { subscriptions } from "./subscriptions";
 
 // ============================================
 // ENUMS
 // ============================================
-
-export const invoiceTypeEnum = pgEnum("invoice_type", [
-  "subscription",
-  "one_time",
-  "overage",
-  "addon",
-  "credit_note",
-  "refund",
-  "adjustment",
-]);
-
-export const collectionMethodEnum = pgEnum("collection_method", [
-  "charge_automatically",
-  "send_invoice",
-]);
-
-export const originEnum = pgEnum("invoice_origin", [
-  "subscription",
-  "checkout",
-  "manual",
-  "import",
-  "adjustment",
-  "api",
-  "dashboard",
-  "admin",
-  "system",
-  "migration",
-]);
-
-export const createdFromEnum = pgEnum("invoice_created_from", [
-  "api",
-  "dashboard",
-  "webhook",
-  "migration",
-  "admin",
-  "system",
-  "cron",
-]);
 
 // ============================================
 // INVOICES TABLE
@@ -86,7 +57,7 @@ export const invoices = pgTable(
     supersedes: uuid("supersedes"), // NEW: Reference to older version
 
     type: invoiceTypeEnum("type").notNull().default("subscription"),
-    status: invoiceStatusPgEnum("status").notNull().default("draft"),
+    status: invoiceStatusEnum("status").notNull().default("draft"),
 
     // ============================================
     // RELATIONSHIPS
@@ -551,7 +522,7 @@ export const invoices = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull()
-      .$onUpdate(() => sql`now()`),
+      .$onUpdate(() => new Date()),
 
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },

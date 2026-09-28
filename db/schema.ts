@@ -129,6 +129,38 @@ export {
 } from "./compliance/index";
 
 // =============================================================================
+// BILLING MODULE (adopted — NWB-P13-001)
+// =============================================================================
+
+// All six tables adopt together (they cross-reference each other's ids).
+// `db/billing/index.ts` carries the module's adoption header: the import and
+// enum reconciliation notes, and which tables the v1 service layer covers.
+export {
+  invoices,
+  invoicesRelations,
+} from "./billing/invoices";
+export {
+  paymentMethods,
+  paymentMethodsRelations,
+} from "./billing/payment-methods";
+export {
+  payments,
+  paymentsRelations,
+} from "./billing/payments";
+export {
+  plans,
+  plansRelations,
+} from "./billing/plans";
+export {
+  subscriptions,
+  subscriptionsRelations,
+} from "./billing/subscriptions";
+export {
+  transactions,
+  transactionsRelations,
+} from "./billing/transactions";
+
+// =============================================================================
 // SOCIAL ACCOUNTS MODULE (adopted — NWB-P2-001)
 // =============================================================================
 

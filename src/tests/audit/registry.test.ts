@@ -224,10 +224,11 @@ describe("audit action registry", () => {
 
 describe("audit module taxonomy", () => {
   test("the derived union is the database's list, not a copy of it", () => {
-    // 15 values, and `AuditModule` is `(typeof AUDIT_MODULE_VALUES)[number]` — so this assertion is the
+    // 16 values (15 + `billing`, added by migration 0013 for NWB-P13-001), and
+    // `AuditModule` is `(typeof AUDIT_MODULE_VALUES)[number]` — so this assertion is the
     // drift detector: adding a value to the enum widens the type *and* fails nothing, while *renaming*
     // one surfaces here first rather than in a `22P02` at runtime.
-    expect(AUDIT_MODULE_VALUES).toHaveLength(15);
+    expect(AUDIT_MODULE_VALUES).toHaveLength(16);
     expect([...AUDIT_MODULE_VALUES]).toEqual([
       "core",
       "admin",
@@ -244,6 +245,7 @@ describe("audit module taxonomy", () => {
       "social_accounts",
       "analytics",
       "system",
+      "billing",
     ]);
   });
 

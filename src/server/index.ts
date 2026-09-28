@@ -22,6 +22,7 @@ import { orgRootRouter } from "./api/orgs";
 import { socialRouter } from "./api/social";
 import { templateRootRouter } from "./api/templates";
 import { userRouter } from "./api/users";
+import { billingRouter } from "./billing";
 import { healthHandler } from "./health";
 import { errorHandler } from "./middleware/error-handler";
 import { requestContext } from "./middleware/request-context";
@@ -47,6 +48,7 @@ function mountApiRouters(app: Hono): void {
   app.route("/api", configRouter);
   app.route("/api", mediaRouter);
   app.route("/api", socialRouter);
+  app.route("/api", billingRouter);
 }
 
 export function createApp(corsOrigins: string[] = [DEFAULT_CORS_ORIGIN]) {
