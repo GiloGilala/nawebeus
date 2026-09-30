@@ -107,6 +107,7 @@ Two standing caveats on how far "done" reaches for a screen in this cluster:
 - The per-screen UI states are **reviewed by hand, not automated** — nothing renders `.tsx` in CI.
   What is automated is the Server Functions behind them (in-process, real DB) and the route files as
   structural documents, plus the link scan above.
-- P14.2 recorded one security finding worth scheduling ahead of further org work:
-  `organization_members.invitation_token` keeps the raw emailed token in plaintext beside its own
-  hash, and nothing reads it (F-P14.2 in `issues/02-invite-and-team.md`).
+- P14.2's plaintext-at-rest finding (F-P14.2 in `issues/02-invite-and-team.md`) is resolved by
+  `issues/03-invitation-token-hash-only.md`: the unused raw-token column is dropped and invites
+  persist only the SHA-256 hash. The separate Server Function response finding (F-P14.2-2) remains
+  open; this storage fix does not change the invite response contract.

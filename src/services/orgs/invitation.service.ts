@@ -192,7 +192,6 @@ export async function inviteMember(
         UPDATE organization_members
         SET user_id = ${userId},
             role_id = ${role.id},
-            invitation_token = ${rawToken},
             invitation_token_hash = ${tokenHash},
             invitation_sent_at = now(),
             expires_at = ${expiresAt.toISOString()}::timestamptz,
@@ -211,13 +210,13 @@ export async function inviteMember(
         INSERT INTO organization_members (
           organization_id, user_id, role_id, status, is_active,
           invited_email, display_name, job_title, department, invitation_note,
-          invitation_token, invitation_token_hash, invitation_sent_at, expires_at,
+          invitation_token_hash, invitation_sent_at, expires_at,
           invited_by, invited_at
         )
         VALUES (
           ${orgId}, ${userId}, ${role.id}, 'invited', false,
           ${input.email}, ${input.displayName ?? null}, ${input.jobTitle ?? null}, ${input.department ?? null}, ${input.invitationNote ?? null},
-          ${rawToken}, ${tokenHash}, now(), ${expiresAt.toISOString()}::timestamptz,
+          ${tokenHash}, now(), ${expiresAt.toISOString()}::timestamptz,
           ${actingUserId}, now()
         )
         RETURNING id
@@ -406,7 +405,7 @@ export async function acceptInvitation(
     const claim = await tx.execute<{ id: string }>(
       sql`
         UPDATE organization_members
-        SET accepted_at = now(), invitation_token = NULL, updated_at = now()
+        SET accepted_at = now(), updated_at = now()
         WHERE id = ${invite.memberId}
           AND accepted_at IS NULL
           AND deleted_at IS NULL

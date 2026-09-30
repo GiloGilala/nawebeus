@@ -67,8 +67,8 @@ All writes in `withAtomicWrites`:
 2. `accepted_at` set → 409 "This invitation has already been accepted."
 3. `expires_at <= now()` → 404 "expired…". Claim single-use atomically
    (`UPDATE … WHERE accepted_at IS NULL`) → concurrent second accept → 409.
-   Raw `invitation_token` is nulled on claim; the hash stays for the double-accept 409
-   and auditability.
+   No raw invitation token is persisted; the hash stays for the double-accept 409
+   and auditability (NWB-P14-003 / migration 0014).
 4. **No user for `invited_email`** → registration-into-org: require `password`,
    `fullName`, `termsAccepted`, `privacyAccepted`; complexity via `validatePassword`;
    user created (status `pending_verification`, `users.organization_id` = inviting org —
