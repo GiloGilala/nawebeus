@@ -127,6 +127,19 @@ export {
   startImpersonationSchema,
 } from "./impersonation.schemas";
 export {
+  type CreateMonitoringCampaignInput,
+  createMonitoringCampaignSchema,
+  listMonitoringCampaignsQuerySchema,
+  MEDIA_ARTICLE_SOURCE_TYPES,
+  type MediaArticleSourceType,
+  MONITORING_CAMPAIGN_ID_PATTERN,
+  MONITORING_CAMPAIGN_STATUSES,
+  type MonitoringCampaignStatus,
+  monitoringCampaignIdSchema,
+  type UpdateMonitoringCampaignInput,
+  updateMonitoringCampaignSchema,
+} from "./monitoring.schemas";
+export {
   assignRoleSchema,
   bulkInviteSchema,
   deleteOrgSchema,

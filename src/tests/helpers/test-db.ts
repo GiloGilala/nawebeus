@@ -122,3 +122,8 @@ export async function ensureAppConfigSchema(db: Db): Promise<void> {
 export async function ensureMediaSchema(db: Db): Promise<void> {
   return ensureMigrationApplied(db, "0010_media_assets_id_lengths.sql");
 }
+
+/** Ensure the monitoring module schema is present for campaign and ingestion tests. */
+export async function ensureMonitoringSchema(db: Db): Promise<void> {
+  return ensureMigrationApplied(db, "0014_brown_quasimodo.sql");
+}

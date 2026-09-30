@@ -1,6 +1,8 @@
-// db/schema/monitoring/index.ts
+// db/monitoring/index.ts
 //
 // Media monitoring module — v5 (consolidated + source registry + mentions).
+// ADOPTED 2026-09-29 by NWB-P4-001: six tables are exported from db/schema.ts and migrated.
+// Every id-shaped column is varchar(64) from birth; content hashes retain their 64-character width.
 //
 // Tables (6):
 //   monitoring_campaigns   — keyword/boolean search configurations
@@ -77,6 +79,7 @@ import {
   boolean,
   check,
   decimal,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -135,8 +138,8 @@ import {
 export const monitoringCampaigns = pgTable(
   "monitoring_campaigns",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // ─── Campaign Details ─────────────────────────────────────────────────────
     name: varchar("name", { length: 100 }).notNull(),
@@ -144,7 +147,7 @@ export const monitoringCampaigns = pgTable(
 
     // ─── Ownership ────────────────────────────────────────────────────────────
     // The user responsible for the campaign (may differ from creator)
-    ownerId: varchar("owner_id", { length: 32 }),
+    ownerId: varchar("owner_id", { length: 64 }),
 
     // ─── Search Configuration ─────────────────────────────────────────────────
     keywords: text("keywords").array().notNull(),
@@ -291,7 +294,7 @@ export const monitoringCampaigns = pgTable(
     samplingRate: decimal("sampling_rate", { precision: 3, scale: 2 }).default("1.00"),
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
-    createdById: varchar("created_by_id", { length: 32 }).notNull(),
+    createdById: varchar("created_by_id", { length: 64 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -444,12 +447,12 @@ export const monitoringCampaigns = pgTable(
 export const newsSources = pgTable(
   "news_sources",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
 
     // ─── Source Identity ───────────────────────────────────────────────────────
     name: varchar("name", { length: 500 }).notNull(),
     displayName: varchar("display_name", { length: 500 }),
-    slug: varchar("slug", { length: 255 }).unique(),
+    slug: varchar("slug", { length: 255 }),
     description: text("description"),
     tagline: varchar("tagline", { length: 500 }),
 
@@ -705,7 +708,7 @@ export const newsSources = pgTable(
     // ─── Verification ──────────────────────────────────────────────────────────
     isVerified: boolean("is_verified").notNull().default(false),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
-    verifiedBy: varchar("verified_by", { length: 32 }),
+    verifiedBy: varchar("verified_by", { length: 64 }),
 
     verificationData: jsonb("verification_data")
       .$type<{
@@ -833,12 +836,12 @@ export const newsSources = pgTable(
 export const socialMentions = pgTable(
   "social_mentions",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // Real FK to monitoring_campaigns — CASCADE on delete
     // (mentions belong to a campaign; no campaign = no reason to keep them)
-    campaignId: varchar("campaign_id", { length: 32 })
+    campaignId: varchar("campaign_id", { length: 64 })
       .notNull()
       .references(() => monitoringCampaigns.id, { onDelete: "cascade" }),
 
@@ -1008,7 +1011,7 @@ export const socialMentions = pgTable(
       .default([]),
 
     // ─── Threading ─────────────────────────────────────────────────────────────
-    parentId: varchar("parent_id", { length: 32 }),
+    parentId: varchar("parent_id", { length: 64 }),
     threadId: varchar("thread_id", { length: 255 }),
 
     isReply: boolean("is_reply").notNull().default(false),
@@ -1151,9 +1154,9 @@ export const socialMentions = pgTable(
   },
   (table) => [
     // ── Uniqueness ─────────────────────────────────────────────────────────────
-    // Same post from the same platform — dedup at insert time
-    uniqueIndex("uq_sm_platform_id")
-      .on(table.platform, table.platformId)
+    // A platform post may be monitored by multiple organizations; dedup within the organization.
+    uniqueIndex("uq_sm_org_platform_id")
+      .on(table.organizationId, table.platform, table.platformId)
       .where(sql`deleted_at IS NULL`),
 
     // ── Core lookups ───────────────────────────────────────────────────────────
@@ -1207,9 +1210,9 @@ export const socialMentions = pgTable(
       .on(table.organizationId, table.importanceScore, table.publishedAt)
       .where(sql`importance_score > 70 AND deleted_at IS NULL`),
 
-    // Daily stats aggregate
-    index("idx_sm_daily_stats")
-      .on(table.organizationId, sql`DATE(published_at)`)
+    // Tenant-scoped time-range queries; day bucketing stays in the query so the index is immutable.
+    index("idx_sm_org_published")
+      .on(table.organizationId, table.publishedAt)
       .where(sql`deleted_at IS NULL`),
   ],
 );
@@ -1252,22 +1255,20 @@ export const socialMentions = pgTable(
 export const mediaArticles = pgTable(
   "media_articles",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     // Real FK to monitoring_campaigns — SET NULL on delete
-    monitoringCampaignId: varchar("monitoring_campaign_id", {
-      length: 32,
-    }).references(() => monitoringCampaigns.id, { onDelete: "set null" }),
+    monitoringCampaignId: varchar("monitoring_campaign_id", { length: 64 }),
 
     // Real FK to news_sources — SET NULL on delete
-    sourceId: varchar("source_id", { length: 32 }).references(() => newsSources.id, {
+    sourceId: varchar("source_id", { length: 64 }).references(() => newsSources.id, {
       onDelete: "set null",
     }),
 
     // ─── Article Metadata ─────────────────────────────────────────────────────
     title: text("title").notNull(),
-    url: text("url").notNull().unique(),
+    url: text("url").notNull(),
 
     // Source outlet name
     sourceName: varchar("source_name", { length: 255 }).notNull(),
@@ -1447,7 +1448,7 @@ export const mediaArticles = pgTable(
     isCompetitive: boolean("is_competitive").default(false).notNull(),
 
     // Real FK to monitoring_competitors — SET NULL on delete
-    competitorId: varchar("competitor_id", { length: 32 }).references(
+    competitorId: varchar("competitor_id", { length: 64 }).references(
       () => monitoringCompetitors.id,
       { onDelete: "set null" },
     ),
@@ -1456,7 +1457,7 @@ export const mediaArticles = pgTable(
     isDuplicate: boolean("is_duplicate").default(false).notNull(),
 
     // Self-FK to canonical article — SET NULL on delete
-    originalArticleId: varchar("original_article_id", { length: 32 }),
+    originalArticleId: varchar("original_article_id", { length: 64 }),
 
     contentHash: varchar("content_hash", { length: 64 }),
 
@@ -1505,7 +1506,7 @@ export const mediaArticles = pgTable(
     // ─── Syndication ───────────────────────────────────────────────────────────
     isSyndicated: boolean("is_syndicated").notNull().default(false),
     originalSource: varchar("original_source", { length: 500 }),
-    syndicatedFrom: varchar("syndicated_from", { length: 32 }).references(() => newsSources.id, {
+    syndicatedFrom: varchar("syndicated_from", { length: 64 }).references(() => newsSources.id, {
       onDelete: "set null",
     }),
 
@@ -1513,7 +1514,7 @@ export const mediaArticles = pgTable(
     // Per-article flag (not per-user; see table-level comment)
     isReviewed: boolean("is_reviewed").default(false).notNull(),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-    reviewedBy: varchar("reviewed_by", { length: 32 }),
+    reviewedBy: varchar("reviewed_by", { length: 64 }),
 
     // ─── View Tracking (global flag) ──────────────────────────────────────────
     // lastViewedAt = "anyone has viewed this article"
@@ -1528,6 +1529,13 @@ export const mediaArticles = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: "fk_ma_monitoring_campaign",
+      columns: [table.monitoringCampaignId],
+      foreignColumns: [monitoringCampaigns.id],
+    }).onDelete("set null"),
+    // Identical coverage can be monitored independently by more than one organization.
+    uniqueIndex("uq_ma_org_url").on(table.organizationId, table.url),
     check(
       "chk_ma_source_tier",
       sql`${table.sourceTier} IS NULL
@@ -1678,8 +1686,8 @@ export const mediaArticles = pgTable(
 export const monitoringCompetitors = pgTable(
   "monitoring_competitors",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     name: varchar("name", { length: 100 }).notNull(),
     description: text("description"),
@@ -1778,8 +1786,8 @@ export const monitoringCompetitors = pgTable(
 export const crisisIncidents = pgTable(
   "crisis_incidents",
   {
-    id: varchar("id", { length: 32 }).notNull().primaryKey(),
-    organizationId: varchar("organization_id", { length: 32 }).notNull(),
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
+    organizationId: varchar("organization_id", { length: 64 }).notNull(),
 
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
@@ -1790,7 +1798,7 @@ export const crisisIncidents = pgTable(
     status: crisisStatusEnum("status").default("active").notNull(),
 
     // ─── Commander ────────────────────────────────────────────────────────────
-    incidentCommanderId: varchar("incident_commander_id", { length: 32 }),
+    incidentCommanderId: varchar("incident_commander_id", { length: 64 }),
     incidentCommanderAssignedAt: timestamp("incident_commander_assigned_at", {
       withTimezone: true,
     }),
@@ -1799,22 +1807,22 @@ export const crisisIncidents = pgTable(
     originPlatform: varchar("origin_platform", { length: 50 }),
 
     // Real FK to media_articles — SET NULL on delete
-    originArticleId: varchar("origin_article_id", { length: 32 }).references(
+    originArticleId: varchar("origin_article_id", { length: 64 }).references(
       () => mediaArticles.id,
       { onDelete: "set null" },
     ),
 
     // Cross-module — NOT FK (alert retention differs)
-    originAlertEventId: varchar("origin_alert_event_id", { length: 32 }),
+    originAlertEventId: varchar("origin_alert_event_id", { length: 64 }),
 
     // ─── Timing ───────────────────────────────────────────────────────────────
     detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
 
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
-    acknowledgedBy: varchar("acknowledged_by", { length: 32 }),
+    acknowledgedBy: varchar("acknowledged_by", { length: 64 }),
 
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-    resolvedBy: varchar("resolved_by", { length: 32 }),
+    resolvedBy: varchar("resolved_by", { length: 64 }),
 
     // Denormalized response times (maintained by trigger on
     // acknowledgedAt/resolvedAt updates; alternatively use the

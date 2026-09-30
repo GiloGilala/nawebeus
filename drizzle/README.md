@@ -36,3 +36,7 @@ Rules of the road:
   They apply only when the (aspirational, schema-excluded) PR/influencer modules
   are adopted — fold them into the first migration that module adoption
   generates rather than running the file by hand.
+- **Monitoring schema adoption (NWB-P4-001):** `db/monitoring/index.ts` is active in
+  `db/schema.ts` and migration `0014_brown_quasimodo.sql` adopts all six tables. IDs
+  are 64 characters from birth. The tenant-owned article URL and social-post identity
+  constraints include `organization_id`; the news-source registry remains shared.

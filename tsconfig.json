@@ -41,7 +41,6 @@
     // the other four models compile but stay dormant until their own tickets).
     "db/engagement/**",
     "db/influencer/**",
-    "db/monitoring/**",
     "db/pr/**",
     "db/publishing/**",
     // db/social-accounts/** is wired since NWB-P2-001 (the four tables adopted; OAuth flow

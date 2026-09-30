@@ -5,7 +5,7 @@
 
 ## 21. Database & data migration plan
 
-**Current state:** 28 active tables (3 modules); 54 aspirational tables (10 modules); no migration history; `db:push` non-idempotent (NWB-P0-009); one dormant manual SQL (ADR-017); pg-boss will add its own library-managed schema (Phase 2).
+**Current state (2026-09-29):** the active Drizzle schema includes 50 tables, including the six monitoring tables adopted in migration 0014. Remaining domain schemas are adopted phase by phase; pg-boss remains library-managed outside the Drizzle history.
 
 **Rules (standing):**
 1. **Forward-only, expansion-then-contraction.** A column/table is added in one migration and used from the next release; removal happens in a later migration after the consuming code is gone. No in-place breaking changes. (Pre-prod today makes this cheap, but the discipline must start now because Phase 8 must prove a clean-DB path.)
@@ -21,7 +21,7 @@
 | M0 (NWB-P0-005) | Baseline 0000: 28 active tables (with 81 `notNull` PK corrections) | reproducible schema | — | n/a (first) | none | fresh-DB migrate + suite; re-migrate no-op | none (pre-prod: drop/recreate) |
 | M1 (P1) | pg-boss schema bootstrap recorded (library-managed; `pgBoss.start()` idempotent at boot) | ADR-028 | M0 | yes | none | boot twice; job enqueued+run | stop worker; tables inert |
 | M2 (P2) | social-accounts adoption (4 tbls) + token-encryption column if review demands | Module 3 | M0 | yes | none | module tests | deactivate module (rows inert) |
-| M3 (P4) | monitoring adoption (6 tbls) | Modules 5/6 | M2 (webhooks? no — independent) | yes | none | module tests | as above |
+| M3 (P4) | monitoring adoption (6 tbls) | PRD Modules 5/6 | M2 (independent of webhooks) | yes | none | ✅ **DONE 2026-09-29, NWB-P4-001 / migration 0014** — six tables; 64-char IDs; tenant-scoped dedup keys; migration-from-zero + repeat-migration + service tests | as above |
 | M4 (P7) | engagement adoption (6 tbls) | Module 7 | M2 | yes | none | module tests | as above |
 | M5 (P11) | campaigns adoption (3 tbls) | Module 4 | M1 (queue) | yes | none | module tests | as above |
 | M6 (P12) | analytics aggregate tables (new, alongside active `analytics*`) | Module 8 | M3–M5 | yes | none | aggregation idempotency tests | drop-only if pre-data |

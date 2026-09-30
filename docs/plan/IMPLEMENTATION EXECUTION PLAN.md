@@ -232,7 +232,7 @@ Each phase: **entry gate → tickets → exit gate.** Sizes are relative effort 
 
 ---
 
-### P4 — Media monitoring (Module 9)
+### P4 — Media monitoring (PRD Module 6)
 
 **Slug:** `.scratch/p4-monitoring/`
 **Entry gate:** P1 exit gate. **Decision:** D8 (NLP), D9 (search).
