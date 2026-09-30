@@ -11,10 +11,9 @@
 // This file ONLY re-exports. No table/relation definitions live here.
 // Each module owns its own definitions in its own index.ts file.
 //
-// NOTE: Aspirational modules (billing, campaigns, commerce, engagement, influencer,
-// monitoring, pr, publishing, social-accounts) are excluded here and in tsconfig.json until
-// they are wired up. Compliance is the exception: `legal_holds` + `backup_records` were
-// adopted by NWB-P1-010 (see the COMPLIANCE MODULE section); its other four tables stay out.
+// NOTE: Aspirational modules (campaigns, commerce, engagement, influencer,
+// pr, publishing) are excluded here and in tsconfig.json until they are wired up.
+// Compliance is partial (NWB-P1-010); monitoring and social-accounts have been adopted.
 
 // =============================================================================
 // SHARED MODULES
@@ -177,3 +176,23 @@ export {
   tokenRefreshLog,
   tokenRefreshLogRelations,
 } from "./social-accounts/index";
+
+// =============================================================================
+// MEDIA MONITORING MODULE (adopted — NWB-P4-001)
+// =============================================================================
+
+// The six monitoring tables form one schema unit and are shared with P5 Listen.
+export {
+  crisisIncidents,
+  crisisIncidentsRelations,
+  mediaArticles,
+  mediaArticlesRelations,
+  monitoringCampaigns,
+  monitoringCampaignsRelations,
+  monitoringCompetitors,
+  monitoringCompetitorsRelations,
+  newsSources,
+  newsSourcesRelations,
+  socialMentions,
+  socialMentionsRelations,
+} from "./monitoring/index";

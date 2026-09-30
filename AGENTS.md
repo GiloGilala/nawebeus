@@ -211,6 +211,7 @@ src/services/             ← Business logic (single source of truth)
            filter), notifier (SocialNotifier port over the P1-004 email channel —
            FR-SOC-008 connect + FR-SOC-022 needs_reauth; P6 swaps the implementation),
            index barrel (NWB-P2-001)
+  monitoring/ campaign.service (NWB-P4-001 — CRUD, active query, tenant scoping, transactional audit)
 src/jobs/                 ← Queue job definitions (thin adapters over services)
   index.ts       ← the job set + `startMaintenanceWorker()` + `runMaintenanceJob()`
   rate-limit-reclaim.ts, approvals-expire-stale.ts (hourly), impersonation-expire.ts (*/5,
@@ -247,12 +248,14 @@ src/tests/                ← Bun tests
   helpers/  test-db.ts (withTestDb), test-client.ts (createTestApp),
             test-factory.ts (data factories)
 db/                       ← Drizzle schema modules
-  schema.ts     ← re-exports active schema (shared + core + organization)
+  schema.ts     ← re-exports active schema (shared + core + organization + adopted domains)
   core/         ← users, roles, permissions, sessions, tokens, oauth-accounts
   organization/ ← organizations, organization_members, role_history
   shared/       ← enums, audit, analytics, alerts, approval, contacts, templates, media
   social-accounts/ ← social_accounts, oauth_states, health log, token refresh log (NWB-P2-001;
                   token columns are ciphertext, oauth_states.id IS the state parameter)
+  monitoring/   ← campaigns, news sources, social mentions, articles, competitors, crises
+                  adopted together by NWB-P4-001 (migration 0014; 64-char IDs; shared with P5 Listen)
   compliance/   ← legal_holds + backup_records adopted (NWB-P1-010); the other four
                   models compile but stay out of schema.ts until their own tickets
 ```
@@ -490,7 +493,7 @@ examples onto `auth.orgId`. Do not copy fashion/clients samples. Do not introduc
 or Cloudinary/S3. Do not put business logic in Server Functions. Keep the local
 `createServerFn` shim; keep ValidationError at 422.
 
-The `db/` folder contains aspirational schema modules (`billing/`, `campaigns/`, `commerce/`, `engagement/`, `influencer/`, `monitoring/`, `pr/`, `publishing/`, `social-accounts/`) that are **excluded from TypeScript compilation** in `tsconfig.json`. They are not wired into `db/schema.ts` yet. `compliance/` compiles since NWB-P1-010, but only `legal_holds` and `backup_records` are re-exported from `db/schema.ts` — granularity lives in that file, not in tsconfig.
+The still-aspirational schema modules (`campaigns/`, `commerce/`, `engagement/`, `influencer/`, `pr/`, and `publishing/`) remain excluded from TypeScript compilation and `db/schema.ts`. Monitoring (NWB-P4-001) and social accounts (NWB-P2-001) are adopted and compiled; billing is adopted. Compliance compiles, with adoption remaining partial — only its explicitly adopted tables are re-exported from `db/schema.ts`; granularity lives there, not in tsconfig.
 
 ### Issue tracker
 
