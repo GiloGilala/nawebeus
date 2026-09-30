@@ -319,11 +319,8 @@ export const organizationMembers = pgTable(
     // invitation this was. Written for every invite, account or not.
     invitedEmail: varchar("invited_email", { length: 255 }),
 
-    // Invitation token (raw value shown in the /invite?token= link) and its
-    // SHA-256 hash. Written by inviteMember since before these columns
-    // existed in the schema (F-20): every invite 500'd with 42703 until
-    // 2026-09-20. Conventions follow the core `tokens` table (text hash).
-    invitationToken: varchar("invitation_token", { length: 255 }),
+    // Only the SHA-256 hash is persisted. The raw credential is emailed once
+    // and must never be stored alongside its hash (F-P14.2).
     invitationTokenHash: text("invitation_token_hash"),
     invitationSentAt: timestamp("invitation_sent_at", {
       withTimezone: true,

@@ -103,18 +103,15 @@ test with an assertion that they stay allowlisted only while they stay unbuilt).
    would put `expires_at` and `invitation_note` in every consumer's payload for one screen's benefit;
    a second narrow read costs a function and keeps the members contract unchanged.
 
-## Findings (recorded, not fixed here)
+## Findings and follow-up state
 
-- **F-P14.2 — `organization_members.invitation_token` stores the raw token in plaintext.**
-  `varchar(255)`, written on every invite (`invitation.service.ts:195,214`), NULLed on accept (`:409`)
-  — and **never read**. Lookups match on `invitation_token_hash`, like every other emailed token in
-  the product (password reset, email change, verification all use `selector` + `hashed_validator`).
-  So the column is write-only dead weight holding a live credential: any read access to the table —
-  a dump, a replica, a careless `SELECT *` in a future admin screen, a log of query results — yields
-  a working accept link for every pending invitation, and the hash provides no protection at all.
-  Fix is small (drop the write, then the column) but needs a migration and touches a shipped service,
-  so it belongs in its own ticket with its own gate. **This is the one item here worth scheduling
-  before more org features ship.**
+- **F-P14.2 — RESOLVED by `issues/03-invitation-token-hash-only.md` (2026-09-30).**
+  `organization_members.invitation_token` was a write-only `varchar(255)` containing the raw
+  emailed credential. Migration `0014_invitation_token_hash_only` drops it; invite and re-invite
+  now persist only `invitation_token_hash`. The raw value still exists in memory long enough to
+  build/send the one-time link, while acceptance and expiry behavior remain hash-based. A regression
+  test checks the stored digest and confirms the plaintext column no longer exists. The separate
+  RPC exposure noted as F-P14.2-2 remains open; this ticket does not change the invite response.
 - **F-P14.2-1 — `listMembersServerFn` asserts no ability.** It mirrors a Hono route that also asserts
   none, so it is not a web-layer regression, but the new `listPendingInvitationsServerFn` *does* gate
   on `read members` and the asymmetry is visible in one file. Documented at the call site
