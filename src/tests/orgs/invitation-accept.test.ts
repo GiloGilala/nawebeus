@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { getConfig, loadConfig } from "../../lib/config";
+import { hashToken } from "../../lib/tokens";
 import { signIn } from "../../services/auth/auth.service";
 import { signAccessToken } from "../../services/auth/jwt";
 import { acceptInvitation, inviteMember } from "../../services/orgs/invitation.service";
@@ -35,7 +36,7 @@ async function ownerOrg(db: Parameters<typeof createTestUser>[0]) {
 
 const memberRow = (db: Parameters<typeof createTestUser>[0], memberId: string) =>
   db.execute<Record<string, unknown>>(
-    sql`SELECT user_id, role_id, status, is_active, invited_email, invitation_token, invitation_token_hash, accepted_at
+    sql`SELECT user_id, role_id, status, is_active, invited_email, invitation_token_hash, accepted_at
         FROM organization_members WHERE id = ${memberId}`,
   );
 // biome-ignore lint/suspicious/noExplicitAny: test rows are read dynamically throughout
@@ -44,6 +45,31 @@ const rowOf = (rows: unknown): any => (rows as any).rows?.[0];
 describe.skipIf(!hasDb())("Invitation accept flow (F-08 / NWB-P0-016)", () => {
   beforeAll(() => {
     loadConfig();
+  });
+
+  test("invitation credentials are persisted as a hash only", async () => {
+    await withTestDb(async ({ db }) => {
+      const { owner, org } = await ownerOrg(db);
+      const invite = await inviteMember(db, org.id, owner.id, { email: "hash-only@test.com" });
+
+      const row = rowOf(
+        await db.execute(
+          sql`SELECT invitation_token_hash FROM organization_members WHERE id = ${invite.memberId}`,
+        ),
+      );
+      expect(row.invitation_token_hash).toBe(await hashToken(invite.invitationToken));
+
+      const columns = await db.execute<{ column_name: string }>(sql`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'organization_members'
+      `);
+      const columnNames = (columns as any).rows.map(
+        (column: { column_name: string }) => column.column_name,
+      );
+      expect(columnNames).not.toContain("invitation_token");
+    });
   });
 
   test("GET /api/auth/invitations/:token validates and previews org + account requirement", async () => {
@@ -92,9 +118,8 @@ describe.skipIf(!hasDb())("Invitation accept flow (F-08 / NWB-P0-016)", () => {
       expect(member.status).toBe("active");
       expect(member.is_active).toBe(true);
       expect(member.user_id).toBe(result.userId);
-      // Single-use hygiene: the raw token is gone; the hash remains for the 409 path.
-      expect(member.invitation_token).toBeNull();
-      expect(member.invitation_token_hash).not.toBeNull();
+      // Only the one-way hash is persisted; it remains for the already-accepted 409 path.
+      expect(member.invitation_token_hash).toBe(await hashToken(invite.invitationToken));
       expect(member.accepted_at).not.toBeNull();
 
       const userRows = await db.execute<{

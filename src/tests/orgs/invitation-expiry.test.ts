@@ -26,6 +26,7 @@ import { sql } from "drizzle-orm";
 import { purgeExpiredInvitationsJob } from "../../jobs/purge-expired-invitations";
 import { loadConfig } from "../../lib/config";
 import type { Db } from "../../lib/db";
+import { hashToken } from "../../lib/tokens";
 import type { JobAttempt } from "../../lib/worker";
 import { AUDIT_REDACTED, verifyAuditChains, writeAuditLog } from "../../services/audit";
 import { expireInvitations, inviteMember } from "../../services/orgs/invitation.service";
@@ -335,11 +336,11 @@ describe.skipIf(!hasDb())("Lapsed-invitation expiry (NWB-P1-016)", () => {
       expect(again.memberId).not.toBe(invite.memberId);
       const fresh = rowOf(
         await db.execute(
-          sql`SELECT status, invitation_token FROM organization_members WHERE id = ${again.memberId}`,
+          sql`SELECT status, invitation_token_hash FROM organization_members WHERE id = ${again.memberId}`,
         ),
       );
       expect(fresh.status).toBe("invited");
-      expect(fresh.invitation_token).not.toBeNull();
+      expect(fresh.invitation_token_hash).toBe(await hashToken(again.invitationToken));
       const relived = await memberAuditRows(db, again.memberId);
       expect(relived).toHaveLength(1);
       expect(relived[0]?.after_state).toMatchObject({ email: account.email });
